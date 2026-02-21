@@ -9,6 +9,7 @@ import { config } from './config';
 import { errorHandler } from './middlewares/errorHandler';
 
 // Routes
+import authRoutes from './routes/authRoutes';
 import accountRoutes from './routes/accountRoutes';
 import journalRoutes from './routes/journalRoutes';
 import reportRoutes from './routes/reportRoutes';
@@ -83,6 +84,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Route'lar
+app.use('/api/auth', authRoutes);
 app.use('/api/accounts', accountRoutes);
 app.use('/api/journal-entries', journalRoutes);
 app.use('/api/reports', reportRoutes);

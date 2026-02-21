@@ -128,15 +128,15 @@ export abstract class BaseAdapter implements IInvoiceAdapter {
       }
     }
 
-    // Tevkifat varsa
+    // Tevkifat varsa (alıcı KDV'nin bir kısmını doğrudan vergi dairesine öder)
     if (fatura.tevkifatToplam && fatura.tevkifatToplam > 0) {
       hareketler.push({
         hesapKodu: this.defaultHesaplar.tevkifatHesabi,
         tutar: fatura.tevkifatToplam,
-        yon: -1,
+        yon: 1, // Borç: Tevkifat alacağı (vergi dairesinden mahsup)
         aciklama: `KDV Tevkifatı - ${fatura.faturaNo}`,
       });
-      // Alıcılar tutarından tevkifatı düş
+      // Alıcılar tutarından tevkifatı düş (müşteri bu kadar az öder)
       hareketler[0].tutar -= fatura.tevkifatToplam;
     }
 

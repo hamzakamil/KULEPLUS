@@ -1,6 +1,10 @@
 import { IInvoiceAdapter, SenkronizasyonSonucu } from './common/InvoiceAdapter';
 import { ParasutAdapter } from './adapters/ParasutAdapter';
 import { EFaturaAdapter } from './adapters/EFaturaAdapter';
+import { LogoAdapter } from './adapters/LogoAdapter';
+import { MikroAdapter } from './adapters/MikroAdapter';
+import { LucaAdapter } from './adapters/LucaAdapter';
+import { BizimHesapAdapter } from './adapters/BizimHesapAdapter';
 import { CustomAdapter } from './adapters/CustomAdapter';
 import { IntegrationConfigModel } from '../models/mongoose/IntegrationConfig';
 import { logger } from '../utils/logger';
@@ -17,13 +21,11 @@ export class IntegrationService {
   private static adapterRegistry: Record<string, () => IInvoiceAdapter> = {
     parasut: () => new ParasutAdapter(),
     efatura: () => new EFaturaAdapter(),
+    logo: () => new LogoAdapter(),
+    mikro: () => new MikroAdapter(),
+    luca: () => new LucaAdapter(),
+    bizimhesap: () => new BizimHesapAdapter(),
     custom: () => new CustomAdapter(),
-    // Yeni adapterler buraya eklenir:
-    // logo: () => new LogoAdapter(),
-    // mikro: () => new MikroAdapter(),
-    // luca: () => new LucaAdapter(),
-    // bizimhesap: () => new BizimHesapAdapter(),
-    // kolaybi: () => new KolaybiAdapter(),
   };
 
   /**
