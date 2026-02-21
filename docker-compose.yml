@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Node.js Backend
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_TYPE=mongodb
+      - MONGODB_URI=mongodb://mongo:27017/muhasebe
+      - JWT_SECRET=change-this-secret-in-production
+    depends_on:
+      - mongo
+    volumes:
+      - ./backend/src:/app/src
+    restart: unless-stopped
+
+  # MongoDB
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  # Mongo Express (DB Yönetim Arayüzü)
+  mongo-express:
+    image: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_URL=mongodb://mongo:27017/
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  # PostgreSQL (Faz 6 için hazır)
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=muhasebe
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - postgresql
+    restart: unless-stopped
+
+  # pgAdmin (PostgreSQL Yönetim Arayüzü)
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@muhasebe.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+    profiles:
+      - postgresql
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  postgres_data:
