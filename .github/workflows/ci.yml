@@ -1,0 +1,77 @@
+# CI — ROADMAP Faz 0: lint → typecheck → test → build
+# Not: lint adımı ESLint kurulunca açılacak (TODOS.md).
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: erp_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Bağımlılıkları kur
+        run: npm ci
+
+      - name: GOVERNANCE kural kontrolü (tablo / permission / FLOAT-DOUBLE)
+        run: npm run governance:check
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Format kontrolü (Prettier)
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Test (unit)
+        run: npm test --workspaces --if-present
+
+      - name: Tenant izolasyon testi (Postgres 16)
+        env:
+          DATABASE_MIGRATOR_URL: postgresql://postgres:postgres@localhost:5432/erp_db
+          TEST_DATABASE_URL: postgresql://app_user:CHANGE_ME@localhost:5432/erp_db
+        run: |
+          sudo apt-get install -y postgresql-client
+          psql "postgresql://postgres:postgres@localhost:5432/erp_db" -f docker/postgres/init/01-roles.sql
+          npm run migrate --workspace packages/db
+          TEST_DATABASE_URL=$TEST_DATABASE_URL npm run test --workspace packages/db
+
+      - name: Build — pazarlama sitesi
+        run: npm run build:site
+
+      - name: axe-core a11y (WCAG 2.1 AA)
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+          export CHROME_PATH=$(command -v chromium-browser || command -v chromium)
+          npm run test:a11y
+
+      - name: Bundle bütçesi (initial < 250 KB gzip)
+        run: npm run bundle:budget
+
+      # TODO(Faz 0): preview environment (Cloudflare Pages preview)

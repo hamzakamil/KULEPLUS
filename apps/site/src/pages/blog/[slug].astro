@@ -1,0 +1,62 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+import { formatDate } from '../../i18n';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+---
+
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <article class="section">
+    <div class="container" style="max-width: 44rem;">
+      <p>
+        <a href="/blog">← Blog</a>
+      </p>
+      <p class="muted post-meta">
+        <time datetime={post.data.pubDate.toISOString()}>{formatDate(post.data.pubDate)}</time>·{' '}
+        {post.data.author}
+      </p>
+      <h1>{post.data.title}</h1>
+      <div class="post-content">
+        <Content />
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  .post-meta {
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .post-content :global(h2) {
+    margin-top: 2rem;
+  }
+
+  .post-content :global(ul),
+  .post-content :global(ol) {
+    padding-left: 1.25rem;
+  }
+
+  .post-content :global(li) {
+    margin-bottom: 0.5rem;
+  }
+
+  .post-content :global(blockquote) {
+    margin: 1.5rem 0;
+    padding: 0.75rem 1.25rem;
+    border-left: 4px solid var(--color-primary);
+    background: var(--color-surface);
+    color: var(--color-muted);
+  }
+</style>

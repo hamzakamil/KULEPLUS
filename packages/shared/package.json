@@ -1,0 +1,27 @@
+{
+  "name": "@kuleplus/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Zod şemaları, para/vergi/tr/id/hata yardımcıları — apps/api, apps/web ve apps/site tarafından paylaşılır",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./integrations/ports": "./src/integrations/ports.ts",
+    "./integrations/mock": "./src/integrations/mock.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0",
+    "google-auth-library": "^11.1.0",
+    "nodemailer": "^10.0.15",
+    "uuidv7": "^1.2.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

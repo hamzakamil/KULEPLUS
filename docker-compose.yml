@@ -1,70 +1,58 @@
-version: '3.8'
-
+# Faz 0 — Altyapı iskeleti (README §12.2)
+# Kullanım: docker compose up -d
+# Servisler: PostgreSQL 16, Redis, MinIO (S3), Mailpit (dev e-posta)
 services:
-  # Node.js Backend
-  backend:
-    build: ./backend
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=development
-      - PORT=3000
-      - DB_TYPE=mongodb
-      - MONGODB_URI=mongodb://mongo:27017/muhasebe
-      - JWT_SECRET=change-this-secret-in-production
-    depends_on:
-      - mongo
-    volumes:
-      - ./backend/src:/app/src
-    restart: unless-stopped
-
-  # MongoDB
-  mongo:
-    image: mongo:7
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    restart: unless-stopped
-
-  # Mongo Express (DB Yönetim Arayüzü)
-  mongo-express:
-    image: mongo-express
-    ports:
-      - "8081:8081"
-    environment:
-      - ME_CONFIG_MONGODB_URL=mongodb://mongo:27017/
-    depends_on:
-      - mongo
-    restart: unless-stopped
-
-  # PostgreSQL (Faz 6 için hazır)
   postgres:
-    image: postgres:16
-    ports:
-      - "5432:5432"
+    image: postgres:16-alpine
+    container_name: kuleplus-postgres
     environment:
-      - POSTGRES_DB=muhasebe
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      POSTGRES_DB: erp_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: CHANGE_ME
+    ports:
+      # Varsayılan 5432 (README §12.3). Yerel makinede başka Postgres varsa
+      # .env'de POSTGRES_PORT=5433 gibi ayarlayın; README URL'lerini de güncelleyin.
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    profiles:
-      - postgresql
-    restart: unless-stopped
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d erp_db']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
-  # pgAdmin (PostgreSQL Yönetim Arayüzü)
-  pgadmin:
-    image: dpage/pgadmin4
+  redis:
+    image: redis:7-alpine
+    container_name: kuleplus-redis
     ports:
-      - "5050:80"
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: kuleplus-minio
+    command: server /data --console-address ':9001'
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@muhasebe.dev
-      - PGADMIN_DEFAULT_PASSWORD=admin123
-    profiles:
-      - postgresql
-    restart: unless-stopped
+      MINIO_ROOT_USER: minioadmin # .env'de S3_ACCESS_KEY ile değiştirin
+      MINIO_ROOT_PASSWORD: minioadmin # .env'de S3_SECRET_KEY ile değiştirin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - miniodata:/data
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: kuleplus-mailpit
+    ports:
+      - '1025:1025' # SMTP (README §12.3: smtp://localhost:1025)
+      - '8025:8025' # Web UI
 
 volumes:
-  mongo_data:
-  postgres_data:
+  pgdata:
+  miniodata:

@@ -1,0 +1,125 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const featureGroups = [
+  {
+    title: 'Cari Hesap',
+    badge: 'Ücretsiz',
+    items: [
+      'Cari kartları (müşteri/tedarikçi), adres/telefon/e-posta alt tabloları',
+      'Cari ekstre, bakiye ve yaşlandırma raporları',
+      'Excel/CSV içe aktarma (UTF-8 BOM, kolon eşleştirme, dry-run)',
+      'Mali müşavir için salt okuma + dışa aktarma erişimi',
+    ],
+  },
+  {
+    title: 'Stok',
+    badge: 'Ücretsiz',
+    items: [
+      'Ürün/hizmet kartı, birim ve birim dönüşümü, barkod',
+      'Stok hareketleri: giriş/çıkış/transfer/sayım düzeltme',
+      'Hareketli ağırlıklı ortalama maliyetlendirme',
+      'Kritik stok uyarısı, tek depo (ücretsiz kapsam)',
+    ],
+  },
+  {
+    title: 'Fatura & Belgeler',
+    badge: 'Faz 3 · Ücretli',
+    items: [
+      'Teklif, sipariş, irsaliye, fatura zinciri',
+      'Satır bazlı KDV hesaplama (tevkifat/istisna dahil)',
+      'Gider kaydı ve kategori takibi',
+      'Belge numaraları kontrollü sekans ile üretilir',
+    ],
+  },
+  {
+    title: 'Kasa & Banka',
+    badge: 'Faz 3 · Ücretli',
+    items: [
+      'Kasa/banka hesapları, tahsilat ve ödemeler',
+      'Banka ekstırası içe aktarma ve eşleştirme',
+      'Döviz kurları ve hesap bakiyeleri',
+      'Kesinleşmiş para hareketleri sessizce değişmez; ters kayıtla düzeltilir',
+    ],
+  },
+  {
+    title: 'e-Dönüşüm',
+    badge: 'Faz 4 · Eklenti',
+    items: [
+      'e-Fatura / e-Arşiv / e-İrsaliye — GİB onaylı entegratör adapter’ı',
+      'Giden/gelen kutusu, durum olayları',
+      'e-Defter (yeşil uygulama, Faz 6)',
+    ],
+  },
+  {
+    title: 'Patron Paneli',
+    badge: 'Faz 7 · Ücretli',
+    items: [
+      'Günlük özet: geciken tahsilat, yaklaşan ödeme, görevler',
+      'Kasa + banka, alacak + borç tek bakışta',
+      'Harcama ve ödeme onay akışları',
+      'Sade dil: finansal terim bilmeden aksiyon alın',
+    ],
+  },
+];
+---
+
+<BaseLayout
+  title="Özellikler"
+  description="Kuleplus modülleri: ücretsiz cari ve stok, ücretli fatura, kasa/banka, muhasebe, e-dönüşüm ve patron paneli. Türkiye mevzuatına uyumlu bulut ERP."
+>
+  <section class="section">
+    <div class="container">
+      <h1>Özellikler</h1>
+      <p class="lead">
+        Tek kayıt kaynağı, kademeli ayrıntı, finansal bütünlük ve tenant izolasyonu — her modül aynı
+        ilkelerle geliştirilir.
+      </p>
+
+      <div class="card-grid" style="margin-top: 2.5rem;">
+        {featureGroups.map((group) => (
+          <article class="card">
+            <p style="margin-bottom: 0.5rem;">
+              <span class="badge">{group.badge}</span>
+            </p>
+            <h3>{group.title}</h3>
+            <ul class="check-list">
+              {group.items.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" aria-labelledby="ilkeler">
+    <div class="container">
+      <h2 id="ilkeler">Ürün ilkeleri</h2>
+      <div class="card-grid" style="margin-top: 1.5rem;">
+        <article class="card">
+          <h3>Finansal bütünlük</h3>
+          <p class="muted">
+            Kesinleşmiş parasal hareket sessizce değişmez; düzeltme ters kayıtla yapılır. Muhasebe
+            kayıtları değiştirilemez.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Her limit tek yerde</h3>
+          <p class="muted">
+            Limitler backend’de zorlanır; frontend yalnızca bilgilendirir. Kotası aşan pakette
+            mevcut kayıtlar bozulmaz.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Erişilebilirlik</h3>
+          <p class="muted">
+            WCAG 2.1 AA hedefi; klavye navigasyonu zorunlu. Uzman görünümünde Enter, F2, Ctrl+S,
+            Ctrl+Enter kısayolları.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

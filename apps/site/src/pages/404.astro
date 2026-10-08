@@ -1,0 +1,23 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { t } from '../i18n';
+---
+
+<BaseLayout title="Sayfa bulunamadı" description="Aradığınız sayfa bulunamadı.">
+  <section class="section">
+    <div class="container" style="text-align: center; max-width: 36rem;">
+      <h1>404 — Sayfa bulunamadı</h1>
+      <p class="lead" style="margin-inline: auto;">
+        Aradığınız sayfa taşınmış veya hiç var olmamış olabilir.
+      </p>
+      <p>
+        <a href="/" class="btn btn-primary">
+          {t('site.nav.home')}
+        </a>
+        <a href="/yardim" class="btn btn-secondary">
+          {t('site.cta.helpCenter')}
+        </a>
+      </p>
+    </div>
+  </section>
+</BaseLayout>

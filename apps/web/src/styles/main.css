@@ -1,0 +1,6 @@
+@import 'tailwindcss';
+
+/* Faz 0 tasarım iskeleti — token'lar Faz 2'de SPEC §24'e göre genişletilir. */
+:root {
+  --color-primary: #1d4ed8;
+}

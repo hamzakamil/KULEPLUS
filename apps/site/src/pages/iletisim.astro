@@ -1,0 +1,68 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SITE } from '../config/site';
+import { ContactForm } from '@kuleplus/ui';
+---
+
+<BaseLayout
+  title="İletişim"
+  description="Kuleplus ile iletişime geçin: fiyatlandırma, ortaklık ve destek sorularınız için formu doldurun."
+>
+  <section class="section">
+    <div
+      class="container"
+      style="display: grid; gap: 3rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));"
+    >
+      <div>
+        <h1>İletişim</h1>
+        <p class="lead">
+          Fiyatlandırma, paketler, mali müşavir ortaklığı veya teknik konularda bize yazın. En kısa
+          sürede dönüş yaparız.
+        </p>
+        <dl class="contact-info">
+          <div>
+            <dt>Destek</dt>
+            <dd>
+              <a href={`mailto:${SITE.supportEmail}`}>{SITE.supportEmail}</a>
+            </dd>
+          </div>
+          <div>
+            <dt>Yardım Merkezi</dt>
+            <dd>
+              <a href="/yardim">Yardım makaleleri</a>
+            </dd>
+          </div>
+          <div>
+            <dt>Çalışma Saatleri</dt>
+            <dd>Hafta içi 09:00 – 18:00 (Europe/Istanbul)</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div>
+        <!-- ROADMAP Faz 2: POST /api/v1/public/contact → outbox → e-posta -->
+        <ContactForm apiUrl={SITE.apiUrl} client:load />
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .contact-info {
+    margin: 2rem 0 0;
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .contact-info dt {
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+  }
+
+  .contact-info dd {
+    margin: 0.25rem 0 0;
+  }
+</style>

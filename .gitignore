@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.astro/
+.env
+.env.local
+*.log
+.DS_Store
+
+# Drizzle introspect/generate çıktıları — proje ham SQL migration kullanır (ROADMAP Kararı)
+packages/db/drizzle/

@@ -1,0 +1,60 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection, render } from 'astro:content';
+export async function getStaticPaths() {
+  const wanted = new Set(['kullanim-kosullari', 'kvkk-aydinlatma', 'cerez-politikasi']);
+  const docs = (await getCollection('legal')).filter((doc) => wanted.has(doc.id));
+  return docs.map((doc) => ({
+    params: { slug: doc.id },
+    props: { doc },
+  }));
+}
+
+const { doc } = Astro.props;
+const { Content } = await render(doc);
+
+const titles: Record<string, string> = {
+  'kullanim-kosullari': 'Kullanım Koşulları',
+  'kvkk-aydinlatma': 'KVKK Aydınlatma Metni',
+  'cerez-politikasi': 'Çerez Politikası',
+};
+
+const title = titles[doc.id] ?? 'Yasal Metin';
+---
+
+<BaseLayout title={title} description={`${title} — Kuleplus`}>
+  <section class="section">
+    <div class="container" style="max-width: 46rem;">
+      <p>
+        <a href="/">← Ana sayfa</a>
+      </p>
+      <div class="legal-notice" role="note">
+        <strong>Taslak metin:</strong> Bu sayfa kaynak dokümandan üretilmiştir ve hukukçu onayı{' '}
+        <em>almamıştır</em>; yayım öncesi doldurulacaktır.
+      </div>
+      <div class="legal-content">
+        <Content />
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .legal-notice {
+    margin: 1rem 0 1.5rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid #fcd34d;
+    background: #fffbeb;
+    border-radius: var(--radius);
+    font-size: 0.9375rem;
+  }
+
+  .legal-content :global(h2) {
+    margin-top: 2rem;
+  }
+
+  .legal-content :global(ul),
+  .legal-content :global(ol) {
+    padding-left: 1.25rem;
+  }
+</style>

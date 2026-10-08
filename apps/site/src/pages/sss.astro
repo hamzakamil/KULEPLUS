@@ -1,0 +1,65 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { FaqAccordion } from '@kuleplus/ui';
+
+const faqs = [
+  {
+    question: 'Kayıt nasıl olurum?',
+    answer:
+      'Ücretsiz kayıt olun, e-postanızı doğrulayın, başlangıç paketinizi (Cari veya Stok) seçin ve şirket başvurunuzu gönderin. Varsayılan onboarding “manuel” olduğu için başvuru platform incelemesinden geçer.',
+  },
+  {
+    question: 'Ücretsiz paket gerçekten süresiz mi?',
+    answer:
+      'Evet. Demo süresi ve geri sayım yoktur. Ücretsiz paket süresizdir; 1 özel rol hakkı ve tam dışa aktarma dahildir.',
+  },
+  {
+    question: 'Hangi modüller ücretli?',
+    answer:
+      'Cari Hesap ve Stok ücretsiz çekirdektir. Fatura & Belgeler, Kasa & Banka, Muhasebe, Çek/Senet, Gelişmiş Raporlar ve Yönetim Paketi ücretlidir. e-Dönüşüm ve SMS eklentilerdir.',
+  },
+  {
+    question: 'Verilerimi dışa aktarabilir miyim?',
+    answer:
+      'Evet, her planda. ZIP formatında tam dışa aktarma: manifest + data/*.csv + files/ + README.txt (SPEC §23.2).',
+  },
+  {
+    question: 'Mali müşavirim sisteme nasıl girer?',
+    answer:
+      'Mali müşavir, her şirket için ayrı üyelikle davet edilir. Varsayılan yetkisi salt okuma + dışa aktarmadır; kayıt değiştirme ve dönem açma ayrıca verilir.',
+  },
+  {
+    question: 'e-Fatura gönderimi nasıl yapılır?',
+    answer:
+      'GİB onaylı özel entegratörün REST API’si üzerinden adapter ile. Platform kendi UBL-TR hattı yürütmez.',
+  },
+  {
+    question: 'KVKK uyumu nasıl sağlanıyor?',
+    answer:
+      'Aydınlatma metni, çerez politikası, DPA, saklama/imha prosedürü ve alt işleyen listesi vardır. Analitik altyapı olarak KVKK dostu Plausible kullanılır.',
+  },
+  {
+    question: 'Şifremi unuttum, ne yapmalıyım?',
+    answer:
+      'Giriş sayfasındaki “Şifremi unuttum” bağlantısı ile tek kullanımlık, süreli bir sıfırlama bağlantısı alırsınız. Yardım merkezindeki 15. makaleye bakabilirsiniz.',
+  },
+];
+---
+
+<BaseLayout
+  title="Sıkça Sorulan Sorular"
+  description="Kuleplus hakkında sık sorulan sorular: ücretsiz paket, modüller, veri dışa aktarma, e-Fatura, KVKK ve mali müşavir erişimi."
+>
+  <section class="section">
+    <div class="container" style="max-width: 48rem;">
+      <h1>Sıkça Sorulan Sorular</h1>
+      <p class="lead">
+        Aradığınızı bulamazsanız <a href="/iletisim">bize yazın</a> veya{' '}
+        <a href="/yardim">yardım merkezine</a> bakın.
+      </p>
+      <div style="margin-top: 2rem;">
+        <FaqAccordion items={faqs} client:load />
+      </div>
+    </div>
+  </section>
+</BaseLayout>

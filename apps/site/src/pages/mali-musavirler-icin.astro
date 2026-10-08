@@ -1,0 +1,72 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SITE } from '../config/site';
+import { t } from '../i18n';
+
+const benefits = [
+  {
+    title: 'Her şirket ayrı üyelik',
+    text: 'Farklı şirketlere ayrı üyeliklerle erişirsiniz; her şirketin yetkisi bağımsızdır. Tek hesap, çoklu şirket.',
+  },
+  {
+    title: 'Varsayılan: salt okuma + dışa aktarma',
+    text: 'Mali müşavir rolü (MALI_MUSAVIR) varsayılan olarak yalnızca okur ve dışa aktarır. Kayıt değiştirme ve dönem açma ayrıca verilir.',
+  },
+  {
+    title: 'Klavye odaklı uzman görünümü',
+    text: 'Enter yeni satır, F2 hesap ara, Ctrl+S taslak, Ctrl+Enter onayla. Yoğun veri girişi ve toplu işlem için tasarlandı.',
+  },
+  {
+    title: 'Muhasebe aktarımı',
+    text: 'Yevmiye/kebir aktarımı, Excel/CSV UTF-8 BOM export ve tam veri dışa aktarma (ZIP) her planda açıktır.',
+  },
+  {
+    title: 'TDHP ve KDV hazır',
+    text: 'Tek Düzen Hesap Planı şablonu seed’lidir; tarih aralıklı KDV oranları, tevkifat ve istisna kodları tanımlıdır.',
+  },
+  {
+    title: 'Ortaklık / komisyon programı',
+    text: 'Müşteri getiren mali müşavirler için ortak komisyon sözleşmesi (docs/legal/ortak-komisyon-sozlesmesi) hazırlanmıştır.',
+  },
+];
+---
+
+<BaseLayout
+  title="Mali Müşavirler İçin"
+  description="Kuleplus mali müşavirler için: ayrı üyelikler, varsayılan salt okuma yetkisi, klavye odaklı uzman görünümü, TDHP ve muhasebe aktarımı."
+>
+  <section class="section">
+    <div class="container">
+      <h1>Mali Müşavirler İçin</h1>
+      <p class="lead">
+        Müşterilerinizi tek panelden, her biri kendi izolasyonuyla yönetin. Yetkiniz her şirkette
+        ayrı ayrı tanımlanır; hiçbir müşteri verisi izinsiz görünmez.
+      </p>
+
+      <div class="card-grid" style="margin-top: 2.5rem;">
+        {benefits.map((b) => (
+          <article class="card">
+            <h3>{b.title}</h3>
+            <p class="muted">{b.text}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" aria-labelledby="ortaklik">
+    <div class="container" style="max-width: 48rem;">
+      <h2 id="ortaklik">Ortak olmak ister misiniz?</h2>
+      <p class="lead">
+        Müşterilerinize Kuleplus önerin; ortak komisyon programından yararlanın. Sözleşme koşulları
+        hakkında bilgi için bize ulaşın.
+      </p>
+      <a href="/iletisim" class="btn btn-primary">
+        {t('site.cta.contact')}
+      </a>
+      <p class="muted" style="margin-top: 1rem; font-size: 0.875rem;">
+        Destek: <a href={`mailto:${SITE.supportEmail}`}>{SITE.supportEmail}</a>
+      </p>
+    </div>
+  </section>
+</BaseLayout>

@@ -1,0 +1,21 @@
+{
+  "site.nav.home": "Ana Sayfa",
+  "site.nav.features": "Özellikler",
+  "site.nav.pricing": "Fiyatlandırma",
+  "site.nav.accountants": "Mali Müşavirler İçin",
+  "site.nav.help": "Yardım",
+  "site.nav.blog": "Blog",
+  "site.nav.contact": "İletişim",
+  "site.cta.signup": "Ücretsiz Başla",
+  "site.cta.contact": "Bize Ulaşın",
+  "site.cta.viewPricing": "Fiyatları İncele",
+  "site.cta.helpCenter": "Yardım Merkezi",
+  "site.footer.legal": "Yasal",
+  "site.footer.product": "Ürün",
+  "site.footer.resources": "Kaynaklar",
+  "site.footer.rights": "Tüm hakları saklıdır.",
+  "site.footer.tagline": "Patron için sade, muhasebeci için derin.",
+  "site.footer.noDemo": "Demo süresi yok — ücretsiz çekirdek süresiz açık.",
+  "site.a11y.skipToContent": "İçeriğe geç",
+  "site.a11y.mainNav": "Ana menü"
+}

@@ -1,0 +1,141 @@
+---
+import { SITE, type NavLink } from '../config/site';
+import { t } from '../i18n';
+
+interface Props {
+  nav: NavLink[];
+}
+
+const { nav } = Astro.props;
+const year = new Date().getFullYear();
+
+const legalLinks = [
+  { href: '/yasal/kullanim-kosullari', label: 'Kullanım Koşulları' },
+  { href: '/yasal/gizlilik-kvkk', label: 'Gizlilik ve KVKK Aydınlatma' },
+  { href: '/yasal/cerez-politikasi', label: 'Çerez Politikası' },
+];
+---
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>
+      <p class="footer-brand">
+        <span aria-hidden="true">▲</span> {SITE.name}
+      </p>
+      <p class="muted">{t('site.footer.tagline')}</p>
+      <p class="muted small">{t('site.footer.noDemo')}</p>
+      <p class="small">
+        <a href={`mailto:${SITE.supportEmail}`}>{SITE.supportEmail}</a>
+      </p>
+    </div>
+
+    <nav aria-label={t('site.footer.product')}>
+      <h2 class="footer-heading">{t('site.footer.product')}</h2>
+      <ul>
+        {nav.slice(1, 5).map((item) => (
+          <li>
+            <a href={item.href}>{t(item.labelKey)}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    <nav aria-label={t('site.footer.resources')}>
+      <h2 class="footer-heading">{t('site.footer.resources')}</h2>
+      <ul>
+        <li>
+          <a href="/yardim">{t('site.cta.helpCenter')}</a>
+        </li>
+        <li>
+          <a href="/blog">{t('site.nav.blog')}</a>
+        </li>
+        <li>
+          <a href="/iletisim">{t('site.nav.contact')}</a>
+        </li>
+      </ul>
+    </nav>
+
+    <nav aria-label={t('site.footer.legal')}>
+      <h2 class="footer-heading">{t('site.footer.legal')}</h2>
+      <ul>
+        {legalLinks.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </div>
+
+  <div class="container footer-bottom">
+    <p class="small muted">
+      © {year} {SITE.name}. {t('site.footer.rights')} · Ticari/özel lisans.
+    </p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: auto;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+    padding-block: 3rem 1.5rem;
+  }
+
+  .footer-grid {
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+
+  .footer-brand {
+    font-weight: 800;
+    font-size: 1.0625rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .footer-brand span {
+    color: var(--color-primary);
+  }
+
+  .footer-heading {
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-muted);
+    margin-bottom: 0.75rem;
+  }
+
+  .site-footer ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .site-footer a {
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 0.9375rem;
+  }
+
+  .site-footer a:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+  }
+
+  .small {
+    font-size: 0.8125rem;
+  }
+
+  .footer-bottom {
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .footer-bottom p {
+    margin: 0;
+  }
+</style>

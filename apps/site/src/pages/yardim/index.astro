@@ -1,0 +1,83 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatDate } from '../../i18n';
+
+const articles = (await getCollection('yardim')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<BaseLayout
+  title="Yardım Merkezi"
+  description="Kuleplus yardım merkezi: kayıt, şirket onayı, cari kart, Excel içe aktarma, stok, paket limitleri ve daha fazlası."
+>
+  <section class="section">
+    <div class="container">
+      <h1>Yardım Merkezi</h1>
+      <p class="lead">
+        İlk 15 makale. Aradığınız yanıt yoksa <a href="/iletisim">bize yazın</a>.
+      </p>
+
+      <ol class="article-list">
+        {articles.map((article) => (
+          <li>
+            <a href={`/yardim/${article.id}`}>
+              <span class="article-order">{article.data.order}.</span>
+              <span>
+                <strong>{article.data.title}</strong>
+                <span class="muted article-desc">{article.data.description}</span>
+              </span>
+              {article.data.phase > 2 && <span class="badge">Faz {article.data.phase}</span>}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .article-list {
+    list-style: none;
+    padding: 0;
+    margin: 2rem 0 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .article-list li {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+  }
+
+  .article-list a {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .article-list a:hover {
+    border-color: var(--color-primary);
+    color: inherit;
+    background: var(--color-primary-soft);
+  }
+
+  .article-order {
+    font-weight: 700;
+    color: var(--color-primary);
+    min-width: 2rem;
+  }
+
+  .article-desc {
+    display: block;
+    font-size: 0.875rem;
+  }
+
+  .badge {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+</style>

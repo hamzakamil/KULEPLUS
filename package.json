@@ -1,0 +1,42 @@
+{
+  "name": "kuleplus",
+  "private": true,
+  "version": "4.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,worker -c blue,magenta \"npm run dev --workspace apps/api\" \"npm run dev --workspace apps/worker\"",
+    "dev:site": "npm run dev --workspace apps/site",
+    "build:site": "npm run build --workspace apps/site",
+    "preview:site": "npm run preview --workspace apps/site",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "governance:check": "node scripts/governance-check.mjs",
+    "bundle:budget": "node scripts/bundle-budget.mjs",
+    "test:a11y": "node scripts/a11y-check.mjs --strict",
+    "docs:fix-encoding": "node scripts/fix-docs-encoding.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "axe-core": "^4.10.2",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "prettier-plugin-astro": "^1.1.0",
+    "puppeteer-core": "^24.10.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,94 @@
+---
+import { SITE, NAV } from '../config/site';
+import { t } from '../i18n';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = SITE.description } = Astro.props;
+const canonicalTitle = title === SITE.name ? title : `${title} · ${SITE.name}`;
+const canonicalURL = new URL(Astro.url.pathname, SITE.url);
+
+// Plausible (KVKK dostu) — domain yoksa script enjekte edilmez (docs/product/seo-analytics.md)
+const plausibleDomain = SITE.plausibleDomain;
+---
+
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{canonicalTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+    <meta name="robots" content="index,follow" />
+
+    <!-- Open Graph / sosyal -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={canonicalTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:locale" content="tr_TR" />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+
+    {plausibleDomain && (
+      <script defer data-domain={plausibleDomain} src="https://plausible.io/js/script.js" />
+    )}
+
+    <!--
+      UTM kuralı (docs/product/seo-analytics.md): site → web yönlendirmesinde
+      utm_source/utm_medium/utm_campaign korunur. Ziyaretin ilk anında yakalanır,
+      data-utm-link linklerinde tıklama anında query'ye eklenir.
+    -->
+    <script is:inline>
+      (function () {
+        var KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+        var q = new URLSearchParams(window.location.search);
+        var has = KEYS.some(function (k) {
+          return q.has(k);
+        });
+        if (has) {
+          try {
+            sessionStorage.setItem('kuleplus_utm', q.toString());
+          } catch (e) {
+            /* storage kapalıysa sessiz geç */
+          }
+        }
+        document.addEventListener('click', function (e) {
+          var el = e.target && e.target.closest ? e.target.closest('[data-utm-link]') : null;
+          if (!el) return;
+          try {
+            var saved = sessionStorage.getItem('kuleplus_utm');
+            if (!saved) return;
+            var url = new URL(el.href, window.location.href);
+            new URLSearchParams(saved).forEach(function (v, k) {
+              if (!url.searchParams.has(k)) url.searchParams.set(k, v);
+            });
+            el.href = url.toString();
+          } catch (err) {
+            /* yoksay */
+          }
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">
+      {t('site.a11y.skipToContent')}
+    </a>
+    <Header nav={NAV} />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer nav={NAV} />
+  </body>
+</html>

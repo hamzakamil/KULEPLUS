@@ -1,0 +1,27 @@
+{
+  "name": "@kuleplus/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BullMQ worker iskeleti — kuyruk tanımları tek yerden (SPEC §1.2: apps/worker)",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kuleplus/shared": "*",
+    "bullmq": "^6.3.11",
+    "dotenv": "^18.0.5",
+    "google-auth-library": "^11.1.0",
+    "ioredis": "^5.11.1",
+    "nodemailer": "^10.0.15",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

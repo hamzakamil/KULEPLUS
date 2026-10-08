@@ -1,0 +1,170 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SITE } from '../config/site';
+import { t } from '../i18n';
+
+// Fiyatlandırma TASLAĞI (README §4.2): aylık ve yıllık fiyat, tek satış para birimi,
+// KDV dahil/hariç belirtilir. Tutarlar Faz 4'te (SaaS ticari altyapı) netleşecek.
+const plans = [
+  {
+    name: 'Başlangıç (Ücretsiz)',
+    price: '0 ₺',
+    period: 'süresiz',
+    highlight: true,
+    features: [
+      'Cari Hesap VEYA Stok modülünden biri',
+      'Sınırsız kullanıcı daveti değil — ekibinizi ekleyin',
+      '1 özel rol (plan_limits.max_custom_roles)',
+      'Excel/CSV içe ve dışa aktarma (ZIP)',
+      'Demo süresi yok',
+    ],
+    cta: t('site.cta.signup'),
+    href: SITE.signupUrl,
+  },
+  {
+    name: 'Çekirdek+',
+    price: '₺ TBD',
+    period: '/ ay · KDV hariç',
+    highlight: false,
+    features: [
+      'Cari + Stok modülleri birlikte',
+      'Fatura & Belgeler (Faz 3)',
+      'Kasa & Banka (Faz 3)',
+      'Sınırsız özel rol',
+    ],
+    cta: t('site.cta.contact'),
+    href: '/iletisim',
+  },
+  {
+    name: 'Kurumsal',
+    price: '₺ TBD',
+    period: '/ ay · KDV hariç',
+    highlight: false,
+    features: [
+      'Tüm modüller: Muhasebe, Çek/Senet, Gelişmiş Raporlar',
+      'e-Dönüşüm eklentisi (Faz 4)',
+      'Yönetim Paketi (Faz 7)',
+      'Entegrasyonlar (Faz 8)',
+    ],
+    cta: t('site.cta.contact'),
+    href: '/iletisim',
+  },
+];
+
+const addOns = [
+  { name: 'e-Dönüşüm (e-Fatura/e-Arşiv)', code: 'einvoice', billing: 'Kullandıkça öde / eklenti' },
+  { name: 'SMS Kredisi', code: 'sms', billing: 'Kullandıkça öde' },
+  { name: 'Entegrasyonlar', code: 'integrations', billing: 'Eklenti / Kurumsal' },
+];
+---
+
+<BaseLayout
+  title="Fiyatlandırma"
+  description="Kuleplus fiyatlandırma taslağı: süresiz ücretsiz çekirdek paket, modüler ücretli paketler. Demo süresi yok."
+>
+  <section class="section">
+    <div class="container">
+      <h1>Fiyatlandırma</h1>
+      <p class="lead">
+        Ücretsiz çekirdek süresiz açık — demo süresi yok. Diğer modüller ihtiyacınız kadar satın
+        alınır. <strong>Fiyatlar taslaktır</strong> (Faz 4’te netleşecek); KDV dahil/hariç bilgisi
+        her pakette belirtilir.
+      </p>
+
+      <div class="card-grid" style="margin-top: 2.5rem;">
+        {plans.map((plan) => (
+          <article class:list={['card', 'plan-card', { 'plan-highlight': plan.highlight }]}>
+            {plan.highlight && (
+              <p>
+                <span class="badge">Herkes için</span>
+              </p>
+            )}
+            <h3>{plan.name}</h3>
+            <p class="plan-price">
+              <strong>{plan.price}</strong>
+              <span class="muted"> {plan.period}</span>
+            </p>
+            <ul class="check-list">
+              {plan.features.map((f) => (
+                <li>{f}</li>
+              ))}
+            </ul>
+            <a
+              href={plan.href}
+              class:list={['btn', plan.highlight ? 'btn-primary' : 'btn-secondary']}
+              data-utm-link={plan.href === SITE.signupUrl ? '' : undefined}
+            >
+              {plan.cta}
+            </a>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt" aria-labelledby="ekler">
+    <div class="container">
+      <h2 id="ekler">Eklentiler</h2>
+      <table class="table" style="margin-top: 1rem;">
+        <thead>
+          <tr>
+            <th scope="col">Eklenti</th>
+            <th scope="col">Kod</th>
+            <th scope="col">Faturalama</th>
+          </tr>
+        </thead>
+        <tbody>
+          {addOns.map((a) => (
+            <tr>
+              <td>{a.name}</td>
+              <td>
+                <code>{a.code}</code>
+              </td>
+              <td>{a.billing}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="paket-kurallari">
+    <div class="container">
+      <h2 id="paket-kurallari">Paket kuralları</h2>
+      <ul class="check-list" style="margin-top: 1rem;">
+        <li>Veri rehin alınmaz: dışa aktarma her planda açık.</li>
+        <li>Paket düştüğünde modül salt okunur olur; veri silinmez.</li>
+        <li>Kilitli modül menüde görünür kalır (🔒 + örnek veri önizleme).</li>
+        <li>Paket düşürme dönem sonunda; kota aşımında yeni işlem engellenir, kayıt bozulmaz.</li>
+        <li>Bağımlılıklar satın alma öncesinde gösterilir.</li>
+      </ul>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .plan-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .plan-card .btn {
+    margin-top: auto;
+    align-self: flex-start;
+  }
+
+  .plan-highlight {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary);
+  }
+
+  .plan-price {
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .plan-price strong {
+    color: var(--color-primary-dark);
+  }
+</style>

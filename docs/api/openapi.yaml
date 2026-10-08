@@ -1,0 +1,683 @@
+# Kuleplus API Sözleşmesi (OpenAPI 3.1)
+#
+# ÜRETİLEN DOSYA — elle düzenlenmez. Tek doğruluk kaynağı Zod şemalarıdır
+# (packages/shared + apps/api/src/**/schemas.ts); bu dosya ADR-0013 gereği
+# onlardan üretilir. Drift kontrolü: `npm run openapi:generate` (Faz 1 CI).
+#
+# Kapsam: Faz 1 — Kimlik (auth), Şirket (company), Yetki (authorization),
+# Entitlement, Denetim (audit). Diğer modüller ilgili fazlarda eklenir (SPEC §22).
+# Hata sözleşmesi: SPEC §22.1 + docs/api/error-codes.md (AppError → { error: { code, message } }).
+# Not: apps/api/src/app.ts'e mount durumu — auth/company/entitlements/audit bağlıdır;
+#      authorization ve outbox rotaları henüz mount edilmemiştir (TODOS.md Faz 1 açık iş).
+openapi: 3.1.0
+info:
+  title: Kuleplus API
+  version: 0.1.0
+  description: |
+    Çok kiracılı bulut ERP / ön muhasebe platformu REST API'si.
+    Tüm hatalar `{ error: { code, message } }` biçimindedir (SPEC §22.1).
+    Yetkilendirme: `Authorization: Bearer <accessToken>`; refresh token HttpOnly cookie
+    olarak `/api/v1/auth/refresh` yolunda taşınır (SPEC §25.1).
+servers:
+  - url: http://localhost:3000
+    description: Yerel geliştirme
+tags:
+  - name: auth
+    description: Kimlik — kayıt, giriş, oturum, şifre, 2FA (SPEC §27.1)
+  - name: company
+    description: Şirket başvurusu ve tenant (SPEC §4.3)
+  - name: authorization
+    description: Yetki — davet, rol, izin, departman (SPEC §6)
+  - name: entitlements
+    description: Modül/limit hakları (SPEC §8)
+  - name: audit
+    description: Denetim günlüğü (SPEC §27.3)
+  - name: platform
+    description: Platform paneli v0 — başvuru inceleme, tenant yönetimi, destek grant (SPEC §5.1, §28.1)
+  - name: health
+    description: Sağlık uçları (SPEC §30.7)
+
+paths:
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness (bağımlılıksız)
+      security: []
+      responses:
+        '200':
+          description: Servis ayakta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  uptime: { type: number }
+  /readyz:
+    get:
+      tags: [health]
+      summary: Readiness (DB + Redis ping — Faz 1'de genişler)
+      security: []
+      responses:
+        '200':
+          description: Servis hazır
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ready }
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Kayıt (e-posta + parola), e-posta doğrulama gönderir
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, firstName, lastName]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12 }
+                firstName: { type: string }
+                lastName: { type: string }
+      responses:
+        '201': { description: Kayıt başarılı }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { description: "E-posta zaten kayıtlı (VALIDATION_ERROR)" }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Giriş; refresh token HttpOnly cookie ile döner
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                totpCode: { type: string, description: "2FA etkinse zorunlu (SPEC §27.1)" }
+      responses:
+        '200':
+          description: accessToken + kullanıcı
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: "refreshToken (HttpOnly, Secure, SameSite=Strict)"
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh token rotation ile yeni access token
+      description: "Refresh cookie bu yol için tanımlıdır; tekrar kullanım tespiti (SPEC §27.1)."
+      security: []
+      responses:
+        '200': { description: Yeni accessToken; cookie döner }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Çıkış; refresh cookie temizlenir
+      responses:
+        '200': { description: Çıkış yapıldı }
+  /api/v1/auth/password/reset:
+    post:
+      tags: [auth]
+      summary: Şifre sıfırlama bağlantısı iste
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200': { description: "Kayıtlıysa bağlantı gönderilir (numaralandırma sızdırılmaz)" }
+  /api/v1/auth/password/reset/confirm:
+    post:
+      tags: [auth]
+      summary: Sıfırlama token'ı ile yeni parola belirle
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string }
+                newPassword: { type: string, minLength: 12 }
+      responses:
+        '200': { description: Parola güncellendi }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/password/change:
+    post:
+      tags: [auth]
+      summary: Oturum içinde parola değiştir
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 12 }
+      responses:
+        '200': { description: Parola değiştirildi }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/v1/auth/2fa/setup:
+    post:
+      tags: [auth]
+      summary: 2FA (TOTP) kurulumu başlat — secret + QR
+      responses:
+        '200': { description: otpauthUrl + secret }
+  /api/v1/auth/2fa/verify:
+    post:
+      tags: [auth]
+      summary: 2FA'yı doğrula ve etkinleştir
+      responses:
+        '200': { description: 2FA etkin + kurtarma kodları }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/auth/2fa/disable:
+    post:
+      tags: [auth]
+      summary: 2FA'yı devre dışı bırak
+      responses:
+        '200': { description: 2FA kapatıldı }
+
+  # ============ COMPANY — /api/v1/company ============
+  /api/v1/company/apply:
+    post:
+      tags: [company]
+      summary: Şirket başvurusu oluştur (manual onboarding, varsayılan)
+      security: []
+      responses:
+        '201': { description: Başvuru oluşturuldu }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/company/application/status:
+    get:
+      tags: [company]
+      summary: Başvuru durumu sorgula (owner e-posta)
+      security: []
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema: { type: string, format: email }
+      responses:
+        '200': { description: "Başvuru durumu (pending/approved/rejected)" }
+  /api/v1/company/settings:
+    get:
+      tags: [company]
+      summary: Şirket ayarlarını getir (tenant_settings)
+      responses:
+        '200': { description: Tenant ayarları }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    patch:
+      tags: [company]
+      summary: Şirket ayarlarını güncelle
+      responses:
+        '200': { description: Güncellendi }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/company/my-companies:
+    get:
+      tags: [company]
+      summary: Kullanıcının üye olduğu şirketleri listele
+      responses:
+        '200': { description: Şirket listesi }
+  /api/v1/company/switch:
+    post:
+      tags: [company]
+      summary: Aktif şirket değiştir (yeni token)
+      responses:
+        '200': { description: Yeni accessToken }
+        '403': { $ref: '#/components/responses/TenantForbidden' }
+  /api/v1/company/admin/applications:
+    get:
+      tags: [company]
+      summary: Bekleyen başvuruları listele (platform yöneticisi)
+      responses:
+        '200': { description: Başvuru listesi }
+        '403': { description: "Platform yetkisi gerekli (FORBIDDEN)" }
+  /api/v1/company/admin/applications/{id}/process:
+    post:
+      tags: [company]
+      summary: Başvuruyu onayla/reddet — tek kilitli transaction (SPEC §4.3)
+      description: "Onayda: Tenant + OWNER + varsayılan roller + ücretsiz haklar + audit + outbox birlikte."
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: İşlendi }
+        '409': { description: "Aynı başvuru ikinci kez onaylanamaz (eşzamanlılık)" }
+  /api/v1/company/admin/{tenantId}/status:
+    patch:
+      tags: [company]
+      summary: Tenant durumunu değiştir (askıya al / aç)
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200': { description: Durum güncellendi }
+
+  # ============ AUTHORIZATION — /api/v1/authorization ============
+  /api/v1/authorization/invitations:
+    get:
+      tags: [authorization]
+      summary: Davetleri listele
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: Sayfalanmış davet listesi (offset — ADR-0014) }
+    post:
+      tags: [authorization]
+      summary: Davet oluştur (7 gün, tek kullanımlık, hash'li token — SPEC §4.6)
+      responses:
+        '201': { description: Davet oluşturuldu }
+  /api/v1/authorization/invitations/{id}/accept:
+    post:
+      tags: [authorization]
+      summary: Daveti kabul et (public)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Üyelik oluşturuldu }
+  /api/v1/authorization/invitations/{id}/revoke:
+    post:
+      tags: [authorization]
+      summary: Daveti iptal et
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Davet iptal edildi }
+  /api/v1/authorization/roles:
+    get:
+      tags: [authorization]
+      summary: Rolleri listele
+      responses:
+        '200': { description: Roller }
+    post:
+      tags: [authorization]
+      summary: Rol oluştur (ücretsiz pakette en fazla 1 özel rol — checkLimit)
+      responses:
+        '201': { description: Rol oluşturuldu }
+        '409': { description: "LIMIT_EXCEEDED — max_custom_roles" }
+  /api/v1/authorization/roles/{id}:
+    patch:
+      tags: [authorization]
+      summary: Rol güncelle
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Rol güncellendi }
+    delete:
+      tags: [authorization]
+      summary: Rol sil (sistem rolleri hariç)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Rol silindi }
+  /api/v1/authorization/permissions:
+    get:
+      tags: [authorization]
+      summary: Permission kataloğunu listele (module.resource.action)
+      responses:
+        '200': { description: İzinler }
+  /api/v1/authorization/roles/{roleId}/permissions:
+    post:
+      tags: [authorization]
+      summary: Role izin ata (yalnızca delegatable izinler — SPEC §6.4)
+      parameters:
+        - $ref: '#/components/parameters/RoleIdPath'
+      responses:
+        '200': { description: İzinler eklendi }
+  /api/v1/authorization/roles/{roleId}/permissions/{permissionId}:
+    patch:
+      tags: [authorization]
+      summary: Rol-izin kapsamını (scope) güncelle
+      parameters:
+        - $ref: '#/components/parameters/RoleIdPath'
+        - $ref: '#/components/parameters/PermissionIdPath'
+      responses:
+        '200': { description: Kapsam güncellendi }
+  /api/v1/authorization/tenants/{tenantId}/users/{userId}/roles:
+    post:
+      tags: [authorization]
+      summary: Kullanıcıya rol ata
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200': { description: Roller atandı }
+  /api/v1/authorization/tenants/{tenantId}/users/{userId}/roles/{roleId}:
+    delete:
+      tags: [authorization]
+      summary: Kullanıcıdan rol kaldır
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/RoleIdPath'
+      responses:
+        '200': { description: Rol kaldırıldı }
+  /api/v1/authorization/tenants/{tenantId}/transfer-ownership:
+    post:
+      tags: [authorization]
+      summary: Owner devri — kilitli transaction + yeniden kimlik doğrulama + audit (SPEC §5.2)
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200': { description: Owner devredildi }
+        '403': { description: "Yetki yok (FORBIDDEN)" }
+  /api/v1/authorization/departments:
+    get:
+      tags: [authorization]
+      summary: Departmanları listele
+      responses:
+        '200': { description: Departmanlar }
+    post:
+      tags: [authorization]
+      summary: Departman oluştur
+      responses:
+        '201': { description: Departman oluşturuldu }
+  /api/v1/authorization/departments/{id}:
+    patch:
+      tags: [authorization]
+      summary: Departman güncelle
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Departman güncellendi }
+    delete:
+      tags: [authorization]
+      summary: Departman sil
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Departman silindi }
+  /api/v1/authorization/tenants/{tenantId}/users/{userId}/departments:
+    post:
+      tags: [authorization]
+      summary: Kullanıcıya departman ata
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200': { description: Departmanlar atandı }
+
+  /api/v1/entitlements:
+    get:
+      tags: [entitlements]
+      summary: Tenant'ın modül haklarını listele
+      responses:
+        '200': { description: Entitlement listesi }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/v1/entitlements/check-module:
+    post:
+      tags: [entitlements]
+      summary: Modül yetkisini doğrula (requireModule)
+      responses:
+        '200': { description: "entitled: true/false" }
+        '403': { $ref: '#/components/responses/ModuleNotEntitled' }
+  /api/v1/entitlements/check-limit:
+    post:
+      tags: [entitlements]
+      summary: Kota kontrolü (checkLimit — usage_counters otorite, SPEC §8.4)
+      responses:
+        '200': { description: "allowed, current, limit, remaining" }
+        '409': { $ref: '#/components/responses/LimitExceeded' }
+  /api/v1/entitlements/increment-usage:
+    post:
+      tags: [entitlements]
+      summary: Kullanım sayacını artır (transaction içinde)
+      responses:
+        '200': { description: Sayaç artırıldı }
+
+  /api/v1/audit-logs:
+    get:
+      tags: [audit]
+      summary: Denetim günlüğünü listele (cursor pagination — ADR-0014)
+      responses:
+        '200': { description: Denetim kayıtları }
+        '403': { description: "Yetki yok (FORBIDDEN)" }
+  /api/v1/audit-logs/{id}:
+    get:
+      tags: [audit]
+      summary: Tek denetim kaydı
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Denetim kaydı }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ============ PLATFORM PANELİ v0 — /api/v1/platform ============
+  # Tümü platform kullanıcısı gerektirir; başvuru onayı/plan kataloğu yalnızca platform_owner.
+  # Çapraz tenant verisi YALNIZCA support_access_grants ile okunur (SPEC §5.1).
+  /api/v1/platform/me:
+    get:
+      tags: [platform]
+      summary: Giriş yapan platform kullanıcısının bilgisi (owner + roller)
+      responses:
+        '200': { description: platformUser }
+        '403': { description: Platform yetkisi gerekli (FORBIDDEN) }
+  /api/v1/platform/applications:
+    get:
+      tags: [platform]
+      summary: Bekleyen şirket başvurularını listele (platform_owner)
+      responses:
+        '200': { description: Başvuru listesi }
+        '403': { description: platform_owner gerekli }
+  /api/v1/platform/applications/{id}/process:
+    post:
+      tags: [platform]
+      summary: Başvuruyu onayla/reddet — tek kilitli transaction (SPEC §4.3)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: İşlendi }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /api/v1/platform/tenants:
+    get:
+      tags: [platform]
+      summary: Tenant listesi (durum filtresi)
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, active, suspended, closed, archived] }
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: Tenant listesi }
+  /api/v1/platform/tenants/{tenantId}:
+    get:
+      tags: [platform]
+      summary: Tek tenant detayı (üye sayısı + aktif modüller)
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200': { description: Tenant detayı }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/platform/tenants/{tenantId}/status:
+    patch:
+      tags: [platform]
+      summary: Tenant durumunu değiştir (platform_owner)
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200': { description: Durum güncellendi }
+        '403': { description: platform_owner gerekli }
+  /api/v1/platform/support-grants:
+    get:
+      tags: [platform]
+      summary: Destek erişim grantlarını listele
+      parameters:
+        - $ref: '#/components/parameters/TenantIdQuery'
+      responses:
+        '200': { description: Grant listesi }
+    post:
+      tags: [platform]
+      summary: Destek erişim grantı aç — gerekçe + süre zorunlu (SPEC §5.1)
+      responses:
+        '201': { description: Grant oluşturuldu }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { description: platform_support rolü gerekli }
+  /api/v1/platform/support-grants/{id}/revoke:
+    post:
+      tags: [platform]
+      summary: Grant'ı iptal et
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Grant iptal edildi }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/platform/audit-logs:
+    get:
+      tags: [platform]
+      summary: Platform düzeyi denetim kayıtları (cursor — ADR-0014)
+      parameters:
+        - $ref: '#/components/parameters/TenantIdQuery'
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: cursor
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Denetim kayıtları + nextCursor }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    LimitParam:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TenantIdPath:
+      name: tenantId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RoleIdPath:
+      name: roleId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PermissionIdPath:
+      name: permissionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TenantIdQuery:
+      name: tenantId
+      in: query
+      schema: { type: string, format: uuid }
+    TenantIdQuery:
+      name: tenantId
+      in: query
+      schema: { type: string, format: uuid }
+  responses:
+    ValidationError:
+      description: Zod doğrulama hatası
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: VALIDATION_ERROR, message: "Geçersiz istek verisi." } }
+    Unauthenticated:
+      description: Kimlik doğrulama başarısız
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: UNAUTHENTICATED, message: "Kimlik doğrulama başarısız." } }
+    ModuleNotEntitled:
+      description: Modül pakette yok (frontend gizleme yetmez — SPEC §6.8)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: MODULE_NOT_ENTITLED, message: "Bu modül paketinizde yok." } }
+    LimitExceeded:
+      description: Plan kotası aşıldı
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: LIMIT_EXCEEDED, message: "Kota aşıldı." } }
+    TenantForbidden:
+      description: Başka tenant verisine erişim
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: TENANT_FORBIDDEN, message: "Bu tenant'a erişim yetkiniz yok." } }
+    NotFound:
+      description: Kaynak bulunamadı
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: NOT_FOUND, message: "İstenen kaynak bulunamadı." } }
+    Conflict:
+      description: Kayıt zaten mevcut / çakışma
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: CONFLICT, message: "Bu kayıt zaten mevcut." } }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: "docs/api/error-codes.md kataloğundan (packages/shared/errors/codes.ts)"
+              enum:
+                - VALIDATION_ERROR
+                - UNAUTHENTICATED
+                - FORBIDDEN
+                - NOT_FOUND
+                - MODULE_NOT_ENTITLED
+                - LIMIT_EXCEEDED
+                - VERSION_MISMATCH
+                - CONFLICT
+                - IDEMPOTENCY_KEY_CONFLICT
+                - TENANT_FORBIDDEN
+                - SUPPORT_ACCESS_REQUIRED
+                - PRECONDITION_REQUIRED
+                - PERIOD_LOCKED
+                - INTERNAL_ERROR
+            message: { type: string }
+        requestId: { type: string, format: uuid }
+
+security:
+  - bearerAuth: []

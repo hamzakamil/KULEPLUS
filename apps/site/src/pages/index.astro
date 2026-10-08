@@ -1,0 +1,208 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { SITE } from '../config/site';
+import { t } from '../i18n';
+import { FaqAccordion } from '@kuleplus/ui';
+
+const faqs = [
+  {
+    question: 'Ücretsiz paket gerçekten süresiz mi?',
+    answer:
+      'Evet. Demo süresi yoktur; yeni kayıt olan herkes süresiz ücretsiz başlangıç paketine sahip olur (Cari veya Stok). Diğer modüller satın alınır.',
+  },
+  {
+    question: 'e-Fatura, KDV gibi Türkiye mevzuatına uyumlu mu?',
+    answer:
+      'Platform; e-Fatura, e-Arşiv, e-Defter, KDV, Tek Düzen Hesap Planı ve KVKK gerekliliklerine göre tasarlanmıştır. e-Belge gönderimi GİB onaylı özel entegratör REST API üzerinden yapılır.',
+  },
+  {
+    question: 'Verilerim dışa aktarılabilir mi?',
+    answer:
+      'Evet — veri rehin alınmaz. Her planda tam dışa aktarma (ZIP: manifest + CSV dosyaları + yüklenen dosyalar) açıktır. Paket düştüğünde modül salt okunur olur, veri silinmez.',
+  },
+  {
+    question: 'Mali müşavirim de sistemi kullanabilir mi?',
+    answer:
+      'Evet. Mali müşavir farklı şirketlere ayrı üyeliklerle erişir; her şirketin yetkisi bağımsızdır. Varsayılan yetki salt okuma + dışa aktarmadır.',
+  },
+];
+
+const modules = [
+  { name: 'Cari Hesap', code: 'contacts', phase: 2, price: 'Ücretsiz' },
+  { name: 'Stok', code: 'stock', phase: 2, price: 'Ücretsiz' },
+  { name: 'Fatura & Belgeler', code: 'trade', phase: 3, price: 'Ücretli' },
+  { name: 'Kasa & Banka', code: 'cashbank', phase: 3, price: 'Ücretli' },
+  { name: 'e-Dönüşüm', code: 'einvoice', phase: 4, price: 'Eklenti' },
+  { name: 'Muhasebe', code: 'accounting', phase: 5, price: 'Ücretli' },
+];
+---
+
+<BaseLayout title={SITE.name} description={SITE.description}>
+  <!-- Hero -->
+  <section class="section hero">
+    <div class="container">
+      <p class="badge">Bulut ERP &amp; Ön Muhasebe · Türkiye mevzuatına uyumlu</p>
+      <h1>{SITE.tagline}</h1>
+      <p class="lead">
+        Kuleplus; e-Fatura, KDV, Tek Düzen Hesap Planı ve KVKK’ya uyumlu, modüler, çok şirketli
+        bulut platformudur. Patron için sade özet, muhasebeci için klavye odaklı derin veri girişi —
+        aynı sistemde.
+      </p>
+      <div class="hero-actions">
+        <a
+          href={SITE.signupUrl}
+          class="btn btn-primary btn-lg plausible-event-name=cta_click_signup"
+          data-utm-link
+        >
+          {t('site.cta.signup')}
+        </a>
+        <a href="/fiyatlandirma" class="btn btn-secondary btn-lg">
+          {t('site.cta.viewPricing')}
+        </a>
+      </div>
+      <p class="muted small-note">{t('site.footer.noDemo')}</p>
+    </div>
+  </section>
+
+  <!-- Üç temel fikir (README §1) -->
+  <section class="section section-alt" aria-labelledby="fikirler">
+    <div class="container">
+      <h2 id="fikirler">Üç temel fikir</h2>
+      <div class="card-grid" style="margin-top: 1.5rem;">
+        <article class="card">
+          <h3>Tek sistem, iki yüz</h3>
+          <p class="muted">
+            Aynı veri; patron için sade özet (“Alacaklarım”, “Para aldım”), muhasebeci için uzman
+            görünümü (hesap kodları, klavye kısayolları, toplu işlem).
+          </p>
+        </article>
+        <article class="card">
+          <h3>Ücretsiz çekirdek, ücretli modüller</h3>
+          <p class="muted">
+            Cari veya Stok ile süresiz ücretsiz başlayın. Fatura, kasa/banka, muhasebe gibi modüller
+            ihtiyacınız oldukça satın alınır.
+          </p>
+        </article>
+        <article class="card">
+          <h3>Veri sizin</h3>
+          <p class="muted">
+            Her planda tam dışa aktarma (ZIP) açık. Paket düştüğünde modül salt okunur olur; veriniz
+            asla rehin alınmaz.
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modül haritası -->
+  <section class="section" aria-labelledby="moduller">
+    <div class="container">
+      <h2 id="moduller">Modüler yapı</h2>
+      <p class="lead">
+        Yalnızca ihtiyacınız olanı satın alın. Modül kodları ve fazlar tek kaynaktan gelir.
+      </p>
+      <div style="overflow-x: auto; margin-top: 1.5rem;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Modül</th>
+              <th scope="col">Kod</th>
+              <th scope="col">Faz</th>
+              <th scope="col">Paket</th>
+            </tr>
+          </thead>
+          <tbody>
+            {modules.map((m) => (
+              <tr>
+                <td>{m.name}</td>
+                <td>
+                  <code>{m.code}</code>
+                </td>
+                <td>Faz {m.phase}</td>
+                <td>
+                  <span class="badge">{m.price}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top: 1.25rem;">
+        <a href="/ozellikler">Tüm özellikler →</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- Uyumluluk -->
+  <section class="section section-alt" aria-labelledby="uyumluluk">
+    <div class="container">
+      <h2 id="uyumluluk">Türkiye uyumluluğu</h2>
+      <ul class="check-list" style="margin-top: 1rem; columns: 2; column-gap: 2rem;">
+        <li>e-Fatura / e-Arşiv / e-İrsaliye — GİB onaylı entegratör adapter’ı</li>
+        <li>TDHP şablonu; şirket alt hesap ekleyebilir</li>
+        <li>KDV — tarih aralıklı oran tablosu, tevkifat/istisna kodları</li>
+        <li>KVKK — aydınlatma, saklama/imha, ihlal prosedürü</li>
+        <li>UTF-8, tr-TR locale, İ/ı duyarlı, 1.234,56 biçim</li>
+        <li>WCAG 2.1 AA erişilebilirlik hedefi</li>
+      </ul>
+      <p class="muted small-note">
+        Mevzuat bilgileri 5 Ekim 2026 itibarıyla kamuya açık kaynaklardan derlenmiştir; canlıya
+        almadan önce mali müşavir + hukukçu doğrulaması gerekir.
+      </p>
+    </div>
+  </section>
+
+  <!-- SSS önizleme -->
+  <section class="section" aria-labelledby="sss-baslik">
+    <div class="container" style="max-width: 48rem;">
+      <h2 id="sss-baslik">Sık sorulan sorular</h2>
+      <FaqAccordion items={faqs} client:visible />
+      <p style="margin-top: 1.25rem;">
+        <a href="/sss">Tüm SSS →</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- CTA bandı -->
+  <section class="section section-alt" aria-label="Kayıt olun">
+    <div class="container" style="text-align: center;">
+      <h2>Bugün başlayın — demo süresi yok</h2>
+      <p class="lead" style="margin-inline: auto;">
+        Ücretsiz çekirdek süresiz açık. Kayıt olun, şirket başvurunuzu gönderin, ilk kaydınızı bugün
+        oluşturun.
+      </p>
+      <a
+        href={SITE.signupUrl}
+        class="btn btn-primary btn-lg plausible-event-name=cta_click_signup"
+        data-utm-link
+      >
+        {t('site.cta.signup')}
+      </a>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .hero {
+    padding-block: 5.5rem;
+    background:
+      radial-gradient(circle at 85% 15%, var(--color-primary-soft), transparent 45%),
+      var(--color-bg);
+  }
+
+  .hero .lead {
+    margin-top: 1rem;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
+  .small-note {
+    font-size: 0.875rem;
+    margin-top: 1rem;
+  }
+</style>

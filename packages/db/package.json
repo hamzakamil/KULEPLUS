@@ -1,0 +1,32 @@
+{
+  "name": "@kuleplus/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Drizzle şeması, ham SQL migration'ları, RLS iskeleti (SPEC §1.2, §7)",
+  "scripts": {
+    "migrate": "tsx src/migrate.ts up",
+    "migrate:down": "tsx src/migrate.ts down",
+    "migrate:status": "tsx src/migrate.ts status",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kuleplus/shared": "*",
+    "drizzle-orm": "^0.45.3",
+    "google-auth-library": "^11.1.0",
+    "nodemailer": "^10.0.15",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
