@@ -8,18 +8,19 @@
 > Bu README ürünün **ne olduğunu, kime satıldığını ve nasıl ayağa kaldırılacağını** anlatır.
 > Teknik kararlar için `docs/TECHNICAL_SPEC.md`, sıralama için `docs/ROADMAP.md`, doküman hiyerarşisi için `docs/GOVERNANCE.md`.
 
-### v4.1.0'da Ne Değişti?
+### v4.3.0 — Önizleme (K-03 Fiyatlandırma kararları)
+
+*Nasıl hazırlandı: `git log --reverse v4.1.0..HEAD --pretty=format:'%h|%ad|%an|%s' --date=iso` + `npm run governance:check`.*
 
 | # | Değişiklik |
 |---|-----------|
-| 1 | `apps/site` teknolojisi netleşti: **Astro** (statik). `apps/web` Vue 3 + Vite olarak kalır. |
-| 2 | Barındırma: `apps/site` → Cloudflare Pages; api/web/worker → TR VPS. |
-| 3 | CMS: markdown + Astro Content Collections (headless CMS yok). |
-| 4 | Analitik: Plausible (KVKK dostu). |
-| 5 | Erişilebilirlik hedefi eklendi: **WCAG 2.1 AA**. |
-| 6 | Özel rol limiti `plan_limits.max_custom_roles` üzerinden zorlanır (ücretsiz: 1, ücretli: NULL). |
-| 7 | OpenAPI sözleşmesi Zod şemalarından **otomatik üretilir**; `docs/api/openapi.yaml` çıktıdır. |
-| 8 | Yeni referans dosyaları: `docs/brand.md`, `docs/api/permissions-catalog.md`, `docs/api/error-codes.md`, `docs/product/screens.md`, `docs/product/i18n.md`, `docs/product/email-templates.md`, `docs/product/seo-analytics.md`, `docs/product/help-center.md`, `docs/legal/*`, `docs/operations/*`. |
+| 1 | **K-03: Fiyatlandırma kararları** (6f31a89) — Core+ `299 ₺/ay`, `2990 ₺/yıl`, Enterprise `799 ₺/ay`, `7990 ₺/yıl`. Her ikisi de KDV hariç. Seed + migration + site fiyat sayfası birleştirildi. |
+| 2 | **Faz 8 tamamlandı** (bbab236) — WhatsAppProvider arayüzü + MockProvider (`SPEC S18/S29.1`), `GET /api/v1/public/status` (kimliksiz sistem durumu uçu). |
+| 3 | **Faz 8: WhatsAppProvider arayüzü + mock** (8d716c4) — `packages/shared/src/integrations/whatsapp.ts` + `whatsapp-mock.test.ts`. |
+| 4 | **Faz 4 Hat B: iade + alacak eşleştirme** (5848a2b) — `billing_refunds`, `billing_allocations` tabloları + webhook işleyicisi. |
+| 5 | **Faz 4 Hat B: Subscription billing (mock)** (0123389, 18ea46f) — checkout, webhook, subscription billing alt yapısı. |
+
+---
 
 ### v4.0.0'da Ne Değişti?
 
