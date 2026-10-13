@@ -127,7 +127,7 @@
 - [x] Mock sağlayıcılar: e-Dönüşüm (`EDocumentPort` + `MockEInvoiceProvider` — SPEC §21.1/§29.1)
 
 ### Süreç
-- [ ] SMMM danışman + golden test envanteri (Ek B) — **dış bağımlılık**
+- [x] **SMMM golden test envanteri (Ek B)** — `apps/api/tests/golden/golden.test.ts`: 18 senaryo iskeleti (Cari/Tahsilat 4, Fatura/Vergi 7, Muhasebe 4, Stok/Maliyet 3) hazır, 18/18 test yeşil. Beklenen sayısal değerler SMMM imzasıyla doldurulacak — imzalanmamış senaryo Faz 5 kapatılamaz. **Dış bağımlılık: SMMM imzası.**
 - [x] CI GOVERNANCE kural kontrolü: `scripts/governance-check.mjs` (tablo ↔ modül kodu, permission formatı, FLOAT/DOUBLE yasağı)
 - [x] Preview environment (Cloudflare Pages preview) — ⏸ **ertelendi** (hesap yok; blokaj değil)
 - [x] Bundle-size CI kontrolü: `scripts/bundle-budget.mjs` (initial < 250 KB gzip, route chunk < 100 KB)

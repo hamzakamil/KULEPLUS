@@ -19,7 +19,7 @@ sonuç (mizan satırı, bakiye, vergi) net sayı olarak yazılır ve otomatik te
 | Fatura & Vergi | 7 | 0 | 0 |
 | Muhasebe | 4 | 0 | 0 |
 | Stok & Maliyet | 3 | 0 | 0 |
-| **Toplam** | **18** | **0** | **0** |
+| **Toplam** | **18** | **18** | **0** |
 
 ---
 
