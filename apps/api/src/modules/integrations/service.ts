@@ -1,6 +1,7 @@
 import { getPool } from '@kuleplus/db';
-import { AppError, newId } from '@kuleplus/shared';
+import { newId } from '@kuleplus/shared';
 import type { Pool } from 'pg';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface WebhookEventRecord {
   id: string;
@@ -54,7 +55,6 @@ export interface VerifySignatureInput {
  * Sağlayıcı imzası `sha256=<hex>` formatında gelir.
  */
 export function verifyHmacSignature(input: VerifySignatureInput): boolean {
-  const { createHmac, timingSafeEqual } = require('crypto') as typeof import('crypto');
   const expected = createHmac('sha256', input.secret).update(input.rawBody).digest('hex');
   const provided = input.signature.replace(/^sha256=/, '');
   const expectedBuf = Buffer.from(expected, 'utf8');
