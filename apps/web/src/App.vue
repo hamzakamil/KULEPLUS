@@ -148,6 +148,7 @@ const navGroups: {
       { to: '/integrations', label: 'Entegrasyonlar', module: 'integrations' },
       { to: '/subscription', label: 'Abonelik & Faturalar', module: 'subscription' },
       { to: '/einvoice', label: 'e-Dönüşüm', module: 'einvoice' },
+      { to: '/audit', label: 'Denetim Kayıtları' },
     ],
   },
   { label: 'Ayarlar', items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }] },
