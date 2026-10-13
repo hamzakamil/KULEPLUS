@@ -276,9 +276,9 @@
 | Fiyatlandırma (₺ tutarlar) | ✅ **Netleşti** — Core+ 299₺/ay, Kurumsal 799₺/ay (KDV hariç). Migration `202610370000` uygulandı, seed güncellendi, site sayfası güncellendi. |
 | brand.md: renk paleti | ✅ **Dolu** — "Fintech" paleti + logo notları (`docs/brand.md`) |
 | brand.md: domain, destek e-postası | ✅ **Netleşti** — `kuleplus.com.tr` / `destek@kuleplus.com.tr` |
-| Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
+| Hosting bölgesi (TR) — K-12 | ✅ **Kapalı** — ROADMAP.md:1067 (8 Ekim 2026 — kullanıcı kararı: TR) |
 | SMMM danışmanlığı, golden test | ⏳ Dış kişi/şirket — Faz 2 sonrası ertelendi |
-| **Faz 8 §22 Public API tanımı** | ⏳ **Karar bekleniyor** — Hangı uçlar "public" olarak marcatılacak? |
+| **Faz 8 §22 Public API tanımı** | ✅ **Kapalı** — `GET /api/v1/public/status` eklendi, `POST /api/v1/public/contact` korundu. |
 
 ## 📌 Bu oturumda düzeltilen doküman↔kod tutarsızlıkları (8 Ekim 2026)
 | # | Tutarsızlık | Çözüm |
