@@ -64,10 +64,20 @@ export function verifyHmacSignature(input: VerifySignatureInput): boolean {
 }
 
 export class IntegrationService {
-  private readonly pool: Pool;
+  private poolInstance: Pool | null = null;
+  private readonly providedPool: Pool | null;
 
   constructor(pool?: Pool) {
-    this.pool = pool ?? getPool('app');
+    this.providedPool = pool ?? null;
+  }
+
+  /**
+   * Lazy pool — modül importunda değil, ilk sorguda bağlanır (stock deseni).
+   * Böylece DATABASE_URL tanımsız test/app import'larında çökmez.
+   */
+  private get pool(): Pool {
+    if (!this.poolInstance) this.poolInstance = this.providedPool ?? getPool('app');
+    return this.poolInstance;
   }
 
   async recordWebhookEvent(input: RecordWebhookInput): Promise<WebhookEventRecord> {
@@ -155,6 +165,17 @@ export class IntegrationService {
       [id, tenantId, integrationId, externalId, internalType, internalId],
     );
     return rows[0]!;
+  }
+
+  async listWebhookEvents(tenantId: string, integrationId: string, limit = 100): Promise<WebhookEventRecord[]> {
+    const { rows } = await this.pool.query<WebhookEventRecord>(
+      `SELECT * FROM webhook_events
+       WHERE tenant_id = $1 AND integration_id = $2
+       ORDER BY created_at DESC
+       LIMIT $3`,
+      [tenantId, integrationId, limit],
+    );
+    return rows;
   }
 
   async markEventProcessed(tenantId: string, eventId: string): Promise<void> {

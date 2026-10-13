@@ -77,4 +77,16 @@ router.post(
   }),
 );
 
+router.get(
+  '/integrations/:id/events',
+  canRead,
+  validate(paramId, 'params'),
+  h(async (req) => {
+    const tenantId = (req as TenantRequest).tenantId;
+    const integration = await service.getIntegration(tenantId, req.params.id);
+    if (!integration) throw Object.assign(new Error('Integration bulunamadı'), { statusCode: 404 });
+    return service.listWebhookEvents(tenantId, req.params.id);
+  }),
+);
+
 export { router as integrationsRoutes };

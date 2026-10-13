@@ -16,6 +16,7 @@ import TwoFactorVerifyView from '../views/TwoFactorVerifyView.vue';
 import AccountingView from '../views/AccountingView.vue';
 import ChequeView from '../views/ChequeView.vue';
 import { useAuthStore } from '@/stores/auth';
+import IntegrationsView from '../views/IntegrationsView.vue';
 
 /**
  * Rota iskeleti — docs/product/screens.md formatına göre genişletilir:
@@ -103,6 +104,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   { path: '/cheques', name: 'cheques', component: ChequeView, meta: { requiresAuth: true } },
+  {
+    path: '/integrations',
+    name: 'integrations',
+    component: IntegrationsView,
+    meta: { requiresAuth: true },
+  },
   {
     path: '/management/tasks',
     name: 'management-tasks',

@@ -145,6 +145,7 @@ const navGroups: {
       { to: '/management/preferences', label: 'Bildirim Tercihleri', module: 'management' },
       { to: '/management/approvals', label: 'Onay Kutusu', module: 'management' },
       { to: '/management/rules', label: 'Kural Ayarları', module: 'management' },
+      { to: '/integrations', label: 'Entegrasyonlar', module: 'integrations' },
     ],
   },
   { label: 'Ayarlar', items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }] },
