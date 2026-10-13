@@ -104,8 +104,8 @@ ON CONFLICT (plan_version_id, limit_key) DO UPDATE SET value = EXCLUDED.value;
 -- ===== PRICES =====
 INSERT INTO prices (plan_version_id, currency, amount_monthly, amount_yearly, vat_included) VALUES
   ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'free' AND pv.version = 1), 'TRY', 0, 0, true),
-  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'core_plus' AND pv.version = 1), 'TRY', NULL, NULL, false),
-  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'enterprise' AND pv.version = 1), 'TRY', NULL, NULL, false)
+  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'core_plus' AND pv.version = 1), 'TRY', 299.00, 2990.00, false),
+  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'enterprise' AND pv.version = 1), 'TRY', 799.00, 7990.00, false)
 ON CONFLICT DO NOTHING;
 
 -- ===== CORE PERMISSIONS =====

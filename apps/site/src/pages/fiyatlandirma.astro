@@ -3,8 +3,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { SITE } from '../config/site';
 import { t } from '../i18n';
 
-// Fiyatlandırma TASLAĞI (README §4.2): aylık ve yıllık fiyat, tek satış para birimi,
-// KDV dahil/hariç belirtilir. Tutarlar Faz 4'te (SaaS ticari altyapı) netleşecek.
+// Fiyatlandırma (README §4.2): aylık ve yıllık fiyat, tek satış para birimi,
+// KDV dahil/hariç belirtilir. Tutarlar netleştirildi (migration 202610370000).
 const plans = [
   {
     name: 'Başlangıç (Ücretsiz)',
@@ -23,7 +23,7 @@ const plans = [
   },
   {
     name: 'Çekirdek+',
-    price: '₺ TBD',
+    price: '299 ₺',
     period: '/ ay · KDV hariç',
     highlight: false,
     features: [
@@ -37,7 +37,7 @@ const plans = [
   },
   {
     name: 'Kurumsal',
-    price: '₺ TBD',
+    price: '799 ₺',
     period: '/ ay · KDV hariç',
     highlight: false,
     features: [
@@ -67,8 +67,7 @@ const addOns = [
       <h1>Fiyatlandırma</h1>
       <p class="lead">
         Ücretsiz çekirdek süresiz açık — demo süresi yok. Diğer modüller ihtiyacınız kadar satın
-        alınır. <strong>Fiyatlar taslaktır</strong> (Faz 4’te netleşecek); KDV dahil/hariç bilgisi
-        her pakette belirtilir.
+        alınır. KDV dahil/hariç bilgisi her pakette belirtilir.
       </p>
 
       <div class="card-grid" style="margin-top: 2.5rem;">
