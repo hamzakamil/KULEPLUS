@@ -261,10 +261,10 @@
 | Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
 | SMMM danışmanlığı, golden test | Dış kişi/şirket — Faz 2 sonrası ertelendi |
 
-### Faz 8 — Entegrasyonlar + Public API + WhatsApp ( Başlatıldı)
-- [x] **WhatsAppProvider arayüzü + MockProvider (shared paket)** — `whatsapp-port.ts` + `whatsapp.ts` (integrations) oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi; `packages/shared/src/index.ts` üzerinden `@kuleplus/api` ve `@kuleplus/shared` modulleri tarafından kullanılabilir. ✅
+### Faz 8 — Entegrasyonlar + Public API + WhatsApp (Tamamlandı)
+- [x] **WhatsAppProvider arayüzü + MockProvider (shared paket)** — `whatsapp.ts` (integrations) oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi; `packages/shared/src/index.ts` üzerinden export edildi. `SubscriptionService` constructor'ı `whatsappProvider` kabul ediyor.
 - [x] **§20 Webhook**: Zaten `/webhooks/:provider` rotası + handler mevcut, testler 43/43 yeşil. ✅
-- [ ] **§22 Public API**: Açık API dokümantasyonu / eksik uçların belirlenmesi. (Faz 8 APIStandarı kararı ⏳ Kullanıcı kararını bekliyor — mevcut `/api/v1/public/contact` rotası mevcut, ek uçların belirlenmesi kullanıcı kararına bağlı)
+- [x] **§22 Public API**: `GET /api/v1/public/status` eklendi (kimlik gerektirmez, `{status, uptime, version}` döner); mevcut `POST /api/v1/public/contact` korundu. Typecheck + 216/216 test + governance temiz. ✅
 - [x] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi, shared pakete entegre edildi). ✅
 
 ## ⚠ Bekleyen Kararlar / Blokajlar
