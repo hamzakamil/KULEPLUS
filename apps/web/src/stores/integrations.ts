@@ -39,7 +39,9 @@ export interface ExternalMapping {
   created_at: string;
 }
 
-const BASE = '/integrations';
+// api.ts baseURL = '/api' → tam yol '/api/v1/integrations' (app.ts:106 mount).
+// DİKKAT: '/v1' olmadan '/api/integrations' olur → 404. stock.ts/auth ile aynı desen.
+const BASE = '/v1/integrations';
 
 export const useIntegrationsStore = defineStore('integrations', () => {
   const integrations = ref<Integration[]>([]);
