@@ -249,18 +249,6 @@
 
 ---
 
-## ⚠ Bekleyen Kararlar / Blokajlar
-**Tam liste ve işaretlenebilir karar formu:** `docs/operations/pending-decisions.md`
-
-| Karar | Durum |
-|-------|-------|
-| K-02 Ücretsiz plan limit sayıları | ✅ **Onaylandı** — Cari 500, Stok 200, Ayda 100 import satırı, 1 özel rol |
-| Fiyatlandırma (₺ tutarlar) | Faz 4'te netleşecek; site `TBD` gösteriyor |
-| brand.md: renk paleti | ✅ **Dolu** — "Executive Trust" paleti + logo notları (`docs/brand.md`) |
-| brand.md: domain, destek e-postası | ⏳ Kullanıcı kararı — kişisel e-posta sızıntısı temizlendi |
-| Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
-| SMMM danışmanlığı, golden test | Dış kişi/şirket — Faz 2 sonrası ertelendi |
-
 ### Faz 8 — Entegrasyonlar + Public API + WhatsApp (Tamamlandı)
 - [x] **WhatsAppProvider arayüzü + MockProvider (shared paket)** — `whatsapp.ts` (integrations) oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi; `packages/shared/src/index.ts` üzerinden export edildi. `SubscriptionService` constructor'ı `whatsappProvider` kabul ediyor.
 - [x] **§20 Webhook altyapısı**: migration `202610380000_integrations_webhook.sql` — `integrations`, `webhook_events`, `integration_credentials`, `external_mappings` (RLS + index + grant). `modules/integrations/` (service + routes) oluşturuldu; `verifyHmacSignature` (HMAC-SHA256, timing-safe), `recordWebhookEvent` (idempotent UNIQUE), `findMapping`, `createMapping`. `app.ts`'e `/api/v1/integrations` mount edildi. Permission senkronu: `integrations.integration.read/manage`, `integrations.webhook.read/receive`. ✅
