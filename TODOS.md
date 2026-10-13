@@ -263,7 +263,7 @@
 
 ### Faz 8 — Entegrasyonlar + Public API + WhatsApp (Tamamlandı)
 - [x] **WhatsAppProvider arayüzü + MockProvider (shared paket)** — `whatsapp.ts` (integrations) oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi; `packages/shared/src/index.ts` üzerinden export edildi. `SubscriptionService` constructor'ı `whatsappProvider` kabul ediyor.
-- [x] **§20 Webhook**: Zaten `/webhooks/:provider` rotası + handler mevcut, testler 43/43 yeşil. ✅
+- [x] **§20 Webhook altyapısı**: migration `202610380000_integrations_webhook.sql` — `integrations`, `webhook_events`, `integration_credentials`, `external_mappings` (RLS + index + grant). `modules/integrations/` (service + routes) oluşturuldu; `verifyHmacSignature` (HMAC-SHA256, timing-safe), `recordWebhookEvent` (idempotent UNIQUE), `findMapping`, `createMapping`. `app.ts`'e `/api/v1/integrations` mount edildi. Permission senkronu: `integrations.integration.read/manage`, `integrations.webhook.read/receive`. ✅
 - [x] **§22 Public API**: `GET /api/v1/public/status` eklendi (kimlik gerektirmez, `{status, uptime, version}` döner); mevcut `POST /api/v1/public/contact` korundu. Typecheck + 216/216 test + governance temiz. ✅
 - [x] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi, shared pakete entegre edildi). ✅
 
@@ -273,9 +273,9 @@
 | Karar | Durum |
 |-------|-------|
 | K-02 Ücretsiz plan limit sayıları | ✅ **Onaylandı** — Cari 500, Stok 200, Ayda 100 import satırı, 1 özel rol |
-| Fiyatlandırma (₺ tutarlar) | ⏳ **Faz 4'te netleşecek; site TBD gösteriyor** |
-| brand.md: renk paleti | ✅ **Dolu** — "Executive Trust" paleti + logo notları (`docs/brand.md`) |
-| brand.md: domain, destek e-postası | ⏳ **Kullanıcı kararı** — kişisel e-posta sızıntısı temizlendi |
+| Fiyatlandırma (₺ tutarlar) | ✅ **Netleşti** — Core+ 299₺/ay, Kurumsal 799₺/ay (KDV hariç). Migration `202610370000` uygulandı, seed güncellendi, site sayfası güncellendi. |
+| brand.md: renk paleti | ✅ **Dolu** — "Fintech" paleti + logo notları (`docs/brand.md`) |
+| brand.md: domain, destek e-postası | ✅ **Netleşti** — `kuleplus.com.tr` / `destek@kuleplus.com.tr` |
 | Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
 | SMMM danışmanlığı, golden test | ⏳ Dış kişi/şirket — Faz 2 sonrası ertelendi |
 | **Faz 8 §22 Public API tanımı** | ⏳ **Karar bekleniyor** — Hangı uçlar "public" olarak marcatılacak? |

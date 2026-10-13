@@ -19,7 +19,7 @@ export const SITE = {
   apiUrl: (import.meta.env.PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, ''),
   plausibleDomain: import.meta.env.PUBLIC_PLAUSIBLE_DOMAIN ?? '',
   // brand.md dolduruldu — gerçek destek adresi
-  supportEmail: 'destek@kuleplus.com',
+  supportEmail: 'destek@kuleplus.com.tr',
 } as const;
 
 export interface NavLink {

@@ -73,9 +73,9 @@ Küçük işletmeler ve serbest muhasebeci mali müşavirler için profesyonel m
 - %5 accent + semantik: `#F59E0B`, yeşil, kırmızı
 
 ## Domain ve E-posta
-- **Ürün domain:** TBD (kullanıcı kararı bekliyor)
-- **Destek e-postası:** TBD
-- **Gönderim e-postası (transactional):** TBD (Faz 1 — SMTP/Postmark kurulumu)
+- **Ürün domain:** kuleplus.com.tr
+- **Destek e-postası:** destek@kuleplus.com.tr
+- **Gönderim e-postası (transactional):** no-reply@kuleplus.com.tr (Faz 1 — SMTP/Postmark kurulumu)
 - **Platform sahibi kişisel iletişimi:** Bu dosyaya YAZILMAZ (kişisel veri; repo'ya sızmaz)
 
 ## Yazım Kuralları

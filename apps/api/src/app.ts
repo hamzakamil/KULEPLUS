@@ -29,6 +29,7 @@ import { einvoiceRoutes } from './modules/einvoice/routes';
 import { managementRoutes } from './modules/management/routes';
 import coreRoutes from './modules/core/routes';
 import publicRoutes from './modules/public/routes';
+import { integrationsRoutes } from './modules/integrations/routes';
 
 export interface CreateAppOptions {
   env: Env;
@@ -101,6 +102,8 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   app.use('/api/v1/core', coreRoutes);
   // Public (girişsiz) uçlar — pazarlama sitesi iletişim formu (ROADMAP Faz 2).
   app.use('/api/v1/public', publicRoutes);
+  // Entegrasyonlar (Faz 8 — webhook altyapısı, SPEC §20).
+  app.use('/api/v1/integrations', integrationsRoutes);
 
   // ---- Sağlık uçları (SPEC §30.7; readyz gerçek bağımlılık kontrolü Faz 1'de) ----
   app.get('/healthz', (_req, res) => {

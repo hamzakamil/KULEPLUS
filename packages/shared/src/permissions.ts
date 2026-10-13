@@ -190,6 +190,12 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   perm('management', 'approval', 'read', 'Onay taleplerini görüntüle'),
   perm('management', 'approval', 'create', 'Onay talebi oluştur'),
   perm('management', 'approval', 'decide', 'Onay talebini karara bağla'),
+
+  // --- integrations (Faz 8 — webhook altyapısı) ---
+  perm('integrations', 'integration', 'read', 'Entegrasyonları görüntüle'),
+  perm('integrations', 'integration', 'manage', 'Entegrasyon yönet'),
+  perm('integrations', 'webhook', 'read', 'Webhook olaylarını görüntüle'),
+  perm('integrations', 'webhook', 'receive', 'Webhook olayı al'),
 ];
 
 /** Koda göre hızlı arama (O(1)). */
