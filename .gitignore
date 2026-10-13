@@ -38,3 +38,7 @@ packages/db/*.tmp.mts
 
 # Drizzle introspect/generate çıktıları — proje ham SQL migration kullanır (ROADMAP Kararı)
 packages/db/drizzle/
+
+# Test coverage çıktısı (vitest @vitest/coverage-v8)
+coverage/
+apps/api/coverage/
