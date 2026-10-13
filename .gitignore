@@ -24,6 +24,9 @@ apps/api/backups/
 fix-*.mjs
 check-index.ts
 reset-ownership.sql
+check-columns.ts
+create-platform-user.ts
+grant-management.ts
 
 # Yerel debug/audit artıkları ve tek seferlik araçlar (commitlenmez)
 TECHNICAL_AUDIT.md

@@ -181,7 +181,6 @@ export class SubscriptionService {
   private pool: Pool | null = null;
   private readonly providedPool: Pool | null;
   private readonly paymentProvider: PaymentProvider;
-
   constructor(options?: { pool?: Pool; paymentProvider?: PaymentProvider }) {
     this.providedPool = options?.pool ?? null;
     // K-08 (sanal POS) kararı gelene dek mock-önce: gerçek sağlayıcı enjekte edilir.

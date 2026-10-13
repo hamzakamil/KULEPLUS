@@ -262,10 +262,23 @@
 | SMMM danışmanlığı, golden test | Dış kişi/şirket — Faz 2 sonrası ertelendi |
 
 ### Faz 8 — Entegrasyonlar + Public API + WhatsApp ( Başlatıldı)
-- [x] **WhatsAppProvider arayüzü + MockProvider** — `whatsapp-port.ts` oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi.
-- [ ] **§20 Webhook**: Zaten `/webhooks/:provider` rotası + handler mevcut, testler 43/43 yeşil.
-- [ ] **§22 Public API**: Açık API dokümantasyonu / eksik uçların belirlenmesi.
-- [ ] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi).
+- [x] **WhatsAppProvider arayüzü + MockProvider (shared paket)** — `whatsapp-port.ts` + `whatsapp.ts` (integrations) oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi; `packages/shared/src/index.ts` üzerinden `@kuleplus/api` ve `@kuleplus/shared` modulleri tarafından kullanılabilir. ✅
+- [x] **§20 Webhook**: Zaten `/webhooks/:provider` rotası + handler mevcut, testler 43/43 yeşil. ✅
+- [ ] **§22 Public API**: Açık API dokümantasyonu / eksik uçların belirlenmesi. (Faz 8 APIStandarı kararı ⏳ Kullanıcı kararını bekliyor — mevcut `/api/v1/public/contact` rotası mevcut, ek uçların belirlenmesi kullanıcı kararına bağlı)
+- [x] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi, shared pakete entegre edildi). ✅
+
+## ⚠ Bekleyen Kararlar / Blokajlar
+**Tam liste ve işaretlenebilir karar formu:** `docs/operations/pending-decisions.md`
+
+| Karar | Durum |
+|-------|-------|
+| K-02 Ücretsiz plan limit sayıları | ✅ **Onaylandı** — Cari 500, Stok 200, Ayda 100 import satırı, 1 özel rol |
+| Fiyatlandırma (₺ tutarlar) | ⏳ **Faz 4'te netleşecek; site TBD gösteriyor** |
+| brand.md: renk paleti | ✅ **Dolu** — "Executive Trust" paleti + logo notları (`docs/brand.md`) |
+| brand.md: domain, destek e-postası | ⏳ **Kullanıcı kararı** — kişisel e-posta sızıntısı temizlendi |
+| Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
+| SMMM danışmanlığı, golden test | ⏳ Dış kişi/şirket — Faz 2 sonrası ertelendi |
+| **Faz 8 §22 Public API tanımı** | ⏳ **Karar bekleniyor** — Hangı uçlar "public" olarak marcatılacak? |
 
 ## 📌 Bu oturumda düzeltilen doküman↔kod tutarsızlıkları (8 Ekim 2026)
 | # | Tutarsızlık | Çözüm |

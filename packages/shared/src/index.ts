@@ -36,6 +36,13 @@ export { MockEmailProvider } from './integrations/mock-email';
 export type { SmsMessage, SmsProvider, SmsSendResult } from './integrations/sms';
 export { MockSmsProvider } from './integrations/mock-sms';
 export type {
+  WhatsAppProvider,
+  WhatsAppSendResult,
+  WhatsAppStatusResult,
+  WhatsAppInboxMessage,
+} from './integrations/whatsapp';
+export { MockWhatsAppProvider } from './integrations/whatsapp';
+export type {
   ChargeInput,
   ChargeResult,
   PaymentCustomerInput,
