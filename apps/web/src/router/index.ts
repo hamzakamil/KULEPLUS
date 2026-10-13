@@ -18,6 +18,7 @@ import ChequeView from '../views/ChequeView.vue';
 import { useAuthStore } from '@/stores/auth';
 import IntegrationsView from '../views/IntegrationsView.vue';
 import SubscriptionView from '../views/SubscriptionView.vue';
+import EInvoiceView from '../views/EInvoiceView.vue';
 
 /**
  * Rota iskeleti — docs/product/screens.md formatına göre genişletilir:
@@ -115,6 +116,12 @@ const routes: RouteRecordRaw[] = [
     path: '/subscription',
     name: 'subscription',
     component: SubscriptionView,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/einvoice',
+    name: 'einvoice',
+    component: EInvoiceView,
     meta: { requiresAuth: true },
   },
   {

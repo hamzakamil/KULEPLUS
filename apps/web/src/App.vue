@@ -147,6 +147,7 @@ const navGroups: {
       { to: '/management/rules', label: 'Kural Ayarları', module: 'management' },
       { to: '/integrations', label: 'Entegrasyonlar', module: 'integrations' },
       { to: '/subscription', label: 'Abonelik & Faturalar', module: 'subscription' },
+      { to: '/einvoice', label: 'e-Dönüşüm', module: 'einvoice' },
     ],
   },
   { label: 'Ayarlar', items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }] },
