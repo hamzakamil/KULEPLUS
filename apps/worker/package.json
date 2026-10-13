@@ -5,7 +5,7 @@
   "type": "module",
   "description": "BullMQ worker iskeleti — kuyruk tanımları tek yerden (SPEC §1.2: apps/worker)",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/runner.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -16,10 +16,12 @@
     "google-auth-library": "^11.1.0",
     "ioredis": "^5.11.1",
     "nodemailer": "^10.0.15",
-    "pino": "^10.4.0"
+    "pino": "^10.4.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/web-push": "^3.6.4",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"

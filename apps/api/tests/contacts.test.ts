@@ -350,26 +350,37 @@ describe('ContactService - Unit Tests', () => {
   });
 
   describe('listContactLedger', () => {
+    // Servis sırası: 1) toplamlar (debit/credit/total) 2) devir bakiyesi (opening)
+    // 3) sayfa hareketleri. Mock'lar bu üç adıma göre kurulur.
     it('should return paginated ledger entries', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [{ count: '3' }] }).mockResolvedValueOnce({
-        rows: [{ id: '1', contact_id: '1', type: 'receivable', amount: '1000', currency: 'TRY' }],
-      });
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ debit: '1000', credit: '0', total: '3' }] })
+        .mockResolvedValueOnce({ rows: [{ opening: '250' }] })
+        .mockResolvedValueOnce({
+          rows: [
+            { id: '1', contact_id: '1', type: 'receivable', amount: '1000', currency: 'TRY' },
+          ],
+        });
 
       const result = await service.listContactLedger('1', { page: 1, limit: 20 });
 
       expect(result.data).toHaveLength(1);
       expect(result.pagination.total).toBe(3);
+      expect(result.summary.openingBalance).toBe(250);
     });
 
     it('should filter by type', async () => {
       mockQuery
-        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+        .mockResolvedValueOnce({ rows: [{ debit: '0', credit: '0', total: '0' }] })
+        .mockResolvedValueOnce({ rows: [{ opening: '0' }] })
         .mockResolvedValueOnce({ rows: [] });
 
       await service.listContactLedger('1', { type: 'payable' });
 
-      const call = mockQuery.mock.calls[1][0];
-      expect(call).toContain('ple.type = $');
+      // Filtre üç sorgunun da WHERE'ine girer; ilk çağrı toplamlar sorgusudur.
+      const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('ple.type = $');
+      expect(params).toContain('payable');
     });
   });
 });

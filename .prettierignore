@@ -1,0 +1,8 @@
+# Prettier kapsamı dışı — doküman imlası ve çıktılar bize ait
+node_modules/
+dist/
+coverage/
+package-lock.json
+docs/
+**/*.md
+.astro/

@@ -1,6 +1,7 @@
 import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool } from 'pg';
+import { appUrl, queueEmailTemplate } from '../../services/email-templates.js';
 
 export type CompanyApplicationRow = {
   id: string;
@@ -242,17 +243,25 @@ export class CompanyService {
 
         // Onay e-postası outbox'a yazılır — TRANSACTION İÇİNDE (SPEC §4.3, §19.1).
         // E-posta servisi kapalı olsa da onay yarım kalmaz; gönderim worker'a bırakılır.
-        await client.query(
-          `INSERT INTO email_outbox (id, "to", subject, html, text, attempts, max_attempts, next_attempt_at, status, created_at)
-           VALUES ($1, $2, $3, $4, $5, 0, 3, now(), 'pending', $6)`,
-          [
-            newId(),
-            application.owner_email,
-            'Şirket başvurunuz onaylandı',
-            `<p>Sayın kullanıcı, <strong>${application.name}</strong> şirket başvurunuz onaylanmıştır.</p>`,
-            `${application.name} şirket başvurunuz onaylanmıştır.`,
-            now,
-          ],
+        await queueEmailTemplate(
+          'core.tenant_approved',
+          application.owner_email,
+          {
+            user_name: application.owner_email.split('@')[0] ?? '',
+            tenant_name: application.name,
+          },
+          client,
+        );
+      } else {
+        // Red bildirimi de aynı outbox deseniyle (Faz 1 e-posta envanteri: core.tenant_rejected).
+        await queueEmailTemplate(
+          'core.tenant_rejected',
+          application.owner_email,
+          {
+            user_name: application.owner_email.split('@')[0] ?? '',
+            reason: input.rejectionReason ?? 'Gerekçe belirtilmedi',
+          },
+          client,
         );
       }
 
@@ -398,7 +407,28 @@ export class CompanyService {
       [tenantId],
     );
 
-    return result.rows[0];
+    const tenant = result.rows[0];
+
+    // Aktive edilen şirkete hoş geldin e-postası (envanter: core.welcome, SPEC §19.1 outbox).
+    if (status === 'active' && tenant?.status === 'active') {
+      const owner = await this.getPoolInstance().query<{ email: string }>(
+        `SELECT u.email FROM users u
+         JOIN tenant_users tu ON tu.user_id = u.id
+         WHERE tu.tenant_id = $1 AND tu.is_owner = true
+         LIMIT 1`,
+        [tenantId],
+      );
+      const ownerEmail = owner.rows[0]?.email;
+      if (ownerEmail) {
+        await queueEmailTemplate('core.welcome', ownerEmail, {
+          user_name: ownerEmail.split('@')[0] ?? '',
+          tenant_name: tenant.name,
+          checklist_url: `${appUrl()}/dashboard`,
+        });
+      }
+    }
+
+    return tenant;
   }
 
   /** Kullanıcının şirketlerini listele */

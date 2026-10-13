@@ -1,0 +1,648 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import { useContactStore, type Contact, type ContactLedgerEntry } from '@/stores/contacts';
+import { addMoney, formatMoneyTR, subMoney } from '@kuleplus/shared';
+
+const store = useContactStore();
+
+// Sol panel: arama + tür filtresi (sunucu tarafı — ADR-0014/SPEC §9)
+const search = ref('');
+const typeFilter = ref<'' | 'customer' | 'supplier'>('');
+const selectedId = ref<string | null>(null);
+
+// Ekstre durumu
+const ledgerEntries = ref<ContactLedgerEntry[]>([]);
+const ledgerPagination = ref<{ page: number; limit: number; total: number; pages: number } | null>(
+  null,
+);
+const ledgerLoading = ref(false);
+const ledgerError = ref<string | null>(null);
+const ledgerTypeFilter = ref<'' | 'receivable' | 'payable'>('');
+const ledgerPage = ref(1);
+
+const selectedContact = computed<Contact | null>(
+  () => store.contacts.find((c) => c.id === selectedId.value) ?? null,
+);
+
+const typeLabel = (type: string) => (type === 'customer' ? 'Müşteri' : 'Tedarikçi');
+
+/** Ekstrede kümülatif bakiye: receivable (borç) +, payable (alacak) −. Para → decimal.js. */
+const ledgerWithBalance = computed(() => {
+  const chronological = [...ledgerEntries.value].sort(
+    (a, b) => new Date(a.posted_at).getTime() - new Date(b.posted_at).getTime(),
+  );
+  let running = '0';
+  const rows = chronological.map((e) => {
+    running = e.type === 'receivable' ? addMoney(running, e.amount) : subMoney(running, e.amount);
+    return { ...e, balance: running };
+  });
+  return rows.reverse(); // En yeni üstte
+});
+
+/** Yüklenen kayıtlar üzerinden dönem özeti + kapanış bakiyesi (en yeni satır). */
+const ledgerTotals = computed(() => {
+  let debit = '0';
+  let credit = '0';
+  for (const e of ledgerEntries.value) {
+    if (e.type === 'receivable') debit = addMoney(debit, e.amount);
+    else credit = addMoney(credit, e.amount);
+  }
+  return { debit, credit, balance: subMoney(debit, credit) };
+});
+
+function formatDate(iso: string): string {
+  return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short' }).format(
+    new Date(iso),
+  );
+}
+
+function primaryPhone(c: Contact) {
+  return c.phones?.find((p) => p.is_primary) ?? c.phones?.[0] ?? null;
+}
+function primaryEmail(c: Contact) {
+  return c.emails?.find((e) => e.is_primary) ?? c.emails?.[0] ?? null;
+}
+function primaryAddress(c: Contact) {
+  return c.addresses?.find((a) => a.is_primary) ?? c.addresses?.[0] ?? null;
+}
+function addressLine(a: NonNullable<ReturnType<typeof primaryAddress>>): string {
+  return [a.neighborhood, a.street, a.apartment && `${a.apartment}`, a.district, a.province]
+    .filter(Boolean)
+    .join(', ');
+}
+
+const loadContacts = () => {
+  store.fetchContacts({
+    q: search.value.trim() || undefined,
+    type: typeFilter.value || undefined,
+    limit: 100,
+  });
+};
+
+const loadLedger = async () => {
+  if (!selectedId.value) return;
+  ledgerLoading.value = true;
+  ledgerError.value = null;
+  try {
+    const res = await store.fetchContactLedger(selectedId.value, {
+      page: ledgerPage.value,
+      limit: 50,
+      type: (ledgerTypeFilter.value || undefined) as 'receivable' | 'payable' | undefined,
+    });
+    ledgerEntries.value = res.data;
+    ledgerPagination.value = res.pagination;
+  } catch (e) {
+    ledgerError.value = e instanceof Error ? e.message : 'Cari hareketler yüklenemedi.';
+  } finally {
+    ledgerLoading.value = false;
+  }
+};
+
+const selectContact = (id: string) => {
+  if (selectedId.value === id) return;
+  selectedId.value = id;
+  ledgerPage.value = 1;
+  ledgerTypeFilter.value = '';
+  loadLedger();
+};
+
+// Arama/filtre değişiminde debounce'lu liste yenile
+let searchTimer: ReturnType<typeof setTimeout>;
+watch([search, typeFilter], () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadContacts, 350);
+});
+
+// Ekstre filtresi değişince ilk sayfaya dön
+watch(ledgerTypeFilter, () => {
+  ledgerPage.value = 1;
+  loadLedger();
+});
+watch(ledgerPage, () => {
+  loadLedger();
+});
+
+onMounted(loadContacts);
+</script>
+
+<template>
+  <div class="contacts-view">
+    <!-- SOL: Cari kartı listesi (master) -->
+    <aside class="master-panel" aria-label="Cari hesap listesi">
+      <header class="master-header">
+        <h2>Cari Hesaplar</h2>
+        <div class="master-actions">
+          <router-link
+            :to="{ name: 'contact-create' }"
+            class="btn btn-secondary"
+            aria-label="Yeni müşteri/supplier ekle"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="icon icon-sm"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Yeni Cari Ekle
+          </router-link>
+        </div>
+        <span v-if="store.pagination" class="count">{{ store.pagination.total }}</span>
+      </header>
+
+      <div class="filters">
+        <input
+          v-model="search"
+          type="search"
+          placeholder="Kod veya ünvan ara…"
+          aria-label="Cari ara"
+          class="search-input"
+        />
+        <select v-model="typeFilter" aria-label="Tür filtresi" class="type-select">
+          <option value="">Tümü</option>
+          <option value="customer">Müşteri</option>
+          <option value="supplier">Tedarikçi</option>
+        </select>
+      </div>
+
+      <ul
+        v-if="!store.loading && store.contacts.length"
+        class="contact-list"
+        role="listbox"
+        aria-label="Cari kartları"
+      >
+        <li
+          v-for="c in store.contacts"
+          :key="c.id"
+          role="option"
+          :aria-selected="selectedId === c.id"
+          :class="{ active: selectedId === c.id }"
+          class="contact-item"
+          tabindex="0"
+          @click="selectContact(c.id)"
+          @keydown.enter="selectContact(c.id)"
+          @keydown.space.prevent="selectContact(c.id)"
+        >
+          <span class="cc-code">{{ c.code }}</span>
+          <span class="cc-name">{{ c.name.toUpperCase() }}</span>
+          <span class="cc-type" :class="c.type">{{ typeLabel(c.type) }}</span>
+        </li>
+      </ul>
+      <p v-else-if="store.loading" class="state-msg">Yükleniyor…</p>
+      <p v-else class="state-msg">Kayıt bulunamadı.</p>
+    </aside>
+
+    <!-- SAĞ: Seçili cari detayı + cari hareket (detail) -->
+    <section v-if="selectedContact" class="detail-panel" aria-label="Cari detayı ve hareketleri">
+      <!-- Detay başlığı -->
+      <div class="detail-header">
+        <div>
+          <span class="cc-type" :class="selectedContact.type">{{
+            typeLabel(selectedContact.type)
+          }}</span>
+          <h2>{{ selectedContact.name.toUpperCase() }}</h2>
+          <p v-if="selectedContact.trade_name" class="trade-name">
+            {{ selectedContact.trade_name }}
+          </p>
+        </div>
+        <dl class="detail-meta">
+          <div>
+            <dt>Cari Kodu</dt>
+            <dd>{{ selectedContact.code }}</dd>
+          </div>
+          <div>
+            <dt>VKN/TCKN</dt>
+            <dd>{{ selectedContact.tax_number ?? '—' }}</dd>
+          </div>
+          <div>
+            <dt>Vergi Dairesi</dt>
+            <dd>{{ selectedContact.tax_office ?? '—' }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <!-- İletişim şeridi -->
+      <div class="contact-strip">
+        <div v-if="primaryPhone(selectedContact)">
+          <span class="label">Telefon</span>
+          <span>{{
+            primaryPhone(selectedContact)!.formatted ?? primaryPhone(selectedContact)!.number
+          }}</span>
+        </div>
+        <div v-if="primaryEmail(selectedContact)">
+          <span class="label">E-posta</span>
+          <span>{{ primaryEmail(selectedContact)!.email }}</span>
+        </div>
+        <div v-if="primaryAddress(selectedContact)">
+          <span class="label">Adres</span>
+          <span>{{ addressLine(primaryAddress(selectedContact)!) || '—' }}</span>
+        </div>
+      </div>
+
+      <!-- CARİ HAREKETLER / EKSTRE -->
+      <div class="ledger">
+        <div class="ledger-head">
+          <h3>Cari Hareketler</h3>
+          <select v-model="ledgerTypeFilter" aria-label="Hareket türü filtresi" class="type-select">
+            <option value="">Tümü</option>
+            <option value="receivable">Borç (Alacaklı)</option>
+            <option value="payable">Alacak (Borçlu)</option>
+          </select>
+        </div>
+
+        <!-- Özet şeridi -->
+        <div class="ledger-summary">
+          <div>
+            <span class="label">Toplam Borç</span
+            ><span class="amount debit">{{ formatMoneyTR(ledgerTotals.debit) }}</span>
+          </div>
+          <div>
+            <span class="label">Toplam Alacak</span
+            ><span class="amount credit">{{ formatMoneyTR(ledgerTotals.credit) }}</span>
+          </div>
+          <div>
+            <span class="label">Bakiye</span>
+            <span class="amount" :class="ledgerTotals.balance.startsWith('-') ? 'credit' : 'debit'">
+              {{
+                formatMoneyTR(
+                  ledgerTotals.balance.startsWith('-')
+                    ? ledgerTotals.balance.slice(1)
+                    : ledgerTotals.balance,
+                )
+              }}
+            </span>
+          </div>
+        </div>
+
+        <div v-if="ledgerLoading" class="state-msg">Hareketler yükleniyor…</div>
+        <p v-else-if="ledgerError" class="state-msg error">{{ ledgerError }}</p>
+        <div v-else-if="ledgerWithBalance.length" class="ledger-table-wrap">
+          <table class="ledger-table">
+            <thead>
+              <tr>
+                <th scope="col">Tarih</th>
+                <th scope="col">Belge</th>
+                <th scope="col">Açıklama</th>
+                <th scope="col" class="num">Borç</th>
+                <th scope="col" class="num">Alacak</th>
+                <th scope="col" class="num">Bakiye</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="e in ledgerWithBalance" :key="e.id">
+                <td class="nowrap">{{ formatDate(e.posted_at) }}</td>
+                <td class="nowrap">
+                  <span v-if="e.document_number" class="doc">{{ e.document_number }}</span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td>{{ e.description ?? '—' }}</td>
+                <td class="num">{{ e.type === 'receivable' ? formatMoneyTR(e.amount) : '' }}</td>
+                <td class="num">{{ e.type === 'payable' ? formatMoneyTR(e.amount) : '' }}</td>
+                <td class="num balance">
+                  {{ formatMoneyTR(e.balance.startsWith('-') ? e.balance.slice(1) : e.balance)
+                  }}{{ e.balance.startsWith('-') ? ' (A)' : ' (B)' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Sayfalama -->
+          <div v-if="ledgerPagination && ledgerPagination.pages > 1" class="pager">
+            <button :disabled="ledgerPage <= 1" @click="ledgerPage--">‹ Önceki</button>
+            <span>Sayfa {{ ledgerPagination.page }} / {{ ledgerPagination.pages }}</span>
+            <button :disabled="ledgerPage >= ledgerPagination.pages" @click="ledgerPage++">
+              Sonraki ›
+            </button>
+          </div>
+        </div>
+        <p v-else class="state-msg">Bu cari için hareket bulunmuyor.</p>
+      </div>
+    </section>
+
+    <!-- Seçim yoksa boş durum -->
+    <section v-else class="detail-panel empty-state">
+      <p>Detay ve cari hareketleri görmek için soldan bir cari hesap seçin.</p>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+/* Fintech paleti (docs/brand.md) — erişilebilir kontrastlar */
+.contacts-view {
+  --c-primary: #1d4ed8;
+  --c-border: #e2e8f0;
+  --c-muted: #64748b;
+  --c-bg: #f8fafc;
+  --c-debit: #16a34a; /* Borç: alacağımız — pozitif */
+  --c-credit: #dc2626; /* Alacak: borcumuz — negatif */
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+  padding: 1.5rem;
+  min-height: 100%;
+}
+
+/* === SOL: master liste === */
+.master-panel {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  position: sticky;
+  top: 1.5rem;
+}
+.master-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.master-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+.master-header .count {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--c-muted);
+  background: var(--c-bg);
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+}
+.filters {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.search-input,
+.type-select {
+  font: inherit;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  background: #fff;
+}
+.search-input {
+  flex: 1;
+  min-width: 0;
+}
+.search-input:focus-visible,
+.type-select:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 1px;
+  border-color: var(--c-primary);
+}
+.contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.contact-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'code type' 'name name';
+  gap: 0.125rem 0.5rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--c-border);
+}
+.contact-item:last-child {
+  border-bottom: 0;
+}
+.contact-item:hover {
+  background: var(--c-bg);
+}
+.contact-item.active {
+  background: #eff6ff;
+  box-shadow: inset 3px 0 0 var(--c-primary);
+}
+.cc-code {
+  grid-area: code;
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 0.75rem;
+  color: var(--c-muted);
+}
+.cc-name {
+  grid-area: name;
+  font-weight: 600;
+  color: #0f172a;
+}
+.cc-type {
+  grid-area: type;
+  justify-self: end;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.0625rem 0.5rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.cc-type.customer {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.cc-type.supplier {
+  background: #fef3c7;
+  color: #92400e;
+}
+.state-msg {
+  padding: 1.5rem 1rem;
+  color: var(--c-muted);
+  text-align: center;
+  margin: 0;
+}
+.state-msg.error {
+  color: var(--c-credit);
+}
+
+/* === SAĞ: detail === */
+.detail-panel {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  min-width: 0;
+}
+.detail-panel.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 20rem;
+  color: var(--c-muted);
+}
+.detail-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.detail-header h2 {
+  margin: 0.25rem 0 0;
+  font-size: 1.375rem;
+}
+.trade-name {
+  margin: 0.125rem 0 0;
+  color: var(--c-muted);
+  font-size: 0.9375rem;
+}
+.detail-meta {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0;
+}
+.detail-meta dt,
+.contact-strip .label,
+.ledger-summary .label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--c-muted);
+}
+.detail-meta dd {
+  margin: 0.125rem 0 0;
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+.contact-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 0.9375rem;
+}
+.contact-strip .label {
+  display: block;
+  margin-bottom: 0.125rem;
+}
+
+/* === Ekstre === */
+.ledger {
+  margin-top: 1.25rem;
+}
+.ledger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.ledger-head h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+}
+.ledger-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  padding: 0.875rem 1rem;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+.ledger-summary .label {
+  display: block;
+  margin-bottom: 0.125rem;
+}
+.amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.amount.debit {
+  color: var(--c-debit);
+}
+.amount.credit {
+  color: var(--c-credit);
+}
+.ledger-table-wrap {
+  overflow-x: auto;
+}
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+.ledger-table th,
+.ledger-table td {
+  text-align: left;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.ledger-table th {
+  background: var(--c-bg);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--c-muted);
+  white-space: nowrap;
+}
+.ledger-table tbody tr:hover {
+  background: #f8fafc;
+}
+.ledger-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ledger-table .balance {
+  font-weight: 600;
+}
+.ledger-table .nowrap {
+  white-space: nowrap;
+}
+.ledger-table .doc {
+  font-family: ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 0.8125rem;
+}
+.ledger-table .muted {
+  color: var(--c-muted);
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--c-muted);
+}
+.pager button {
+  font: inherit;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  background: #fff;
+  cursor: pointer;
+}
+.pager button:hover:not(:disabled) {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+}
+.pager button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Mobil: alt alta */
+@media (max-width: 56rem) {
+  .contacts-view {
+    grid-template-columns: 1fr;
+  }
+  .master-panel {
+    position: static;
+  }
+  .contact-list {
+    max-height: 40vh;
+  }
+}
+</style>

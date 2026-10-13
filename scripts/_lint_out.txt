@@ -1,0 +1,39 @@
+
+> kuleplus@4.1.0 lint
+> eslint .
+
+
+C:\proje\Muhasebe\apps\api\src\app.ts
+  24:8  error  'backupRoutes' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\proje\Muhasebe\apps\api\src\modules\accounting\routes.ts
+   79:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  150:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  221:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  292:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  363:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  434:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  505:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\proje\Muhasebe\apps\api\src\modules\accounting\service.ts
+  1017:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1017:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1028:35  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1028:41  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1038:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1038:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1050:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1050:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1060:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1060:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1069:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1069:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1077:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1077:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\proje\Muhasebe\scripts\_read_log.mjs
+  2:7  error  'p' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  3:5  error  Unexpected constant condition                                                 no-constant-condition
+
+Ô£û 24 problems (24 errors, 0 warnings)
+

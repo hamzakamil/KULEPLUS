@@ -50,7 +50,9 @@ export class OutboxService {
     await this.getPoolInstance().query(
       `INSERT INTO email_outbox (id, "to", subject, html, text, provider_ref, response, attempts, max_attempts, next_attempt_at, status, created_at, sent_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 3, now(), 'pending', $8, NULL)`,
-      [id, input.to, input.subject, input.html, input.text ?? null, null, null, now],
+      // provider_ref NOT NULL: gönderim öncesi boş string ("") yazılır; gönderimde
+      // gerçek sağlayıcı referansı `markAsSent` ile güncellenir.
+      [id, input.to, input.subject, input.html, input.text ?? null, '', null, now],
     );
 
     return { id };

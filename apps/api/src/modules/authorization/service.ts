@@ -2,6 +2,7 @@ import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool } from 'pg';
 import { createHash } from 'node:crypto';
+import { appUrl, queueEmailTemplate } from '../../services/email-templates.js';
 
 export type RoleRow = {
   id: string;
@@ -112,6 +113,25 @@ export class AuthorizationService {
           now,
           input.createdBy,
         ],
+      );
+
+      // Davet e-postası — outbox'a transaction içinde (SPEC §19.1); envanter: core.invitation.
+      const names = await client.query<{ tenant_name: string | null; inviter_email: string | null }>(
+        `SELECT t.name AS tenant_name, u.email AS inviter_email
+         FROM tenants t
+         LEFT JOIN users u ON u.id = $2
+         WHERE t.id = $1`,
+        [input.tenantId, input.createdBy],
+      );
+      await queueEmailTemplate(
+        'core.invitation',
+        input.email.toLowerCase(),
+        {
+          inviter_name: names.rows[0]?.inviter_email?.split('@')[0] ?? 'Ekibiniz',
+          tenant_name: names.rows[0]?.tenant_name ?? '',
+          invite_url: `${appUrl()}/invite?token=${token}`,
+        },
+        client,
       );
 
       await client.query('COMMIT');

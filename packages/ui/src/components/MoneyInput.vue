@@ -4,8 +4,7 @@
       v-if="$slots.label || label"
       class="w-full flex items-center gap-2 text-sm font-medium text-gray-900"
     >
-      <slot name="label" />
-      <span v-else>{{ label }}</span>
+      <slot name="label">{{ label }}</slot>
     </label>
 
     <div class="relative w-full">
@@ -14,8 +13,7 @@
           <span
             class="flex h-10 items-center justify-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-900"
           >
-            <slot name="prefix" />
-            <span v-else>{{ currencySymbol }}</span>
+            <slot name="prefix">{{ currencySymbol }}</slot>
           </span>
         </template>
 
@@ -24,7 +22,7 @@
             'flex-1 h-10 rounded-none rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-right',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2',
             'disabled:opacity-50 disabled:pointer-events-none',
-            $$props.class,
+            $attrs.class,
           ]"
           type="tel"
           inputmode="decimal"
@@ -48,15 +46,13 @@
 
     <template v-if="$slots.help || helpText">
       <p class="mt-1 text-xs text-gray-500">
-        <slot name="help" />
-        <span v-else>{{ helpText }}</span>
+        <slot name="help">{{ helpText }}</slot>
       </p>
     </template>
 
     <template v-if="$slots.error || errorMessage">
       <p class="mt-1 text-xs text-red-600">
-        <slot name="error" />
-        <span v-else>{{ errorMessage }}</span>
+        <slot name="error">{{ errorMessage }}</slot>
       </p>
     </template>
   </div>
@@ -65,12 +61,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps<{
   modelValue: number | string;
   disabled?: boolean;
   placeholder?: string;
   label?: string;
   currencySymbol?: string;
+  helpText?: string;
+  errorMessage?: string;
   min?: number;
   max?: number;
   step?: number;

@@ -1,0 +1,39 @@
+
+> @kuleplus/db@0.1.0 migrate:status
+> tsx src/migrate.ts status
+
+C:\proje\Muhasebe\node_modules\pg-pool\index.js:45
+    Error.captureStackTrace(err)
+          ^
+
+error: database "Lenovo" does not exist
+    at C:\proje\Muhasebe\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async <anonymous> (C:\proje\Muhasebe\packages\db\src\migrate.ts:105:16) {
+  length: 92,
+  severity: 'FATAL',
+  code: '3D000',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'postinit.c',
+  line: '1016',
+  routine: 'InitPostgres'
+}
+
+Node.js v24.18.0
+npm error Lifecycle script `migrate:status` failed with error:
+npm error code 1
+npm error path C:\proje\Muhasebe\packages\db
+npm error workspace @kuleplus/db@0.1.0
+npm error location C:\proje\Muhasebe\packages\db
+npm error command failed
+npm error command C:\Windows\system32\cmd.exe /d /s /c tsx src/migrate.ts status

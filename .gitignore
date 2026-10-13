@@ -6,5 +6,24 @@ dist/
 *.log
 .DS_Store
 
+# Test / e2e çıktıları (yerel debug artıkları — commitlenmez)
+apps/api/*.json
+apps/api/cookies.txt
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+
+# Otomatik yedek dosyaları (yerel disk, commitlenmez — harici depolamaya taşınabilir)
+apps/api/backups/
+
+# IDE / yerel araç ayarları
+.vscode/
+.mcp.json
+
+# Tek seferlik codemod / debug scriptleri (kökte tutulmaz)
+fix-*.mjs
+check-index.ts
+reset-ownership.sql
+
 # Drizzle introspect/generate çıktıları — proje ham SQL migration kullanır (ROADMAP Kararı)
 packages/db/drizzle/

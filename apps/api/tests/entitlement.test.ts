@@ -49,14 +49,16 @@ describe('Entitlement Service - Unit Tests', () => {
 
   describe('checkLimit', () => {
     it('should allow usage when under limit', async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [
-          {
-            count: '50',
-            limit_value: '100',
-          },
-        ],
-      });
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              count: '50',
+              plan_version_id: 'pv-1',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ value: '100' }] });
 
       const result = await checkLimit('tenant-123', 'max_contacts');
 
@@ -66,14 +68,16 @@ describe('Entitlement Service - Unit Tests', () => {
     });
 
     it('should deny usage when at limit', async () => {
-      mockQuery.mockResolvedValueOnce({
-        rows: [
-          {
-            count: '100',
-            limit_value: '100',
-          },
-        ],
-      });
+      mockQuery
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              count: '100',
+              plan_version_id: 'pv-1',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [{ value: '100' }] });
 
       const result = await checkLimit('tenant-123', 'max_contacts');
 
@@ -92,11 +96,11 @@ describe('Entitlement Service - Unit Tests', () => {
       expect(mockQuery).toHaveBeenCalled();
       const callArgs = mockQuery.mock.calls[0];
       expect(callArgs[0]).toContain('INSERT INTO usage_counters');
-      expect(callArgs[0]).toContain('VALUES ($1, $2, $3, 1, $4)');
+      expect(callArgs[0]).toContain('VALUES ($1, $2, $3, $4, $5)');
       expect(callArgs[0]).toContain('ON CONFLICT');
       expect(callArgs[0]).toContain('DO UPDATE SET count');
-      // İkinci argüman parametre dizisidir: tenantId, limitKey, periodStart, now
-      expect(callArgs[1]).toHaveLength(4);
+      // Parametre dizisi: tenantId, limitKey, periodStart, by, now
+      expect(callArgs[1]).toHaveLength(5);
     });
   });
 });

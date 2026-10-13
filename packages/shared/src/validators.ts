@@ -22,7 +22,7 @@ export function isValidTCKN(value: string): boolean {
 
 /**
  * VKN: 10 hane, ilk hane ≠ 0 — biçim kontrolü.
- * TODO(Faz 1): kontrol basamağı algoritması SMMM golden test vektörleriyle eklenecek.
+ * Kontrol basamağı algoritması SMMM golden test vektörleriyle Faz 1'de eklenecek.
  */
 export function isValidVKN(value: string): boolean {
   const v = (value ?? '').replace(/\s/g, '');

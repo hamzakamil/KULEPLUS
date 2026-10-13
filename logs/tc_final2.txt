@@ -1,0 +1,5 @@
+apps/web/src/stores/expense.ts(40,3): error TS2300: Duplicate identifier 'category_id'.
+apps/web/src/stores/expense.ts(40,3): error TS2687: All declarations of 'category_id' must have identical modifiers.
+apps/web/src/stores/expense.ts(53,3): error TS2300: Duplicate identifier 'category_id'.
+apps/web/src/stores/expense.ts(53,3): error TS2687: All declarations of 'category_id' must have identical modifiers.
+apps/web/src/stores/expense.ts(53,3): error TS2717: Subsequent property declarations must have the same type.  Property 'category_id' must be of type 'string', but here has type 'string | undefined'.

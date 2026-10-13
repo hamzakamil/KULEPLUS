@@ -1,0 +1,23 @@
+[36mvite v8.3.2 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 152 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/registerSW.js                            0.13 kB
+dist/manifest.webmanifest                     0.23 kB
+dist/index.html                               1.06 kB │ gzip:   0.56 kB
+dist/assets/CreateAccountView-CfV7WG_B.css    1.17 kB │ gzip:   0.50 kB
+dist/assets/CashBankView-y1a0dT5_.css         6.53 kB │ gzip:   1.62 kB
+dist/assets/index-DZtlF_Jv.css               67.89 kB │ gzip:  12.12 kB
+dist/assets/CreateAccountView-B9kndQzQ.js     3.10 kB │ gzip:   1.28 kB
+dist/assets/CashBankView-DXxDpYY0.js         34.44 kB │ gzip:   8.20 kB
+dist/assets/index-DglKh39F.js               310.06 kB │ gzip: 103.90 kB
+
+[32m✓ built in 463ms[39m
+
+PWA v2.0.0
+mode      generateSW
+precache  9 entries (414.47 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-9c191d2f.js

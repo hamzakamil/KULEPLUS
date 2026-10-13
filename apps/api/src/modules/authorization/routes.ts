@@ -24,7 +24,22 @@ import {
   assignUserDepartmentsSchema,
 } from './schemas.js';
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/require-permission.js';
 import { AppError } from '@kuleplus/shared';
+
+/**
+ * RBAC kapıları (SPEC §6.3) — bu router daha önce YALNIZCA `authenticate`
+ * kullanıyordu; yani tenant'ındaki her kimliği doğrulanmış kullanıcı rol
+ * atayabilir, kullanıcı davet edebilir, departman silebilirdi (P0 açığı).
+ * Owner (`tenant_users.is_owner`) middleware içinde otomatik geçer.
+ */
+const canUserRead = requirePermission('core.user.read');
+const canUserInvite = requirePermission('core.user.create');
+const canRoleRead = requirePermission('core.role.read');
+const canRoleManage = requirePermission('core.role.manage');
+const canDepartmentRead = requirePermission('core.department.read');
+const canDepartmentManage = requirePermission('core.department.manage');
+const canOwnerTransfer = requirePermission('core.owner.transfer');
 
 const router = Router();
 const service = new AuthorizationService();
@@ -45,6 +60,7 @@ function parseQuery<T>(schema: z.ZodSchema<{ query: T }>, req: Request): T {
 router.post(
   '/invitations',
   authenticate,
+  canUserInvite,
   validate(createInvitationSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -59,6 +75,20 @@ router.post(
         createdBy: req.user.sub,
       });
       res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Public: Davet kabul et (token ile) — e-posta bağlantısı yalnızca token taşır */
+router.post(
+  '/invitations/accept',
+  validate(acceptInvitationSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.acceptInvitation(req.body);
+      res.json(result);
     } catch (error) {
       next(error);
     }
@@ -83,6 +113,7 @@ router.post(
 router.get(
   '/invitations',
   authenticate,
+  canUserRead,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user?.tenantId;
@@ -104,6 +135,7 @@ router.get(
 router.post(
   '/invitations/:id/revoke',
   authenticate,
+  canUserInvite,
   validate(invitationParamsSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -123,6 +155,7 @@ router.post(
 router.get(
   '/roles',
   authenticate,
+  canRoleRead,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user?.tenantId;
@@ -145,6 +178,7 @@ router.get(
 router.post(
   '/roles',
   authenticate,
+  canRoleManage,
   validate(createRoleSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -162,6 +196,7 @@ router.post(
 router.patch(
   '/roles/:id',
   authenticate,
+  canRoleManage,
   validate(updateRoleSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -179,6 +214,7 @@ router.patch(
 router.delete(
   '/roles/:id',
   authenticate,
+  canRoleManage,
   validate(roleParamsSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -198,6 +234,7 @@ router.delete(
 router.get(
   '/permissions',
   authenticate,
+  canRoleRead,
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const query = parseQuery(permissionQuerySchema, _req);
@@ -219,6 +256,7 @@ router.get(
 router.post(
   '/roles/:roleId/permissions',
   authenticate,
+  canRoleManage,
   validate(assignPermissionsSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -241,6 +279,7 @@ router.post(
 router.patch(
   '/roles/:roleId/permissions/:permissionId',
   authenticate,
+  canRoleManage,
   validate(updateRolePermissionScopeSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -265,6 +304,7 @@ router.patch(
 router.post(
   '/tenants/:tenantId/users/:userId/roles',
   authenticate,
+  canRoleManage,
   validate(assignUserRolesSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -283,6 +323,7 @@ router.post(
 router.delete(
   '/tenants/:tenantId/users/:userId/roles/:roleId',
   authenticate,
+  canRoleManage,
   validate(removeUserRoleSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -303,6 +344,7 @@ router.delete(
 router.post(
   '/tenants/:tenantId/transfer-ownership',
   authenticate,
+  canOwnerTransfer,
   validate(transferOwnershipSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -323,6 +365,7 @@ router.post(
 router.post(
   '/departments',
   authenticate,
+  canDepartmentManage,
   validate(createDepartmentSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -340,6 +383,7 @@ router.post(
 router.get(
   '/departments',
   authenticate,
+  canDepartmentRead,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const tenantId = req.user?.tenantId;
@@ -361,6 +405,7 @@ router.get(
 router.patch(
   '/departments/:id',
   authenticate,
+  canDepartmentManage,
   validate(updateDepartmentSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -378,6 +423,7 @@ router.patch(
 router.delete(
   '/departments/:id',
   authenticate,
+  canDepartmentManage,
   validate(departmentParamsSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -397,6 +443,7 @@ router.delete(
 router.post(
   '/tenants/:tenantId/users/:userId/departments',
   authenticate,
+  canDepartmentManage,
   validate(assignUserDepartmentsSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {

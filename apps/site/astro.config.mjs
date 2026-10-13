@@ -8,6 +8,8 @@ export default defineConfig({
   // Canonical/sitemap için mutlak URL. Üretimde SITE_URL ile geçilir (Cloudflare Pages env).
   site: process.env.SITE_URL || 'http://localhost:4321',
   integrations: [vue(), sitemap()],
+  // Astro geliştirme araç çubuğu kapalı — landing sayfasında Astro izi görünmesin.
+  devToolbar: { enabled: false },
   trailingSlash: 'never',
   build: {
     format: 'file',

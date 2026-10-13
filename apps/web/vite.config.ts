@@ -12,6 +12,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['icons/favicon-32.png', 'icons/apple-touch-icon.png', 'offline.html'],
       manifest: {
         name: 'Kuleplus',
         short_name: 'Kuleplus',
@@ -20,8 +21,40 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
+        scope: '/',
         lang: 'tr',
-        icons: [],
+        dir: 'ltr',
+        icons: [
+          { src: '/icons/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icons/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            src: '/icons/maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+      // SPEC §25: çevrimdışı yalnızca OKUMA içindir — finansal belge yazma yoktur.
+      // Uygulama kabuğu önbelleğe alınır, API GET yanıtları kısa süreli NetworkFirst tutulur.
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        navigateFallback: '/offline.html',
+        navigateFallbackDenylist: [/^\/api\//],
+        // Web Push olay işleyicileri (push/notificationclick) üretilen SW'ye enjekte edilir.
+        importScripts: ['/push-sw.js'],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/v1/') && url.protocol === 'https:',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-read-only',
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],

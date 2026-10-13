@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { readdirSync, readFileSync } from 'node:fs';
 import pg from 'pg';
 import { isValidMigrationName } from './tenant.js';

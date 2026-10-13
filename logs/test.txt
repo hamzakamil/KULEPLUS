@@ -1,0 +1,96 @@
+
+> kuleplus@4.1.0 test
+> npm run test --workspaces --if-present
+
+
+> @kuleplus/api@0.1.0 test
+> vitest run
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/proje/Muhasebe/apps/api[39m
+
+ [32mÔ£ô[39m tests/entitlement.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32mÔ£ô[39m tests/require-entitlement.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32mÔ£ô[39m tests/company.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32mÔ£ô[39m tests/platform.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32mÔ£ô[39m tests/contacts.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32mÔ£ô[39m tests/stock.test.ts [2m([22m[2m21 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32mÔ£ô[39m tests/authorization.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 19[2mms[22m[39m
+ [32mÔ£ô[39m tests/expense.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32mÔ£ô[39m tests/import.test.ts [2m([22m[2m24 tests[22m[2m)[22m[90m 27[2mms[22m[39m
+ [32mÔ£ô[39m tests/cash-bank.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32mÔ£ô[39m tests/identity.test.ts [2m([22m[2m15 tests[22m[2m)[22m[33m 322[2mms[22m[39m
+ [32mÔ£ô[39m tests/api.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 54[2mms[22m[39m
+ [32mÔ£ô[39m tests/e2e-flow.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 107[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m13 passed[39m[22m[90m (13)[39m
+[2m      Tests [22m [1m[32m144 passed[39m[22m[90m (144)[39m
+[2m   Start at [22m 23:27:01
+[2m   Duration [22m 1.87s[2m (transform 3.47s, setup 0ms, collect 7.34s, tests 596ms, environment 2ms, prepare 2.17s)[22m
+
+
+> @kuleplus/worker@0.1.0 test
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.3 [39m[90mC:/proje/Muhasebe/apps/worker[39m
+
+ [32mÔ£ô[39m tests/handlers.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 23:27:03
+[2m   Duration [22m 207ms[2m (transform 45%, import 41%, tests 8%, worker 6%)[22m
+
+
+> @kuleplus/db@0.1.0 test
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.3 [39m[90mC:/proje/Muhasebe/packages/db[39m
+
+ [32mÔ£ô[39m tests/rls.test.ts [2m([22m[2m4 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m[32m 3[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m2 passed[39m[22m[2m | [22m[33m2 skipped[39m[90m (4)[39m
+[2m   Start at [22m 23:27:04
+[2m   Duration [22m 227ms[2m (transform 55%, import 40%, tests 3%, worker 3%)[22m
+
+
+> @kuleplus/shared@0.1.0 test
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.3 [39m[90mC:/proje/Muhasebe/packages/shared[39m
+
+ [32mÔ£ô[39m tests/errors.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32mÔ£ô[39m tests/validators.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m tests/tr.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32mÔ£ô[39m tests/money.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32mÔ£ô[39m tests/einvoice-mock.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32mÔ£ô[39m tests/id.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 18[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m35 passed[39m[22m[90m (35)[39m
+[2m   Start at [22m 23:27:05
+[2m   Duration [22m 198ms[2m (transform 53%, import 24%, tests 16%, worker 7%)[22m
+
+
+> @kuleplus/ui@0.1.0 test
+> vitest run
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.3 [39m[90mC:/proje/Muhasebe/packages/ui[39m
+
+ [32mÔ£ô[39m tests/EmptyState.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32mÔ£ô[39m tests/Input.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32mÔ£ô[39m tests/Button.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32mÔ£ô[39m tests/Drawer.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+ [32mÔ£ô[39m tests/MoneyInput.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+ [32mÔ£ô[39m tests/Modal.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m32 passed[39m[22m[90m (32)[39m
+[2m   Start at [22m 23:27:05
+[2m   Duration [22m 1.07s[2m (environment 76%, transform 12%, import 8%, tests 4%, worker 1%)[22m
+

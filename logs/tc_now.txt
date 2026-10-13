@@ -1,0 +1,60 @@
+
+> kuleplus@4.1.0 typecheck
+> npm run typecheck --workspaces --if-present
+
+
+> @kuleplus/api@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/web@0.1.0 typecheck
+> vue-tsc --noEmit
+
+src/views/InvoicesView.vue(181,56): error TS2339: Property 'tax_amount' does not exist on type '{ id?: string | undefined; product_id?: string | undefined; description: string; quantity: number; unit_id?: string | undefined; unit_price: number; discount_percent: number; tax_rate_id?: string | undefined; sort_order: number; }'.
+src/views/InvoicesView.vue(182,63): error TS2339: Property 'line_total' does not exist on type '{ id?: string | undefined; product_id?: string | undefined; description: string; quantity: number; unit_id?: string | undefined; unit_price: number; discount_percent: number; tax_rate_id?: string | undefined; sort_order: number; }'.
+src/views/InvoicesView.vue(324,44): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(334,58): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(338,44): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(342,42): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(346,47): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(353,49): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(360,48): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(368,50): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(394,45): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(426,28): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(442,45): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(447,80): error TS18047: 'draftForm.value' is possibly 'null'.
+src/views/InvoicesView.vue(869,5): error TS2322: Type 'string | undefined' is not assignable to type 'undefined'.
+  Type 'string' is not assignable to type 'undefined'.
+src/views/InvoicesView.vue(870,5): error TS2322: Type 'string | undefined' is not assignable to type 'undefined'.
+  Type 'string' is not assignable to type 'undefined'.
+src/views/InvoicesView.vue(871,5): error TS2322: Type 'string | undefined' is not assignable to type 'undefined'.
+  Type 'string' is not assignable to type 'undefined'.
+src/views/InvoicesView.vue(872,5): error TS2322: Type 'string | undefined' is not assignable to type 'undefined'.
+  Type 'string' is not assignable to type 'undefined'.
+src/views/InvoicesView.vue(873,5): error TS2322: Type 'string | undefined' is not assignable to type 'undefined'.
+  Type 'string' is not assignable to type 'undefined'.
+npm error Lifecycle script `typecheck` failed with error:
+npm error code 2
+npm error path C:\proje\Muhasebe\apps\web
+npm error workspace @kuleplus/web@0.1.0
+npm error location C:\proje\Muhasebe\apps\web
+npm error command failed
+npm error command C:\Windows\system32\cmd.exe /d /s /c vue-tsc --noEmit
+
+
+> @kuleplus/worker@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/db@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/shared@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/ui@0.1.0 typecheck
+> vue-tsc --noEmit
+

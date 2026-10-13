@@ -9,6 +9,7 @@
 | `PERIOD_LOCKED` | 409 | accounting | "Bu dönem işlem girişine kapalıdır." | Kapalı döneme kayıt denemesi |
 | `MODULE_NOT_ENTITLED` | 403 | subscription | "Bu modül paketinizde yok." | Entitlement kontrolü başarısız |
 | `LIMIT_EXCEEDED` | 409 | subscription | "Kota aşıldı." | Plan limiti |
+| `INSUFFICIENT_BALANCE` | 409 | accounting | "Yetersiz bakiye." | Kasa/banka çıkışında bakiye yetersiz |
 | `VERSION_MISMATCH` | 409 | core | "Kayıt başkası tarafından güncellendi." | Optimistic lock |
 | `CONFLICT` | 409 | core | "Bu kayıt zaten mevcut." | Benzersizlik çakışması (e-posta, bekleyen davet/başvuru) |
 | `IDEMPOTENCY_KEY_CONFLICT` | 409 | core | "Bu istek daha önce işlendi." | Idempotency |

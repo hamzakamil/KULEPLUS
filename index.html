@@ -1,0 +1,1763 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kuleplus</title>
+    <meta
+      name="description"
+      content="Türkiye mevzuatına (e-Fatura, KDV, Tek Düzen Hesap Planı, KVKK) uyumlu, modüler bulut ön muhasebe ve ERP platformu. Ücretsiz çekirdek ile başlayın, modülleri ihtiyacınız kadar satın alın."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b1220'/%3E%3Cpath d='M16 6l9 20H7z' fill='%233b82f6'/%3E%3C/svg%3E"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Kuleplus" />
+    <meta property="og:title" content="Kuleplus" />
+    <meta property="og:locale" content="tr_TR" />
+    <meta name="twitter:card" content="summary" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
+
+    <style>
+      /* ── Tasarım sistemi (apps/site global.css ile aynı değişkenler) ── */
+      :root {
+        --color-primary: #1d4ed8;
+        --color-primary-dark: #1e3a8a;
+        --color-primary-soft: #eff6ff;
+        --color-accent: #0e7490;
+        --color-bg: #ffffff;
+        --color-surface: #f8fafc;
+        --color-border: #e2e8f0;
+        --color-text: #0f172a;
+        --color-muted: #475569;
+        --color-focus: #2563eb;
+        --color-danger: #b91c1c;
+        --color-success: #047857;
+        --color-success-bg: #ecfdf5;
+
+        --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --radius: 0.75rem;
+        --maxw: 72rem;
+        --space-section: 4.5rem;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font-sans);
+        font-size: 1rem;
+        line-height: 1.6;
+        color: var(--color-text);
+        background: var(--color-bg);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      img,
+      svg {
+        max-width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      a {
+        color: var(--color-primary);
+      }
+
+      a:hover {
+        color: var(--color-primary-dark);
+      }
+
+      :focus-visible {
+        outline: 3px solid var(--color-focus);
+        outline-offset: 2px;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        line-height: 1.25;
+        margin: 0 0 0.5em;
+        text-wrap: balance;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 4vw, 2.75rem);
+      }
+
+      h2 {
+        font-size: clamp(1.5rem, 3vw, 2rem);
+      }
+
+      h3 {
+        font-size: 1.25rem;
+      }
+
+      p {
+        margin: 0 0 1em;
+      }
+
+      .container {
+        width: min(100% - 2rem, var(--maxw));
+        margin-inline: auto;
+      }
+
+      .section {
+        padding-block: var(--space-section);
+      }
+
+      .section-alt {
+        background: var(--color-surface);
+      }
+
+      .muted {
+        color: var(--color-muted);
+      }
+
+      .lead {
+        font-size: 1.125rem;
+        color: var(--color-muted);
+        max-width: 46rem;
+      }
+
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 100;
+        padding: 0.75rem 1rem;
+        background: var(--color-primary);
+        color: #fff;
+        border-radius: 0 0 var(--radius) 0;
+      }
+
+      .skip-link:focus {
+        left: 0;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: var(--radius);
+        font-weight: 600;
+        font-size: 1rem;
+        text-decoration: none;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition:
+          background-color 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .btn-primary {
+        background: var(--color-primary);
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        background: var(--color-primary-dark);
+        color: #fff;
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--color-primary);
+        border-color: var(--color-primary);
+      }
+
+      .btn-secondary:hover {
+        background: var(--color-primary-soft);
+        color: var(--color-primary-dark);
+      }
+
+      .btn-lg {
+        padding: 1rem 2rem;
+        font-size: 1.0625rem;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.125rem 0.625rem;
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        background: var(--color-primary-soft);
+        color: var(--color-primary-dark);
+      }
+
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9375rem;
+      }
+
+      .table th,
+      .table td {
+        text-align: left;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .table th {
+        background: var(--color-surface);
+      }
+
+      /* ── Üst menü ── */
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .header-inner {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        min-height: 4rem;
+        flex-wrap: wrap;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        color: var(--color-text);
+        font-weight: 800;
+        font-size: 1.125rem;
+      }
+
+      .brand-mark {
+        color: var(--color-primary);
+      }
+
+      .main-nav {
+        margin-inline: auto;
+      }
+
+      .main-nav ul {
+        display: flex;
+        gap: 1.25rem;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        flex-wrap: wrap;
+      }
+
+      .main-nav a {
+        text-decoration: none;
+        color: var(--color-muted);
+        font-weight: 500;
+        font-size: 0.9375rem;
+        padding: 0.25rem 0;
+      }
+
+      .main-nav a:hover {
+        color: var(--color-primary);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .header-login {
+        color: var(--color-muted);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.9375rem;
+      }
+
+      .header-login:hover {
+        color: var(--color-primary);
+      }
+
+      /* ── Hero: koyu fintech yüzeyi ── */
+      .hero {
+        position: relative;
+        overflow: hidden;
+        color: #f8fafc;
+        background:
+          radial-gradient(ellipse 55% 55% at 12% 8%, rgba(59, 130, 246, 0.22), transparent 60%),
+          radial-gradient(ellipse 45% 45% at 95% 100%, rgba(34, 211, 238, 0.12), transparent 55%),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2.45rem,
+            rgba(148, 163, 184, 0.07) 2.45rem,
+            rgba(148, 163, 184, 0.07) 2.5rem
+          ),
+          #0b1220;
+        padding-block: clamp(4rem, 9vw, 6.5rem);
+      }
+
+      .hero-grain {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.5;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+      }
+
+      .hero-grid {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: clamp(2rem, 5vw, 4.5rem);
+        align-items: center;
+      }
+
+      .hero .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(251, 191, 36, 0.12);
+        color: #fbbf24;
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        font-size: 0.8125rem;
+        letter-spacing: 0.01em;
+      }
+
+      .hero h1 {
+        font-family: 'Fraunces', Georgia, serif;
+        font-optical-sizing: auto;
+        font-weight: 600;
+        font-size: clamp(2.4rem, 5.5vw, 4rem);
+        line-height: 1.04;
+        letter-spacing: -0.02em;
+        margin: 1.25rem 0 0;
+        color: #f8fafc;
+        text-wrap: balance;
+      }
+
+      .hero h1 .accent {
+        font-style: italic;
+        color: #22d3ee;
+        position: relative;
+      }
+
+      .hero h1 .accent::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0.06em;
+        height: 2px;
+        background: linear-gradient(90deg, #22d3ee, rgba(34, 211, 238, 0));
+      }
+
+      .hero .lead {
+        margin-top: 1.25rem;
+        max-width: 34rem;
+        color: #94a3b8;
+        font-size: 1.1875rem;
+        line-height: 1.6;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 2.25rem;
+      }
+
+      .hero .btn-lg {
+        padding: 0.9rem 1.9rem;
+      }
+
+      .hero .btn-primary {
+        background: #3b82f6;
+        color: #fff;
+        box-shadow: 0 8px 24px -8px rgba(59, 130, 246, 0.7);
+      }
+
+      .hero .btn-primary:hover {
+        background: #60a5fa;
+        color: #fff;
+        transform: translateY(-2px);
+      }
+
+      .hero .btn-secondary {
+        background: rgba(248, 250, 252, 0.04);
+        color: #e2e8f0;
+        border-color: rgba(51, 65, 85, 0.5);
+      }
+
+      .hero .btn-secondary:hover {
+        background: rgba(248, 250, 252, 0.1);
+        color: #fff;
+        border-color: #94a3b8;
+      }
+
+      .hero .btn {
+        transition:
+          transform 0.18s ease,
+          background-color 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .hero .small-note {
+        margin-top: 1.35rem;
+        color: #94a3b8;
+      }
+
+      .hero .small-note strong {
+        color: #e2e8f0;
+        font-weight: 600;
+      }
+
+      /* ── Sağ panel: canlı finans kartı ── */
+      .hero-visual {
+        position: relative;
+      }
+
+      .dash-card {
+        position: relative;
+        background: linear-gradient(180deg, #1b2538, #121a2a);
+        border: 1px solid #2a3648;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow:
+          0 40px 80px -30px rgba(2, 6, 23, 0.9),
+          0 0 0 1px rgba(148, 163, 184, 0.04);
+        animation: float 7s ease-in-out infinite;
+      }
+
+      .dash-card::before {
+        content: '';
+        position: absolute;
+        inset: 1rem -1rem -1rem 1rem;
+        border: 1px solid rgba(34, 211, 238, 0.18);
+        border-radius: 1rem;
+        z-index: -1;
+      }
+
+      .dash-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #2a3648;
+      }
+
+      .dash-title {
+        font-weight: 600;
+        color: #e2e8f0;
+        font-size: 0.9375rem;
+      }
+
+      .dash-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #34d399;
+      }
+
+      .dash-live .dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 999px;
+        background: #34d399;
+        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+        animation: pulse 2s infinite;
+      }
+
+      .dash-balance {
+        padding: 1.25rem 0 1.1rem;
+      }
+
+      .dash-balance-label {
+        display: block;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #94a3b8;
+      }
+
+      .dash-balance-value {
+        display: block;
+        margin-top: 0.35rem;
+        font-family: 'IBM Plex Mono', monospace;
+        font-weight: 500;
+        font-size: clamp(1.9rem, 3.5vw, 2.6rem);
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+      }
+
+      .dash-balance-value .cur {
+        color: #22d3ee;
+        font-size: 0.6em;
+        vertical-align: 0.35em;
+        margin-left: 0.15em;
+      }
+
+      .dash-delta {
+        display: inline-block;
+        margin-top: 0.4rem;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: #34d399;
+        background: rgba(52, 211, 153, 0.1);
+        padding: 0.2rem 0.5rem;
+        border-radius: 0.4rem;
+      }
+
+      .dash-divider {
+        height: 1px;
+        background: #2a3648;
+        margin: 0 0 0.85rem;
+      }
+
+      .dash-ledger {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.55rem;
+      }
+
+      .dash-ledger li {
+        display: grid;
+        grid-template-columns: 2.5rem 1fr auto;
+        align-items: baseline;
+        gap: 0.75rem;
+        font-size: 0.8125rem;
+      }
+
+      .dash-ledger code {
+        font-family: 'IBM Plex Mono', monospace;
+        color: #64748b;
+        background: rgba(148, 163, 184, 0.1);
+        padding: 0.05rem 0.4rem;
+        border-radius: 0.3rem;
+        justify-self: start;
+      }
+
+      .dash-ledger span {
+        color: #cbd5e1;
+      }
+
+      .dash-ledger b {
+        font-family: 'IBM Plex Mono', monospace;
+        font-weight: 500;
+      }
+
+      .dash-ledger .pos {
+        color: #34d399;
+      }
+
+      .dash-ledger .neg {
+        color: #f87171;
+      }
+
+      .dash-foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-top: 1.25rem;
+        padding-top: 1.1rem;
+        border-top: 1px solid #2a3648;
+      }
+
+      .dash-foot .chip {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: #cbd5e1;
+        background: rgba(148, 163, 184, 0.12);
+        border: 1px solid #2a3648;
+        padding: 0.25rem 0.55rem;
+        border-radius: 0.4rem;
+      }
+
+      /* ── Animasyonlar ── */
+      .reveal {
+        animation: reveal 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      @keyframes reveal {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-10px);
+        }
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
+        }
+        70% {
+          box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hero .reveal,
+        .dash-card,
+        .dash-live .dot {
+          animation: none !important;
+        }
+
+        .hero .btn:hover {
+          transform: none;
+        }
+      }
+
+      /* ── Bölüm başlığı üst etiketi ── */
+      .eyebrow {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.75rem;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--color-primary);
+        margin: 0 0 0.5rem;
+      }
+
+      .container-narrow {
+        max-width: 48rem;
+      }
+
+      .small-note {
+        font-size: 0.875rem;
+      }
+
+      /* ── Üç temel fikir ── */
+      .idea-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        gap: 1.25rem;
+        margin-top: 2rem;
+      }
+
+      .idea-card {
+        position: relative;
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        padding: 1.75rem 1.5rem 1.5rem;
+        overflow: hidden;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease,
+          border-color 0.2s ease;
+      }
+
+      .idea-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+
+      .idea-card:hover {
+        transform: translateY(-4px);
+        border-color: var(--color-primary);
+        box-shadow: 0 20px 40px -24px rgba(15, 23, 42, 0.35);
+      }
+
+      .idea-card:hover::before {
+        opacity: 1;
+      }
+
+      .idea-num {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 1.75rem;
+        font-weight: 500;
+        color: var(--color-border);
+        line-height: 1;
+        display: block;
+        margin-bottom: 0.75rem;
+      }
+
+      .idea-card:hover .idea-num {
+        color: var(--color-primary-soft);
+      }
+
+      .idea-card h3 {
+        margin: 0 0 0.5rem;
+        color: var(--color-text);
+      }
+
+      .idea-card p {
+        margin: 0;
+      }
+
+      /* ── Modül tablosu ── */
+      .table-wrap {
+        overflow-x: auto;
+        margin-top: 2rem;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        background: var(--color-bg);
+      }
+
+      .table {
+        min-width: 34rem;
+      }
+
+      .table th,
+      .table td {
+        padding: 0.9rem 1.1rem;
+      }
+
+      .table thead th {
+        background: var(--color-surface);
+        color: var(--color-muted);
+        font-weight: 600;
+        font-size: 0.8125rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .table tbody tr {
+        transition: background-color 0.15s ease;
+      }
+
+      .table tbody tr:hover {
+        background: var(--color-primary-soft);
+      }
+
+      .table tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .mod-name {
+        font-weight: 600;
+        color: var(--color-text);
+      }
+
+      .mod-phase {
+        color: var(--color-muted);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.875rem;
+      }
+
+      .table code {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.8125rem;
+        color: var(--color-muted);
+        background: var(--color-surface);
+        padding: 0.15rem 0.45rem;
+        border-radius: 0.35rem;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+      }
+
+      .pill-free {
+        color: var(--color-success);
+        background: var(--color-success-bg);
+        border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+      }
+
+      .pill-paid {
+        color: var(--color-primary);
+        background: var(--color-primary-soft);
+        border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+      }
+
+      .pill-addon {
+        color: #b45309;
+        background: #fffbeb;
+        border-color: color-mix(in srgb, #f59e0b 40%, transparent);
+      }
+
+      .more-link {
+        margin-top: 1.5rem;
+        font-weight: 500;
+      }
+
+      /* ── Uyumluluk grid'i ── */
+      .compliance-grid {
+        list-style: none;
+        margin: 2rem 0 0;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+        gap: 0.9rem 1.75rem;
+      }
+
+      .compliance-grid li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.7rem;
+        color: var(--color-text);
+        line-height: 1.5;
+      }
+
+      .compliance-grid .ci {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.35rem;
+        height: 1.35rem;
+        margin-top: 0.1rem;
+        border-radius: 999px;
+        background: var(--color-success-bg);
+        color: var(--color-success);
+        font-weight: 700;
+        font-size: 0.8rem;
+      }
+
+      .compliance-grid + .small-note {
+        margin-top: 1.75rem;
+      }
+
+      /* ── SSS ── */
+      .faq-accordion {
+        border-top: 1px solid var(--color-border);
+      }
+
+      .faq-item {
+        border-bottom: 1px solid var(--color-border);
+      }
+
+      .faq-item summary {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 0;
+        cursor: pointer;
+        font-weight: 600;
+        color: inherit;
+        list-style: none;
+      }
+
+      .faq-item summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .faq-item summary:focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+      }
+
+      .faq-icon {
+        flex-shrink: 0;
+        font-size: 1.25rem;
+        line-height: 1;
+        color: var(--color-primary);
+      }
+
+      .faq-item[open] .faq-icon::before {
+        content: '−';
+      }
+
+      .faq-item:not([open]) .faq-icon::before {
+        content: '+';
+      }
+
+      .faq-panel {
+        padding: 0 0 1rem;
+        color: var(--color-muted);
+      }
+
+      .faq-panel p {
+        margin: 0;
+      }
+
+      /* ── Kayıt bölümü ── */
+      .signup-grid {
+        display: grid;
+        grid-template-columns: 0.9fr 1.1fr;
+        gap: clamp(1.5rem, 4vw, 3.5rem);
+        align-items: start;
+      }
+
+      .signup-benefits {
+        list-style: none;
+        margin: 1.5rem 0 0;
+        padding: 0;
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .signup-benefits li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.7rem;
+        color: var(--color-text);
+        line-height: 1.5;
+      }
+
+      .signup-benefits .ci {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.35rem;
+        height: 1.35rem;
+        margin-top: 0.1rem;
+        border-radius: 999px;
+        background: var(--color-success-bg);
+        color: var(--color-success);
+        font-weight: 700;
+        font-size: 0.8rem;
+      }
+
+      .signup-card {
+        background: var(--color-bg);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        padding: clamp(1.5rem, 3vw, 2rem);
+        box-shadow: 0 24px 48px -32px rgba(15, 23, 42, 0.35);
+      }
+
+      .signup-card h3 {
+        margin-top: 0;
+      }
+
+      .form-row {
+        display: grid;
+        gap: 0.35rem;
+        margin-bottom: 1rem;
+      }
+
+      .form-row label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--color-text);
+      }
+
+      .form-row input,
+      .form-row select {
+        font: inherit;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        background: var(--color-bg);
+        color: var(--color-text);
+      }
+
+      .form-row input:focus,
+      .form-row select:focus {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 1px;
+        border-color: var(--color-focus);
+      }
+
+      .form-hint {
+        font-size: 0.8125rem;
+        color: var(--color-muted);
+      }
+
+      .form-consent {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        font-size: 0.875rem;
+        color: var(--color-muted);
+        margin: 0 0 1.25rem;
+      }
+
+      .form-consent input {
+        margin-top: 0.2rem;
+      }
+
+      .form-submit {
+        width: 100%;
+      }
+
+      .form-status {
+        margin-top: 1rem;
+        padding: 0.75rem 0.9rem;
+        border-radius: 0.5rem;
+        font-size: 0.9375rem;
+        display: none;
+      }
+
+      .form-status.is-error {
+        display: block;
+        color: var(--color-danger);
+        background: #fef2f2;
+        border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+      }
+
+      .form-status.is-success {
+        display: block;
+        color: var(--color-success);
+        background: var(--color-success-bg);
+        border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+      }
+
+      /* ── CTA bandı ── */
+      .cta-band {
+        position: relative;
+        overflow: hidden;
+        color: #f8fafc;
+        background:
+          radial-gradient(ellipse 50% 70% at 50% 120%, rgba(34, 211, 238, 0.16), transparent 60%),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 2.45rem,
+            rgba(148, 163, 184, 0.05) 2.45rem,
+            rgba(148, 163, 184, 0.05) 2.5rem
+          ),
+          #0b1220;
+        padding-block: clamp(3.5rem, 7vw, 5.5rem);
+        text-align: center;
+      }
+
+      .cta-grain {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.4;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n2'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n2)' opacity='0.35'/%3E%3C/svg%3E");
+      }
+
+      .cta-inner {
+        position: relative;
+      }
+
+      .cta-band h2 {
+        font-family: 'Fraunces', Georgia, serif;
+        font-weight: 600;
+        font-size: clamp(1.9rem, 4vw, 2.75rem);
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+        margin: 0 0 0.75rem;
+      }
+
+      .cta-band .lead {
+        color: #94a3b8;
+        margin-inline: auto;
+        max-width: 34rem;
+      }
+
+      .cta-band .btn-primary {
+        margin-top: 1.75rem;
+        background: #3b82f6;
+        color: #fff;
+        box-shadow: 0 8px 24px -8px rgba(59, 130, 246, 0.7);
+      }
+
+      .cta-band .btn-primary:hover {
+        background: #60a5fa;
+        color: #fff;
+        transform: translateY(-2px);
+      }
+
+      /* ── Alt bilgi ── */
+      .site-footer {
+        border-top: 1px solid var(--color-border);
+        background: var(--color-surface);
+        padding-block: 3rem 1.5rem;
+      }
+
+      .footer-grid {
+        display: grid;
+        gap: 2rem;
+        grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+      }
+
+      .footer-brand {
+        font-weight: 800;
+        font-size: 1.0625rem;
+        margin-bottom: 0.25rem;
+      }
+
+      .footer-brand span {
+        color: var(--color-primary);
+      }
+
+      .footer-heading {
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-muted);
+        margin-bottom: 0.75rem;
+      }
+
+      .site-footer ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.5rem;
+      }
+
+      .site-footer a {
+        color: var(--color-text);
+        text-decoration: none;
+        font-size: 0.9375rem;
+      }
+
+      .site-footer a:hover {
+        color: var(--color-primary);
+        text-decoration: underline;
+      }
+
+      .small {
+        font-size: 0.8125rem;
+      }
+
+      .footer-bottom {
+        margin-top: 2.5rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--color-border);
+      }
+
+      .footer-bottom p {
+        margin: 0;
+      }
+
+      /* ── Duyarlı ── */
+      @media (max-width: 60rem) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-visual {
+          order: -1;
+          max-width: 30rem;
+        }
+
+        .dash-card::before {
+          display: none;
+        }
+
+        .signup-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .main-nav {
+          order: 3;
+          width: 100%;
+          margin-inline: 0;
+          border-top: 1px solid var(--color-border);
+          padding-top: 0.5rem;
+        }
+
+        .main-nav ul {
+          gap: 0.75rem 1rem;
+        }
+
+        .header-actions {
+          margin-left: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">İçeriğe geç</a>
+
+    <header class="site-header">
+      <div class="container header-inner">
+        <a href="#top" class="brand" aria-label="Kuleplus — Ana Sayfa">
+          <span class="brand-mark" aria-hidden="true">▲</span>
+          <span class="brand-name">Kuleplus</span>
+        </a>
+
+        <nav aria-label="Ana menü" class="main-nav">
+          <ul>
+            <li><a href="#top">Ana Sayfa</a></li>
+            <li><a href="#fikirler">Özellikler</a></li>
+            <li><a href="#moduller">Fiyatlandırma</a></li>
+            <li><a href="#uyumluluk">Mali Müşavirler İçin</a></li>
+            <li><a href="#sss">Yardım</a></li>
+            <li><a href="#sss">Blog</a></li>
+            <li><a href="#kayit">İletişim</a></li>
+          </ul>
+        </nav>
+
+        <div class="header-actions">
+          <a href="http://localhost:5173/login" class="header-login">Giriş</a>
+          <a href="#kayit" class="btn btn-primary">Ücretsiz Başla</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <span id="top"></span>
+
+      <!-- Hero -->
+      <section class="section hero">
+        <div class="hero-grain" aria-hidden="true"></div>
+        <div class="container">
+          <div class="hero-grid">
+            <div class="hero-copy">
+              <p class="badge reveal" style="animation-delay: 0.05s">
+                Bulut Ön Muhasebe &amp; ERP · Türkiye mevzuatına uyumlu
+              </p>
+              <h1 class="reveal" style="animation-delay: 0.12s">
+                Patron için sade,<br />
+                muhasebeci için <em class="accent">derin</em>.
+              </h1>
+              <p class="lead reveal" style="animation-delay: 0.2s">
+                e-Fatura, KDV, Tek Düzen Hesap Planı ve KVKK’ya uyumlu; modüler, çok şirketli bulut
+                platform. İhtiyacın olan modülü aç, kalanına dokunma.
+              </p>
+              <div class="hero-actions reveal" style="animation-delay: 0.28s">
+                <a href="#kayit" class="btn btn-primary btn-lg">Ücretsiz Başla</a>
+                <a href="#moduller" class="btn btn-secondary btn-lg">Fiyatları İncele</a>
+              </div>
+              <p class="muted small-note reveal" style="animation-delay: 0.36s">
+                Demo süresi yok — <strong>ücretsiz çekirdek süresiz</strong> açık.
+              </p>
+            </div>
+
+            <div class="hero-visual reveal" style="animation-delay: 0.32s" aria-hidden="true">
+              <div class="dash-card">
+                <div class="dash-head">
+                  <span class="dash-title">Finansal Durum</span>
+                  <span class="dash-live"><span class="dot"></span>Canlı</span>
+                </div>
+                <div class="dash-balance">
+                  <span class="dash-balance-label">Net Pozisyon</span>
+                  <span class="dash-balance-value"> 248.750,00 <span class="cur">₺</span> </span>
+                  <span class="dash-delta">▲ 18.400,00 ₺ bu ay</span>
+                </div>
+                <div class="dash-divider"></div>
+                <ul class="dash-ledger">
+                  <li><code>102</code><span>Bankalar</span><b class="pos">+112.400,00</b></li>
+                  <li>
+                    <code>120</code><span>Ticari Alacaklar</span><b class="pos">+84.200,00</b>
+                  </li>
+                  <li><code>191</code><span>İndirilecek KDV</span><b class="pos">+12.300,00</b></li>
+                  <li><code>391</code><span>Hesaplanan KDV</span><b class="neg">−24.600,00</b></li>
+                  <li>
+                    <code>600</code><span>Yurtiçi Satışlar</span><b class="pos">+96.450,00</b>
+                  </li>
+                </ul>
+                <div class="dash-foot">
+                  <span class="chip">e-Fatura</span>
+                  <span class="chip">e-Arşiv</span>
+                  <span class="chip">KDV</span>
+                  <span class="chip">TDHP</span>
+                  <span class="chip">KVKK</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Üç temel fikir -->
+      <section class="section section-alt" aria-labelledby="fikirler">
+        <div class="container">
+          <p class="eyebrow">Temel fikir</p>
+          <h2 id="fikirler">Neden Kuleplus</h2>
+          <div class="idea-grid">
+            <article class="idea-card">
+              <span class="idea-num" aria-hidden="true">01</span>
+              <h3>Tek sistem, iki yüz</h3>
+              <p class="muted">
+                Aynı veri; patron için sade özet (“Alacaklarım”, “Para aldım”), muhasebeci için
+                uzman görünümü (hesap kodları, klavye kısayolları, toplu işlem).
+              </p>
+            </article>
+            <article class="idea-card">
+              <span class="idea-num" aria-hidden="true">02</span>
+              <h3>Ücretsiz çekirdek, ücretli modüller</h3>
+              <p class="muted">
+                Cari veya Stok ile süresiz ücretsiz başlayın. Fatura, kasa/banka, muhasebe gibi
+                modüller ihtiyacınız oldukça satın alınır.
+              </p>
+            </article>
+            <article class="idea-card">
+              <span class="idea-num" aria-hidden="true">03</span>
+              <h3>Veri sizin</h3>
+              <p class="muted">
+                Her planda tam dışa aktarma (ZIP) açık. Paket düştüğünde modül salt okunur olur;
+                veriniz asla rehin alınmaz.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- Modül haritası -->
+      <section class="section" aria-labelledby="moduller">
+        <div class="container">
+          <p class="eyebrow">Modüler yapı</p>
+          <h2 id="moduller">İhtiyacın kadarını aç</h2>
+          <p class="lead">
+            Yalnızca kullandığın modülü öde. Modül kodları ve teslim fazları tek kaynaktan gelir;
+            çekirdek modüller süresiz ücretsiz.
+          </p>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Modül</th>
+                  <th scope="col">Kod</th>
+                  <th scope="col">Faz</th>
+                  <th scope="col">Paket</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mod-name">Cari Hesap</td>
+                  <td><code>contacts</code></td>
+                  <td class="mod-phase">Faz 2</td>
+                  <td><span class="pill pill-free">Ücretsiz</span></td>
+                </tr>
+                <tr>
+                  <td class="mod-name">Stok</td>
+                  <td><code>stock</code></td>
+                  <td class="mod-phase">Faz 2</td>
+                  <td><span class="pill pill-free">Ücretsiz</span></td>
+                </tr>
+                <tr>
+                  <td class="mod-name">Fatura &amp; Belgeler</td>
+                  <td><code>trade</code></td>
+                  <td class="mod-phase">Faz 3</td>
+                  <td><span class="pill pill-paid">Ücretli</span></td>
+                </tr>
+                <tr>
+                  <td class="mod-name">Kasa &amp; Banka</td>
+                  <td><code>cashbank</code></td>
+                  <td class="mod-phase">Faz 3</td>
+                  <td><span class="pill pill-paid">Ücretli</span></td>
+                </tr>
+                <tr>
+                  <td class="mod-name">e-Dönüşüm</td>
+                  <td><code>einvoice</code></td>
+                  <td class="mod-phase">Faz 4</td>
+                  <td><span class="pill pill-addon">Eklenti</span></td>
+                </tr>
+                <tr>
+                  <td class="mod-name">Muhasebe</td>
+                  <td><code>accounting</code></td>
+                  <td class="mod-phase">Faz 5</td>
+                  <td><span class="pill pill-paid">Ücretli</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="more-link"><a href="#kayit">Ücretsiz başla →</a></p>
+        </div>
+      </section>
+
+      <!-- Uyumluluk -->
+      <section class="section section-alt" aria-labelledby="uyumluluk">
+        <div class="container">
+          <p class="eyebrow">Mevzuat uyumluluğu</p>
+          <h2 id="uyumluluk">Türkiye şartlarına göre kuruldu</h2>
+          <ul class="compliance-grid">
+            <li>
+              <span class="ci" aria-hidden="true">✓</span> e-Fatura / e-Arşiv / e-İrsaliye — GİB
+              onaylı entegratör adapter’ı
+            </li>
+            <li>
+              <span class="ci" aria-hidden="true">✓</span> TDHP şablonu; şirkete özel alt hesap
+              eklenebilir
+            </li>
+            <li>
+              <span class="ci" aria-hidden="true">✓</span> KDV — tarih aralıklı oran tablosu,
+              tevkifat/istisna kodları
+            </li>
+            <li>
+              <span class="ci" aria-hidden="true">✓</span> KVKK — aydınlatma, saklama/imha, ihlal
+              prosedürü
+            </li>
+            <li>
+              <span class="ci" aria-hidden="true">✓</span> UTF-8, tr-TR yerelleştirme, İ/ı duyarlı,
+              1.234,56 biçim
+            </li>
+            <li><span class="ci" aria-hidden="true">✓</span> WCAG 2.1 AA erişilebilirlik hedefi</li>
+          </ul>
+          <p class="muted small-note">
+            Mevzuat bilgileri 5 Ekim 2026 itibarıyla kamuya açık kaynaklardan derlenmiştir; canlıya
+            almadan önce mali müşavir + hukukçu doğrulaması gerekir.
+          </p>
+        </div>
+      </section>
+
+      <!-- SSS önizleme -->
+      <section class="section" aria-labelledby="sss">
+        <div class="container container-narrow">
+          <p class="eyebrow">Sık sorulan sorular</p>
+          <h2 id="sss">Merak edilenler</h2>
+          <div class="faq-accordion">
+            <details class="faq-item" open>
+              <summary>
+                <span>Ücretsiz paket gerçekten süresiz mi?</span>
+                <span class="faq-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="faq-panel">
+                <p>
+                  Evet. Demo süresi yoktur; yeni kayıt olan herkes süresiz ücretsiz başlangıç
+                  paketine sahip olur (Cari veya Stok). Diğer modüller satın alınır.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>
+                <span>e-Fatura, KDV gibi Türkiye mevzuatına uyumlu mu?</span>
+                <span class="faq-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="faq-panel">
+                <p>
+                  Platform; e-Fatura, e-Arşiv, e-Defter, KDV, Tek Düzen Hesap Planı ve KVKK
+                  gerekliliklerine göre tasarlanmıştır. e-Belge gönderimi GİB onaylı özel entegratör
+                  REST API üzerinden yapılır.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>
+                <span>Verilerim dışa aktarılabilir mi?</span>
+                <span class="faq-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="faq-panel">
+                <p>
+                  Evet — veri rehin alınmaz. Her planda tam dışa aktarma (ZIP: manifest + CSV
+                  dosyaları + yüklenen dosyalar) açıktır. Paket düştüğünde modül salt okunur olur,
+                  veri silinmez.
+                </p>
+              </div>
+            </details>
+            <details class="faq-item">
+              <summary>
+                <span>Mali müşavirim de sistemi kullanabilir mi?</span>
+                <span class="faq-icon" aria-hidden="true"></span>
+              </summary>
+              <div class="faq-panel">
+                <p>
+                  Evet. Mali müşavir farklı şirketlere ayrı üyeliklerle erişir; her şirketin yetkisi
+                  bağımsızdır. Varsayılan yetki salt okuma + dışa aktarmadır.
+                </p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- Kayıt bölümü -->
+      <section class="section section-alt" id="kayit" aria-labelledby="kayit-baslik">
+        <div class="container">
+          <div class="signup-grid">
+            <div>
+              <p class="eyebrow">Ücretsiz başla</p>
+              <h2 id="kayit-baslik">Hesabınızı bugün oluşturun</h2>
+              <p class="lead">
+                Kredi kartı istemiyoruz, demo süresi yok. Kayıt sonrası başlangıç paketinizi (Cari
+                veya Stok) seçersiniz.
+              </p>
+              <ul class="signup-benefits">
+                <li>
+                  <span class="ci" aria-hidden="true">✓</span> Süresiz ücretsiz çekirdek (Cari veya
+                  Stok)
+                </li>
+                <li>
+                  <span class="ci" aria-hidden="true">✓</span> Kredi kartı gerekmez, demo süresi yok
+                </li>
+                <li>
+                  <span class="ci" aria-hidden="true">✓</span> Her planda tam veri dışa aktarma
+                  (ZIP)
+                </li>
+                <li>
+                  <span class="ci" aria-hidden="true">✓</span> Türkiye mevzuatına uyumlu altyapı
+                </li>
+              </ul>
+            </div>
+
+            <div class="signup-card">
+              <h3>Yeni kayıt</h3>
+              <form id="signup-form" novalidate>
+                <div class="form-row">
+                  <label for="su-name">Ad Soyad</label>
+                  <input
+                    id="su-name"
+                    name="name"
+                    type="text"
+                    autocomplete="name"
+                    required
+                    placeholder="Ad Soyad"
+                  />
+                </div>
+
+                <div class="form-row">
+                  <label for="su-email">E-posta</label>
+                  <input
+                    id="su-email"
+                    name="email"
+                    type="email"
+                    autocomplete="email"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    required
+                    placeholder="ornek@sirket.com"
+                  />
+                </div>
+
+                <div class="form-row">
+                  <label for="su-company"
+                    >Şirket Adı <span class="muted">(isteğe bağlı)</span></label
+                  >
+                  <input
+                    id="su-company"
+                    name="companyName"
+                    type="text"
+                    autocomplete="organization"
+                    placeholder="Şirket Adı"
+                  />
+                </div>
+
+                <div class="form-row">
+                  <label for="su-password">Parola</label>
+                  <input
+                    id="su-password"
+                    name="password"
+                    type="password"
+                    autocomplete="new-password"
+                    minlength="12"
+                    required
+                    placeholder="En az 12 karakter"
+                  />
+                  <span class="form-hint">En az 12 karakter olmalıdır.</span>
+                </div>
+
+                <div class="form-row">
+                  <label for="su-module">Başlangıç paketi</label>
+                  <select id="su-module" name="startingModule">
+                    <option value="contacts">Cari Hesap (ücretsiz)</option>
+                    <option value="stock">Stok (ücretsiz)</option>
+                  </select>
+                </div>
+
+                <label class="form-consent">
+                  <input id="su-terms" name="acceptTerms" type="checkbox" required />
+                  <span>
+                    <a href="https://kuleplus.com/yasal/kvkk-aydinlatma">KVKK aydınlatma metnini</a>
+                    okudum ve kabul ediyorum.
+                  </span>
+                </label>
+
+                <button type="submit" class="btn btn-primary btn-lg form-submit" id="su-submit">
+                  Ücretsiz Başla
+                </button>
+
+                <p class="form-status" id="su-status" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA bandı -->
+      <section class="cta-band" aria-label="Kayıt olun">
+        <div class="cta-grain" aria-hidden="true"></div>
+        <div class="container cta-inner">
+          <h2>Bugün başlayın — demo süresi yok</h2>
+          <p class="lead">
+            Ücretsiz çekirdek süresiz açık. Kayıt olun, şirket başvurunuzu gönderin, ilk kaydınızı
+            bugün oluşturun.
+          </p>
+          <a href="#kayit" class="btn btn-primary btn-lg">Ücretsiz Başla</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <div>
+          <p class="footer-brand"><span aria-hidden="true">▲</span> Kuleplus</p>
+          <p class="muted">Patron için sade, muhasebeci için derin.</p>
+          <p class="muted small">Demo süresi yok — ücretsiz çekirdek süresiz açık.</p>
+          <p class="small"><a href="mailto:destek@kuleplus.com">destek@kuleplus.com</a></p>
+        </div>
+
+        <nav aria-label="Ürün">
+          <h2 class="footer-heading">Ürün</h2>
+          <ul>
+            <li><a href="#fikirler">Özellikler</a></li>
+            <li><a href="#moduller">Fiyatlandırma</a></li>
+            <li><a href="#uyumluluk">Mali Müşavirler İçin</a></li>
+            <li><a href="#sss">Yardım</a></li>
+          </ul>
+        </nav>
+
+        <nav aria-label="Kaynaklar">
+          <h2 class="footer-heading">Kaynaklar</h2>
+          <ul>
+            <li><a href="#sss">Yardım Merkezi</a></li>
+            <li><a href="#sss">Blog</a></li>
+            <li><a href="#kayit">İletişim</a></li>
+          </ul>
+        </nav>
+
+        <nav aria-label="Yasal">
+          <h2 class="footer-heading">Yasal</h2>
+          <ul>
+            <li><a href="https://kuleplus.com/yasal/kullanim-kosullari">Kullanım Koşulları</a></li>
+            <li>
+              <a href="https://kuleplus.com/yasal/gizlilik-kvkk">Gizlilik ve KVKK Aydınlatma</a>
+            </li>
+            <li><a href="https://kuleplus.com/yasal/cerez-politikasi">Çerez Politikası</a></li>
+          </ul>
+        </nav>
+      </div>
+
+      <div class="container footer-bottom">
+        <p class="small muted">
+          © <span id="year">2026</span> Kuleplus. Tüm hakları saklıdır. · Ticari/özel lisans.
+        </p>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        const yearEl = document.getElementById('year');
+        if (yearEl) yearEl.textContent = String(new Date().getFullYear());
+
+        // API tabanı: file:// üzerinden açılsa da çalışır; gerekirse değiştirin.
+        const API_BASE = (window.__KULEPLUS_API__ || 'http://localhost:3000/api/v1').replace(
+          /\/$/,
+          '',
+        );
+
+        const form = document.getElementById('signup-form');
+        const status = document.getElementById('su-status');
+        const submit = document.getElementById('su-submit');
+        if (!form) return;
+
+        function setStatus(kind, message) {
+          status.className = 'form-status';
+          if (kind) status.classList.add(kind === 'error' ? 'is-error' : 'is-success');
+          status.textContent = message || '';
+        }
+
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          setStatus(null, '');
+
+          const name = form.name.value.trim();
+          const email = form.email.value.trim().toLowerCase();
+          const companyName = form.companyName.value.trim();
+          const password = form.password.value;
+          const startingModule = form.startingModule.value;
+          const acceptTerms = form.acceptTerms.checked;
+
+          if (name.length < 2) return setStatus('error', 'Lütfen adınızı ve soyadınızı girin.');
+          if (!email || email.indexOf('@') < 1)
+            return setStatus('error', 'Lütfen geçerli bir e-posta adresi girin.');
+          if (password.length < 12)
+            return setStatus('error', 'Parola en az 12 karakter olmalıdır.');
+          if (!acceptTerms) return setStatus('error', 'KVKK aydınlatma metnini kabul etmelisiniz.');
+
+          submit.disabled = true;
+          setStatus(null, 'Kayıt gönderiliyor…');
+
+          fetch(API_BASE + '/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: name,
+              email: email,
+              password: password,
+              startingModule: startingModule,
+              acceptTerms: true,
+              ...(companyName ? { companyName: companyName } : {}),
+            }),
+          })
+            .then(function (res) {
+              return res
+                .json()
+                .catch(function () {
+                  return {};
+                })
+                .then(function (body) {
+                  return { ok: res.ok, status: res.status, body: body };
+                });
+            })
+            .then(function (result) {
+              if (result.ok) {
+                form.reset();
+                setStatus(
+                  'success',
+                  result.body && result.body.message
+                    ? result.body.message
+                    : 'Kayıt başarılı. E-posta doğrulama bağlantısı gönderildi.',
+                );
+                return;
+              }
+              const msg =
+                (result.body && (result.body.message || result.body.error)) ||
+                'Kayıt tamamlanamadı (HTTP ' + result.status + ').';
+              setStatus('error', msg);
+            })
+            .catch(function () {
+              setStatus(
+                'error',
+                'API’ye ulaşılamadı. Sunucuyu başlatın (npm run dev:api) veya window.__KULEPLUS_API__ ile adresi ayarlayın.',
+              );
+            })
+            .finally(function () {
+              submit.disabled = false;
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -47,8 +47,68 @@ Geçerli scope'lar (SPEC §6.2): `all`, `own_branch`, `own_department`, `assigne
 | subscription | `subscription.entitlement.read` | all | ✅ |
 | subscription | `subscription.entitlement.manage` | all | ❌ |
 | subscription | `subscription.usage.read` | all | ✅ |
+| subscription | `subscription.subscription.read` | all, own_branch | ✅ |
+| subscription | `subscription.subscription.create` | all | ✅ |
+| subscription | `subscription.subscription.update` | all | ✅ |
+| subscription | `subscription.subscription.delete` | all | ✅ |
+| subscription | `subscription.subscription.manage` | all | ✅ |
 
-> Faz 2+ modülleri (`contacts`, `stock`, `trade`, `cashbank`, `einvoice`, `accounting`, `cheque`,
+### `contacts` — SPEC §11 (Faz 2)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| contacts | `contacts.contact.read` | all, own_branch, created_by_me | ✅ |
+| contacts | `contacts.contact.create` | all | ✅ |
+| contacts | `contacts.contact.update` | all, own_branch, created_by_me | ✅ |
+| contacts | `contacts.contact.delete` | all | ✅ |
+| contacts | `contacts.ledger.read` | all, own_branch | ✅ |
+| contacts | `contacts.ledger.create` | all | ✅ |
+
+### `stock` — SPEC §14 (Faz 2)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| stock | `stock.product.read` | all, own_branch | ✅ |
+| stock | `stock.product.create` | all | ✅ |
+| stock | `stock.product.update` | all | ✅ |
+| stock | `stock.product.delete` | all | ✅ |
+| stock | `stock.movement.post` | all | ✅ |
+| stock | `stock.movement.adjust` | all | ✅ |
+
+### `trade` — SPEC §12, ADR-0007/0008 (Faz 2–3)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| trade | `trade.invoice.read` | all, own_branch, created_by_me | ✅ |
+| trade | `trade.invoice.create` | all | ✅ |
+| trade | `trade.invoice.update` | all | ✅ |
+| trade | `trade.invoice.delete` | all | ✅ |
+| trade | `trade.invoice.approve` | all | ❌ |
+| trade | `trade.expense.read` | all, own_branch | ✅ |
+| trade | `trade.expense.create` | all | ✅ |
+| trade | `trade.expense.update` | all | ✅ |
+| trade | `trade.expense.delete` | all | ✅ |
+
+### `cheque` — ROADMAP Faz 6 (çek/senet)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| cheque | `cheque.cheque.read` | all, own_branch | ✅ |
+| cheque | `cheque.cheque.create` | all | ✅ |
+| cheque | `cheque.cheque.update` | all | ✅ |
+| cheque | `cheque.cheque.delete` | all | ✅ |
+| cheque | `cheque.cheque.manage` | all | ✅ |
+
+### `einvoice` — SPEC §21 (Faz 4, e-Dönüşüm)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| einvoice | `einvoice.document.read` | all | ✅ |
+| einvoice | `einvoice.document.create` | all | ✅ |
+| einvoice | `einvoice.document.send` | all | ✅ |
+| einvoice | `einvoice.document.cancel` | all | ✅ |
+
+> Faz 2+ modülleri (`cashbank`, `accounting`,
 > `reports_plus`, `management`, `sms`, `integrations`) ilgili fazlarda `PERMISSIONS` dizisine
 > eklenir; bu doküman aynı PR'da güncellenir.
 

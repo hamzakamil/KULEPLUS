@@ -107,6 +107,89 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   perm('subscription', 'entitlement', 'read', 'Hakları görüntüle'),
   perm('subscription', 'entitlement', 'manage', 'Manuel hak tanımla', { delegatable: false }),
   perm('subscription', 'usage', 'read', 'Kota kullanımını görüntüle'),
+  perm('subscription', 'subscription', 'read', 'Abonelikleri görüntüle'),
+  perm('subscription', 'subscription', 'create', 'Abonelik/sipariş oluştur'),
+  perm('subscription', 'subscription', 'update', 'Abonelik güncelle'),
+  perm('subscription', 'subscription', 'delete', 'Abonelik/iptal'),
+  perm('subscription', 'subscription', 'manage', 'Abonelik yaşam döngüsü ve faturalama yönetimi'),
+
+  // --- contacts (SPEC §11 — Faz 2) ---
+  perm('contacts', 'contact', 'read', 'Cari kartları görüntüle'),
+  perm('contacts', 'contact', 'create', 'Cari kart oluştur'),
+  perm('contacts', 'contact', 'update', 'Cari kart güncelle'),
+  perm('contacts', 'contact', 'delete', 'Cari kart sil'),
+  perm('contacts', 'ledger', 'read', 'Cari ekstre görüntüle'),
+  perm('contacts', 'ledger', 'create', 'Cari hareket işle'),
+
+  // --- stock (SPEC §14 — Faz 2) ---
+  perm('stock', 'product', 'read', 'Ürünleri görüntüle'),
+  perm('stock', 'product', 'create', 'Ürün oluştur'),
+  perm('stock', 'product', 'update', 'Ürün güncelle'),
+  perm('stock', 'product', 'delete', 'Ürün sil'),
+  perm('stock', 'movement', 'post', 'Stok hareketi işle'),
+  perm('stock', 'movement', 'adjust', 'Stok düzeltme işle'),
+
+  // --- trade (SPEC §12, ADR-0007 — fatura `trade.invoice.*` altındadır) ---
+  perm('trade', 'invoice', 'read', 'Faturaları görüntüle'),
+  perm('trade', 'invoice', 'create', 'Fatura oluştur'),
+  perm('trade', 'invoice', 'update', 'Fatura güncelle'),
+  perm('trade', 'invoice', 'delete', 'Fatura sil'),
+  perm('trade', 'invoice', 'approve', 'Fatura onayla / kesinleştir'),
+
+  // --- trade (gider — ADR-0008: `trade.expense.*`, Faz 3) ---
+  perm('trade', 'expense', 'read', 'Giderleri görüntüle'),
+  perm('trade', 'expense', 'create', 'Gider oluştur'),
+  perm('trade', 'expense', 'update', 'Gider güncelle'),
+  perm('trade', 'expense', 'delete', 'Gider sil'),
+
+  // --- einvoice (SPEC §21 — Faz 4) — e-Dönüşüm entegrasyonu ---
+  perm('einvoice', 'document', 'read', 'e-Dönüşüm belgelerini görüntüle'),
+  perm('einvoice', 'document', 'create', 'e-Dönüşüm belgesi oluştur'),
+  perm('einvoice', 'document', 'send', 'e-Dönüşüm belgesi gönder'),
+  perm('einvoice', 'document', 'cancel', 'e-Dönüşüm belgesi iptal'),
+
+  // --- accounting (SPEC §15 — yevmiye fişleri) ---
+  perm('accounting', 'entry', 'read', 'Yevmiye fişlerini görüntüle'),
+  perm('accounting', 'entry', 'create', 'Yevmiye fişi oluştur'),
+  perm('accounting', 'entry', 'update', 'Yevmiye fişi güncelle'),
+  perm('accounting', 'entry', 'delete', 'Yevmiye fişi sil'),
+  perm('accounting', 'entry', 'approve', 'Yevmiye fişi onayla (post)'),
+
+  // --- cheque (ROADMAP Faz 6 — çek/senet) ---
+  perm('cheque', 'cheque', 'read', 'Çek/senet görüntüle'),
+  perm('cheque', 'cheque', 'create', 'Çek/senet oluştur'),
+  perm('cheque', 'cheque', 'update', 'Çek/senet güncelle'),
+  perm('cheque', 'cheque', 'delete', 'Çek/senet sil'),
+  perm('cheque', 'cheque', 'manage', 'Çek/senet yaşam döngüsü (ciro/tahsil/karşılıksız/iptal)'),
+
+  // --- management (ROADMAP Faz 7 — görev/takvim/randevu/not/bildirim) ---
+  perm('management', 'task', 'read', 'Görevleri görüntüle'),
+  perm('management', 'task', 'create', 'Görev oluştur'),
+  perm('management', 'task', 'update', 'Görev güncelle'),
+  perm('management', 'task', 'delete', 'Görev sil'),
+  perm('management', 'task', 'assign', 'Görev ata'),
+  perm('management', 'task', 'complete', 'Görev tamamla'),
+  perm('management', 'calendar', 'read', 'Takvimi görüntüle'),
+  perm('management', 'calendar', 'manage', 'Takvim yönet'),
+  perm('management', 'appointment', 'read', 'Randevuları görüntüle'),
+  perm('management', 'appointment', 'create', 'Randevu oluştur'),
+  perm('management', 'appointment', 'update', 'Randevu güncelle'),
+  perm('management', 'appointment', 'manage', 'Randevu durumu yönet (onay/iptal/no-show)'),
+  perm('management', 'note', 'read', 'Notları görüntüle'),
+  perm('management', 'note', 'create', 'Not oluştur'),
+  perm('management', 'note', 'update', 'Not güncelle'),
+  perm('management', 'note', 'delete', 'Not sil'),
+  perm('management', 'activity', 'read', 'Aktivite akışını görüntüle'),
+  perm('management', 'notification', 'read', 'Bildirimleri görüntüle'),
+  perm('management', 'notification', 'send', 'Bildirim gönder'),
+  perm('management', 'preference', 'manage', 'Bildirim tercihlerini yönet'),
+  perm('management', 'device', 'manage', 'Bildirim cihazlarını yönet'),
+  perm('management', 'dashboard', 'read', 'Patron paneli göstergelerini görüntüle'),
+  perm('management', 'rule', 'read', 'Kural ayarlarını görüntüle'),
+  perm('management', 'rule', 'manage', 'Kural ayarlarını yönet'),
+  perm('management', 'approval', 'read', 'Onay taleplerini görüntüle'),
+  perm('management', 'approval', 'create', 'Onay talebi oluştur'),
+  perm('management', 'approval', 'decide', 'Onay talebini karara bağla'),
 ];
 
 /** Koda göre hızlı arama (O(1)). */

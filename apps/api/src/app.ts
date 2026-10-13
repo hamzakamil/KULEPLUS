@@ -13,7 +13,22 @@ import auditRoutes from './modules/audit/routes';
 import platformRoutes from './modules/platform/routes';
 import authorizationRoutes from './modules/authorization/routes';
 import contactsRoutes from './modules/contacts/routes';
+import { tradeRoutes } from './modules/trade/routes';
 import stockRoutes from './modules/stock/routes';
+import invoiceRoutes from './modules/trade/invoice/routes';
+import { cashBankRoutes } from './modules/cash-bank/routes';
+import { cashBankMovementRoutes as cashBankMovementsRoutes } from './modules/cash-bank/movement.routes';
+import { bankExtrasRoutes } from './modules/cash-bank/bank-extras.routes';
+import { expenseRoutes } from './modules/expense/routes';
+import { reportRoutes } from './modules/reports_plus/routes';
+import backupRoutes from './modules/backup/routes';
+import { accountingRoutes } from './modules/accounting/routes';
+import { chequeRoutes } from './modules/cheque/routes';
+import { subscriptionRoutes } from './modules/subscription/routes';
+import { einvoiceRoutes } from './modules/einvoice/routes';
+import { managementRoutes } from './modules/management/routes';
+import coreRoutes from './modules/core/routes';
+import publicRoutes from './modules/public/routes';
 
 export interface CreateAppOptions {
   env: Env;
@@ -62,7 +77,30 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   app.use('/api/v1/platform', platformRoutes);
   app.use('/api/v1', auditRoutes);
   app.use('/api/v1/contacts', contactsRoutes);
+  app.use('/api/v1/trade', tradeRoutes);
   app.use('/api/v1/stock', stockRoutes);
+  app.use('/api/v1/invoices', invoiceRoutes);
+  // DİKKAT sıralama: `/movements` ve `/bank` alt rotaları, parametrik `/:id`
+  // rotasından ÖNCE mount edilmelidir (aksi halde cashBankRoutes `/:id`
+  // "movements"/"bank"ı id olarak yutar → uuid 500'ü).
+  app.use('/api/v1/cash-bank/movements', cashBankMovementsRoutes);
+  app.use('/api/v1/cash-bank/bank', bankExtrasRoutes);
+  app.use('/api/v1/cash-bank', cashBankRoutes);
+  app.use('/api/v1/expenses', expenseRoutes);
+  app.use('/api/v1/reports', reportRoutes);
+  app.use('/api/v1/accounting', accountingRoutes);
+  app.use('/api/v1/cheques', chequeRoutes);
+  // Abonelik & faturalama (Faz 4 Hat B) — yalnızca kimlik + tenant + entitlement uçları.
+  // Checkout ve faturalama API tarafı: packages/shared/src/integrations/{payment,mock-payment}.
+  app.use('/api/v1/subscription', subscriptionRoutes);
+  // Yedekleme: platform düzeyi uçlar (tam DB dump'ı) — koruma zinciri rotanın
+  // içinde (`authenticate` + `requirePlatformUser`), buraya tenant kapısı konmaz.
+  app.use('/api/v1/backups', backupRoutes);
+  app.use('/api/v1/einvoice', einvoiceRoutes);
+  app.use('/api/v1/management', managementRoutes);
+  app.use('/api/v1/core', coreRoutes);
+  // Public (girişsiz) uçlar — pazarlama sitesi iletişim formu (ROADMAP Faz 2).
+  app.use('/api/v1/public', publicRoutes);
 
   // ---- Sağlık uçları (SPEC §30.7; readyz gerçek bağımlılık kontrolü Faz 1'de) ----
   app.get('/healthz', (_req, res) => {

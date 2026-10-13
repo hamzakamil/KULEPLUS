@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "noEmit": true,
+    "types": ["vitest/globals"]
+  },
+  "include": ["src", "tests", "vitest.config.ts"]
+}

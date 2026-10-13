@@ -35,7 +35,7 @@ const currentPath = Astro.url.pathname.replace(/\/$/, '') || '/';
     </nav>
 
     <div class="header-actions">
-      <a href={SITE.appUrl} class="header-login">
+      <a href={`${SITE.appUrl}/login`} class="header-login">
         Giriş
       </a>
       <!-- UTM koruması: Plausible UTM kuralı — tıklama anında URL'e eklenir (seo-analytics.md) -->

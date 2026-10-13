@@ -1,0 +1,6 @@
+apps/api => exit 0
+apps/worker => exit 0
+apps/web => exit 0
+packages/db => exit 0
+packages/shared => exit 0
+packages/ui => exit 0

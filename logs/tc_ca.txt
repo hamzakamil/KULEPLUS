@@ -1,0 +1,1 @@
+apps/web/src/router/index.ts(28,76): error TS7016: Could not find a declaration file for module '@/views/CreateAccountView.vue'. 'C:/proje/Muhasebe/apps/web/src/views/CreateAccountView.vue' implicitly has an 'any' type.

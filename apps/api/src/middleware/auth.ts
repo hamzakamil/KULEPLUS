@@ -17,10 +17,14 @@ export async function authenticate(
   _res: Response,
   next: NextFunction,
 ): Promise<void> {
+  // NOT: Bu middleware asenkondur; Express 4 asenkron hataları `catch`'e
+  // düşürmez → `throw` yerine HER ZAMAN `next(error)` çağrılmalıdır.
+  // Aksi halde yakalanmamış rejection tüm süreci öldürür (API çöker).
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
-      throw new AppError('UNAUTHENTICATED', 'Yetkilendirme başlığı eksik');
+      next(new AppError('UNAUTHENTICATED', 'Yetkilendirme başlığı eksik'));
+      return;
     }
 
     const token = authHeader.slice(7);
@@ -39,12 +43,14 @@ export async function authenticate(
     next();
   } catch (error) {
     if (error instanceof AppError && error.code === 'UNAUTHENTICATED') {
-      throw error;
+      next(error);
+      return;
     }
     if (error instanceof Error && error.message.startsWith('UNAUTHENTICATED')) {
-      throw new AppError('UNAUTHENTICATED', error.message.slice('UNAUTHENTICATED: '.length));
+      next(new AppError('UNAUTHENTICATED', error.message.slice('UNAUTHENTICATED: '.length)));
+      return;
     }
-    throw new AppError('UNAUTHENTICATED', 'Geçersiz veya süresi dolmuş token');
+    next(new AppError('UNAUTHENTICATED', 'Geçersiz veya süresi dolmuş token'));
   }
 }
 

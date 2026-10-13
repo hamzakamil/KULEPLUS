@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool } from 'pg';
+import { appUrl, queueEmailTemplate } from '../../services/email-templates.js';
 
 /** JWT secret'ler */
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET!);
@@ -12,6 +13,8 @@ const REFRESH_SECRET = new TextEncoder().encode(process.env.JWT_REFRESH_SECRET!)
 /** Token süreleri */
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+/** "Beni hatırla" kapalıysa sunucu oturumu bu kadar yaşar (çerez de oturum çerezi olur) */
+const SHORT_SESSION_EXPIRY_DAYS = 1;
 
 /** Argon2id parametreleri (OWASP önerisi) */
 const ARGON2_CONFIG = {
@@ -241,6 +244,17 @@ export class IdentityService {
     }
   }
 
+  /**
+   * Yeni access token üretir — şirket seçici (Faz 2) tenant bağlamı değişince
+   * istemci eski token'ı kullanamaz; SPEC §6.4 auth_version bu token'a gömülür.
+   */
+  async issueAccessTokenForTenant(userId: string, tenantId: string): Promise<string> {
+    const user = await this.getUserById(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'Kullanıcı bulunamadı');
+    const authVersion = await this.getTenantAuthVersion(tenantId);
+    return this.generateAccessToken({ sub: user.id, email: user.email, tenantId, authVersion });
+  }
+
   /** Giriş */
   async login(
     email: string,
@@ -248,9 +262,12 @@ export class IdentityService {
     totpCode?: string,
     userAgent?: string,
     ipAddress?: string,
+    rememberMe = true,
   ): Promise<{
     accessToken: string;
     refreshToken: string;
+    /** Refresh çerezi için max-age (ms). rememberMe=false ise undefined → oturum çerezi */
+    refreshCookieMaxAgeMs: number | undefined;
     user: { id: string; email: string; name: string; totpEnabled: boolean };
     tenantId: string;
   }> {
@@ -313,9 +330,10 @@ export class IdentityService {
     });
     const refreshToken = await this.generateRefreshToken(user.id);
 
-    // Session kaydet
+    // Session kaydet ("beni hatırla" kapalıysa kısa ömürlü)
+    const sessionDays = rememberMe ? REFRESH_TOKEN_EXPIRY_DAYS : SHORT_SESSION_EXPIRY_DAYS;
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + sessionDays * 24 * 60 * 60 * 1000);
     await this.getPoolInstance().query(
       `INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent, ip_address, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -325,6 +343,7 @@ export class IdentityService {
     return {
       accessToken,
       refreshToken,
+      refreshCookieMaxAgeMs: rememberMe ? sessionDays * 24 * 60 * 60 * 1000 : undefined,
       user: {
         id: user.id,
         email: user.email,
@@ -336,7 +355,12 @@ export class IdentityService {
   }
 
   /** Token yenileme (rotating refresh token) */
-  async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  async refresh(refreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    /** Refresh çerezi için max-age (ms). Kısa oturumlarda undefined → oturum çerezi */
+    refreshCookieMaxAgeMs: number | undefined;
+  }> {
     const payload = await this.verifyRefreshToken(refreshToken);
     if (!payload) {
       throw new AppError('UNAUTHENTICATED', 'Geçersiz veya süresi dolmuş refresh token');
@@ -346,7 +370,7 @@ export class IdentityService {
 
     // Session'ı bul ve geçerli mi kontrol et
     const sessionResult = await this.getPoolInstance().query(
-      `SELECT id, user_id, expires_at, revoked_at FROM user_sessions WHERE refresh_token_hash = $1`,
+      `SELECT id, user_id, expires_at, created_at, revoked_at FROM user_sessions WHERE refresh_token_hash = $1`,
       [refreshTokenHash],
     );
 
@@ -365,6 +389,11 @@ export class IdentityService {
       [session.id],
     );
 
+    // Oturum karakterini koru: kısa ("beni hatırla" kapalı) oturum refresh ile uzatılamaz
+    const sessionDurationMs =
+      new Date(session.expires_at).getTime() - new Date(session.created_at).getTime();
+    const shortLived = sessionDurationMs <= SHORT_SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
     // Yeni token'lar üret
     const tenantResult = await this.getPoolInstance().query<{ tenant_id: string }>(
       `SELECT tenant_id FROM tenant_users WHERE user_id = $1 AND is_owner = true LIMIT 1`,
@@ -380,7 +409,7 @@ export class IdentityService {
     });
     const newRefreshToken = await this.generateRefreshToken(session.user_id);
     const newRefreshTokenHash = this.hashRefreshToken(newRefreshToken);
-    const newExpiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+    const newExpiresAt = new Date(Date.now() + sessionDurationMs);
 
     // Yeni session kaydet
     await this.getPoolInstance().query(
@@ -389,7 +418,11 @@ export class IdentityService {
       [newId(), session.user_id, newRefreshTokenHash, newExpiresAt],
     );
 
-    return { accessToken, refreshToken: newRefreshToken };
+    return {
+      accessToken,
+      refreshToken: newRefreshToken,
+      refreshCookieMaxAgeMs: shortLived ? undefined : sessionDurationMs,
+    };
   }
 
   /** Çıkış (tek session) */
@@ -443,8 +476,18 @@ export class IdentityService {
       throw new AppError('UNAUTHENTICATED', 'Geçersiz 2FA kodu');
     }
 
-    // Backup codes zaten setupTwoFactor'da oluşturuldu, sadece döndür
-    return user.recovery_codes ?? [];
+    // P0 #6: Yedek kodlar düz metin olarak YALNIZCA etkinleştirme anında üretilir ve
+    // kullanıcıya BİR KEZ gösterilir. DB'ye yalnızca sha256 hash'leri yazılır; böylece
+    // önceki hali (`user.recovery_codes` hash'lerini döndürmek) düz metin sızdırmaz ve
+    // kullanıcı gerçekten kaydedebileceği kodları görür.
+    const backupCodes = Array.from({ length: 8 }, () => this.generateRecoveryCode());
+    const hashedBackupCodes = backupCodes.map((c) => this.hashRecoveryCode(c));
+    await this.getPoolInstance().query(
+      `UPDATE users SET recovery_codes = $1, updated_at = now(), version = version + 1 WHERE id = $2`,
+      [hashedBackupCodes, userId],
+    );
+
+    return backupCodes;
   }
 
   /** 2FA devre dışı bırak */
@@ -514,6 +557,17 @@ export class IdentityService {
         `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at)
          VALUES ($1, $2, $3, $4, now())`,
         [newId(), user.id, tokenHash, expiresAt],
+      );
+
+      // Şifre sıfırlama e-postası — outbox'a transaction içinde (SPEC §19.1, envanter: auth.reset_password).
+      await queueEmailTemplate(
+        'auth.reset_password',
+        user.email,
+        {
+          user_name: user.email.split('@')[0] ?? '',
+          reset_url: `${appUrl()}/reset-password?token=${token}`,
+        },
+        client,
       );
 
       await client.query('COMMIT');

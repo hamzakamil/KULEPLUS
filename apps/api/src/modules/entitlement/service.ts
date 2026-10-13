@@ -66,25 +66,41 @@ export async function checkLimit(
   resetAt: Date;
 }> {
   const now = new Date();
+  // Aylık dönem başı (K-02: import limiti "aylık" — usage_counters.period_start = ayın 1'i).
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // Not: SUM(count) şart — COUNT(*) usage_counters SATIR sayısını sayar (her dönem
+  // en fazla 1 satır), kotası değil. Plan seçimi: tenant'ın entitlement'ındaki
+  // plan_version_id varsa o; yoksa free plan (varsayılan paket — SPEC §8.1).
   const result = await getPool().query<{
     count: string;
-    limit_value: string;
+    plan_version_id: string | null;
   }>(
-    `SELECT COUNT(*)::bigint AS count, (SELECT value::bigint FROM plan_limits pl
-     JOIN plan_versions pv ON pl.plan_version_id = pv.id
-     JOIN plans p ON pv.plan_id = p.id
-     WHERE pl.limit_key = $2 AND pv.version = 1
-     ORDER BY pv.effective_from DESC LIMIT 1) AS limit_value
+    `SELECT COALESCE(SUM(uc.count), 0)::bigint AS count,
+            COALESCE((SELECT te.plan_version_id FROM tenant_entitlements te
+              WHERE te.tenant_id = $1 AND te.plan_version_id IS NOT NULL
+              ORDER BY te.granted_at DESC LIMIT 1),
+             (SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id
+              WHERE p.code = 'free' AND pv.version = 1)) AS plan_version_id
      FROM usage_counters uc
      WHERE uc.tenant_id = $1 AND uc.limit_key = $2 AND uc.period_start = $3`,
     [tenantId, limitKey, periodStart],
   );
 
-  const count = parseInt(result.rows[0].count, 10);
-  const limitValueRaw = result.rows[0].limit_value;
-  const limitValue = limitValueRaw ? parseInt(limitValueRaw, 10) : null;
+  const count = parseInt(result.rows[0]?.count ?? '0', 10);
+  const planVersionId = result.rows[0]?.plan_version_id as string | null;
+
+  let limitValue: number | null = null;
+  if (planVersionId) {
+    const limitResult = await getPool().query<{ value: string | null }>(
+      `SELECT value #>> '{}' AS value FROM plan_limits
+       WHERE plan_version_id = $1 AND limit_key = $2`,
+      [planVersionId, limitKey],
+    );
+    const raw = limitResult.rows[0]?.value ?? null;
+    // jsonb 'null' (sınırsız) → null; sayısal değer → integer.
+    limitValue = raw !== null && raw !== 'null' ? parseInt(raw, 10) : null;
+  }
 
   const allowed = limitValue === null || count < limitValue;
   const remaining = limitValue === null ? null : Math.max(0, limitValue - count);
@@ -96,7 +112,8 @@ export async function checkLimit(
     current: count,
     limit: limitValue,
     remaining,
-    resetAt: new Date(now.getFullYear() + 1, 0, 1),
+    // Aylık kota: dönem sonu gelecek ayın 1'i.
+    resetAt: new Date(now.getFullYear(), now.getMonth() + 1, 1),
   };
 }
 
@@ -105,14 +122,15 @@ export async function incrementUsage(
   tenantId: string,
   limitKey: string,
   periodStart?: Date,
+  by = 1,
 ): Promise<void> {
   const now = new Date();
   const ps = periodStart ?? new Date(now.getFullYear(), now.getMonth(), 1);
 
   await getPool().query(
     `INSERT INTO usage_counters (tenant_id, limit_key, period_start, count, updated_at)
-     VALUES ($1, $2, $3, 1, $4)
-     ON CONFLICT (tenant_id, limit_key, period_start) DO UPDATE SET count = usage_counters.count + 1, updated_at = $4`,
-    [tenantId, limitKey, ps, now],
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (tenant_id, limit_key, period_start) DO UPDATE SET count = usage_counters.count + $4, updated_at = $5`,
+    [tenantId, limitKey, ps, by, now],
   );
 }

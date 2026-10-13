@@ -8,6 +8,9 @@ vi.mock('@kuleplus/db', () => ({
     query: vi.fn(),
     connect: vi.fn(),
   })),
+  // Servis `withTransaction` içinde aktif istek kapsamını sorar; testte kapsam
+  // yok (null) → servis kendi bağlantısını açıp BEGIN/COMMIT çalıştırır.
+  getTenantScope: vi.fn(() => null),
 }));
 
 describe('StockService - Unit Tests', () => {

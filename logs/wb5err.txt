@@ -1,0 +1,33 @@
+[31m✗[39m Build failed in 251ms
+[31merror during build:
+[31mBuild failed with 1 error:
+
+[plugin vite-plugin-pwa:build]
+Error: Build failed with 1 error:
+
+[plugin vite:vue] C:/proje/Muhasebe/apps/web/src/views/DeliveriesView.vue:491:1
+RolldownError: Invalid end tag.
+SyntaxError: Invalid end tag.
+    at createCompilerError (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:1374:17)
+    at emitError (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:3001:5)
+    at Object.onclosetag (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:2408:9)
+    at Tokenizer.stateInClosingTagName (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:799:16)
+    at Tokenizer.parse (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:1157:16)
+    at Object.baseParse (C:\proje\Muhasebe\node_modules\@vue\compiler-core\dist\compiler-core.cjs.prod.js:3033:13)
+    at Object.parse (C:\proje\Muhasebe\node_modules\@vue\compiler-dom\dist\compiler-dom.cjs.prod.js:668:23)
+    at Object.parse$1 [as parse] (C:\proje\Muhasebe\node_modules\@vue\compiler-sfc\dist\compiler-sfc.cjs.js:1918:24)
+    at createDescriptor (file:///C:/proje/Muhasebe/node_modules/@vitejs/plugin-vue/dist/index.mjs:50:42)
+    at transformMain (file:///C:/proje/Muhasebe/node_modules/@vitejs/plugin-vue/dist/index.mjs:1358:33)
+    at aggregateBindingErrorsIntoJsError (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/error-Bj1xBdEY.mjs:49:18)
+    at plugin (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/bindingify-input-options-DCTviPFW.mjs:1638:60)
+    at file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/bindingify-input-options-DCTviPFW.mjs:2118:21
+    at plugin.<computed> (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/bindingify-input-options-DCTviPFW.mjs:2316:18)[31m
+    at aggregateBindingErrorsIntoJsError (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/error-Bj1xBdEY.mjs:49:18)
+    at unwrapBindingResult (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/error-Bj1xBdEY.mjs:19:128)
+    at #build (file:///C:/proje/Muhasebe/node_modules/rolldown/dist/shared/rolldown-jmAeXo_f.mjs:133:34)
+    at async buildEnvironment (file:///C:/proje/Muhasebe/node_modules/vite/dist/node/chunks/node.js:34490:66)
+    at async Object.build (file:///C:/proje/Muhasebe/node_modules/vite/dist/node/chunks/node.js:34911:19)
+    at async Object.buildApp (file:///C:/proje/Muhasebe/node_modules/vite/dist/node/chunks/node.js:34908:153)
+    at async CAC.<anonymous> (file:///C:/proje/Muhasebe/node_modules/vite/dist/node/cli.js:780:3) {
+  errors: [Getter/Setter]
+}[39m

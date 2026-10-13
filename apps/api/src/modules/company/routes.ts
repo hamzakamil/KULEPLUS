@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { CompanyService } from './service.js';
+import { IdentityService } from '../identity/service.js';
 import { validate } from '../../middleware/validate.js';
 import {
   companyApplicationSchema,
@@ -9,10 +10,12 @@ import {
   companySwitchSchema,
 } from './schemas.js';
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
+import { requirePlatformUser, requirePlatformOwner } from '../../middleware/platform.js';
 import { AppError } from '@kuleplus/shared';
 
 const router = Router();
 const service = new CompanyService();
+const identityService = new IdentityService();
 
 /** Public: Şirket başvurusu oluştur */
 router.post(
@@ -103,7 +106,7 @@ router.get(
   },
 );
 
-/** Şirket değiştir (tenant context switching) */
+/** Şirket değiştir (tenant context switching) — yeni access token döner (Faz 2 şirket seçici) */
 router.post(
   '/switch',
   validate(companySwitchSchema),
@@ -114,26 +117,17 @@ router.post(
         throw new AppError('UNAUTHENTICATED', 'Kullanıcı kimliği yok');
       }
       const result = await service.switchCompany(userId, req.body.tenantId);
-      res.json(result);
+      // Eski token eski tenant bağlamını taşır; istemci yeni token ile devam eder.
+      const accessToken = await identityService.issueAccessTokenForTenant(userId, result.tenantId);
+      res.json({ ...result, accessToken });
     } catch (error) {
       next(error);
     }
   },
 );
 
-/** Platform admin rotaları */
-const isPlatformAdmin = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  // TODO: Platform admin kontrolü (platform_owner rolü veya support_access_grants)
-  // Şimdilik basit bir kontrol
-  const userId = req.user?.sub;
-  if (!userId) {
-    throw new AppError('UNAUTHENTICATED', 'Kullanıcı kimliği yok');
-  }
-  // Platform admin kontrolü burada yapılacak
-  next();
-};
-
-router.use('/admin', isPlatformAdmin);
+/** Platform admin rotaları — Kritik: stub bypass kapatıldı, owner guard zorunlu. */
+router.use('/admin', requirePlatformUser(), requirePlatformOwner());
 
 /** Bekleyen başvuruları listele */
 router.get('/admin/applications', async (_req: Request, res: Response, next: NextFunction) => {

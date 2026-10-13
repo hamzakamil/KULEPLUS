@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { trackEvent } from '../analytics';
 
 /**
  * İletişim formu — POST {apiUrl}/api/v1/public/contact
@@ -41,7 +42,7 @@ async function submit(): Promise<void> {
       throw new Error(`Sunucu ${res.status} döndü`);
     }
     status.value = 'sent';
-    window.plausible?.('contact_form_submit');
+    trackEvent('contact_form_submit');
   } catch (e) {
     status.value = 'error';
     errorMessage.value =

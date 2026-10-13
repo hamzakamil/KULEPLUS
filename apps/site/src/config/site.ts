@@ -18,7 +18,7 @@ export const SITE = {
   ),
   apiUrl: (import.meta.env.PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, ''),
   plausibleDomain: import.meta.env.PUBLIC_PLAUSIBLE_DOMAIN ?? '',
-  // TODO(Faz 0): brand.md doldurulunca gerçek destek adresi ile değiştirilecek
+  // brand.md dolduruldu — gerçek destek adresi
   supportEmail: 'destek@kuleplus.com',
 } as const;
 

@@ -64,10 +64,20 @@ export const ERROR_CODES = {
     module: 'core',
     message: 'Bu işlem için yetkiniz yok.',
   },
+  INSUFFICIENT_BALANCE: {
+    httpStatus: 409,
+    module: 'accounting',
+    message: 'Yetersiz bakiye.',
+  },
   VALIDATION_ERROR: {
     httpStatus: 400,
     module: 'core',
     message: 'Geçersiz istek verisi.',
+  },
+  EXTERNAL_SERVICE_ERROR: {
+    httpStatus: 503,
+    module: 'core',
+    message: 'Harici servis erişilemiyor.',
   },
 } as const;
 

@@ -27,3 +27,13 @@ fatura) ticaret akışına aittir.
 
 ## Kapanış Kriteri
 GOVERNANCE §2 `trade` satırı fatura tablolarını içerir; yasak önek taraması temiz.
+
+## Uygulama Notu (8 Ekim 2026)
+Faz 2/3 kodunda fatura **yanlışlıkla** ayrı `modules/invoice/` klasörü + `requireEntitlement('invoices')`
+ile gelmişti; `'invoices'` diye bir modül kodu olmadığı için uçlar her koşulda 403 verirdi.
+Bu karar (ADR-0006/0007) koda uygulandı:
+- Klasör `modules/trade/invoice/` altına taşındı (klasör = modül kodu).
+- `requireEntitlement('trade')` kullanılır.
+- GOVERNANCE §2 `trade` satırına `tax_rates`, `invoice_sequences`, `invoice_payments` eklendi;
+  var olmayan `invoice_line_taxes` kaldırıldı.
+

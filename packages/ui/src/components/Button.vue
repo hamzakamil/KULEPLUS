@@ -6,7 +6,7 @@
       'disabled:opacity-50 disabled:pointer-events-none',
       variantClasses,
       sizeClasses,
-      $$props.class,
+      $attrs.class,
     ]"
     :disabled="disabled"
     @click="$emit('click', $event)"
@@ -16,17 +16,24 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
-  size?: 'sm' | 'md' | 'lg';
-  disabled?: boolean;
-}>();
+import { computed } from 'vue';
+
+defineOptions({ inheritAttrs: false });
+
+const props = withDefaults(
+  defineProps<{
+    variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+    size?: 'sm' | 'md' | 'lg';
+    disabled?: boolean;
+  }>(),
+  { variant: 'primary', size: 'md', disabled: false },
+);
 
 defineEmits<{
   (e: 'click', event: MouseEvent): void;
 }>();
 
-const variantClasses: Record<string, string> = {
+const VARIANT_CLASSES: Record<string, string> = {
   primary: 'bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600',
   secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus-visible:ring-gray-500',
   outline: 'border border-gray-300 bg-white hover:bg-gray-50 focus-visible:ring-blue-500',
@@ -34,9 +41,13 @@ const variantClasses: Record<string, string> = {
   danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600',
 };
 
-const sizeClasses: Record<string, string> = {
+const SIZE_CLASSES: Record<string, string> = {
   sm: 'h-8 px-3 text-xs',
   md: 'h-10 px-4 text-sm',
   lg: 'h-12 px-6 text-base',
 };
+
+// Tek varyant + tek boyut uygulanır (önceden tüm sınıflar aynı anda uygulanıyordu).
+const variantClasses = computed(() => VARIANT_CLASSES[props.variant] ?? '');
+const sizeClasses = computed(() => SIZE_CLASSES[props.size] ?? '');
 </script>

@@ -3,6 +3,10 @@ import pino from 'pino';
 import {
   createEmailSendHandler,
   createOutboxDispatchHandler,
+  createCurrencyImportHandler,
+  createEInvoiceOutboxHandler,
+  createDigestHandler,
+  createPushDispatchHandler,
   type EmailSendJob,
   type WorkerHandlerDeps,
 } from './handlers';
@@ -16,6 +20,10 @@ export const QUEUE_NAMES = {
   outbox: 'outbox-dispatch',
   email: 'email-send',
   tenantExport: 'tenant-export',
+  currencyImport: 'currency-import',
+  einvoiceOutbox: 'einvoice-outbox',
+  digest: 'management-digest',
+  push: 'notification-push',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -59,8 +67,68 @@ export async function startWorker({
     Object.values(QUEUE_NAMES).map((name) => [name, new Queue(name, { connection })]),
   ) as Record<QueueName, Queue>;
 
-  const emailHandler = handlers ? createEmailSendHandler(handlers) : null;
-  const outboxHandler = handlers
+  // Repeatable job: TCMB kur içe aktarma — her gün 16:30 (TCMB yayını sonrası).
+  // BullMQ v6: repeatable işler `upsertJobScheduler` ile kurulur (idempotent, jobId yerine scheduler key).
+  await queues[QUEUE_NAMES.currencyImport].upsertJobScheduler(
+    'daily-tcmb-import',
+    { pattern: '30 16 * * *', tz: 'Europe/Istanbul' },
+    {
+      name: 'daily-tcmb-import',
+      data: {},
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
+  // Repeatable job: e-Dönüşüm outbox — bekleyen gönderimleri her dakika işler (SPEC §21.2).
+  // Idempotent: einvoice_outbox attempts < max_attempts filtresi + sağlayıcı idempotent sözleşmesi.
+  await queues[QUEUE_NAMES.einvoiceOutbox].upsertJobScheduler(
+    'einvoice-outbox-dispatch',
+    { every: 60_000, immediately: true },
+    {
+      name: 'dispatch-pending',
+      data: {},
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
+  // Repeatable job: Günlük özet e-postası — her gün 08:00 (T-7.3, ROADMAP §819).
+  // Tenant saat dilimi varsayılanı Europe/Istanbul (tenants.timezone DEFAULT, ADR-0019).
+  await queues[QUEUE_NAMES.digest].upsertJobScheduler(
+    'daily-digest',
+    { pattern: '0 8 * * *', tz: 'Europe/Istanbul' },
+    {
+      name: 'daily-digest',
+      data: { period: 'daily' },
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
+  // Repeatable job: Haftalık özet e-postası — pazartesi 08:00 (ROADMAP §819).
+  await queues[QUEUE_NAMES.digest].upsertJobScheduler(
+    'weekly-digest',
+    { pattern: '0 8 * * 1', tz: 'Europe/Istanbul' },
+    {
+      name: 'weekly-digest',
+      data: { period: 'weekly' },
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
+  // Repeatable job: Web Push dağıtımı — bekleyen push teslimlerini her dakika işler
+  // (SPEC §17.2, ROADMAP §812). Sessiz saatlerde bekletilir; cihaz geçersizse pasifleştirilir.
+  await queues[QUEUE_NAMES.push].upsertJobScheduler(
+    'push-dispatch',
+    { every: 60_000, immediately: true },
+    {
+      name: 'dispatch-pending',
+      data: {},
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
+  const emailHandler =
+    handlers?.email && handlers?.outbox ? createEmailSendHandler(handlers) : null;
+  const outboxHandler = handlers?.outbox
     ? createOutboxDispatchHandler(handlers, async (data: EmailSendJob) => {
         await queues[QUEUE_NAMES.email].add('send', data, {
           // Idempotency: aynı outbox kaydı iki kez kuyruğa girmez (ADR-0020)
@@ -70,10 +138,24 @@ export async function startWorker({
         });
       })
     : null;
+  const currencyImportHandler = handlers ? createCurrencyImportHandler(handlers) : null;
+  // e-Dönüşüm handler'ı her zaman kurulur (handlers varsa): `handlers.einvoice` verilmezse
+  // `processEInvoiceOutboxRecord` içindeki mock fallback devreye girer (SPEC §21.2).
+  const einvoiceOutboxHandler = handlers
+    ? createEInvoiceOutboxHandler({ logger: log, einvoice: handlers.einvoice })
+    : null;
+  const digestHandler = handlers ? createDigestHandler(handlers) : null;
+  const pushHandler = handlers?.push ? createPushDispatchHandler(handlers) : null;
 
   const processor = async (name: QueueName, job: Job) => {
     if (name === QUEUE_NAMES.email && emailHandler) return emailHandler(job);
     if (name === QUEUE_NAMES.outbox && outboxHandler) return outboxHandler(job);
+    if (name === QUEUE_NAMES.currencyImport && currencyImportHandler)
+      return currencyImportHandler(job);
+    if (name === QUEUE_NAMES.einvoiceOutbox && einvoiceOutboxHandler)
+      return einvoiceOutboxHandler(job);
+    if (name === QUEUE_NAMES.digest && digestHandler) return digestHandler(job);
+    if (name === QUEUE_NAMES.push && pushHandler) return pushHandler(job);
     log.warn({ queue: name, jobId: job.id }, 'Handler atandı değil — job atlandı.');
   };
 
@@ -85,9 +167,16 @@ export async function startWorker({
     worker.on('error', (error) => log.error({ queue: Object.keys(QUEUE_NAMES)[i] }, String(error)));
   }
 
+  const wired: string[] = [];
+  if (emailHandler) wired.push('email-send');
+  if (outboxHandler) wired.push('outbox-dispatch');
+  if (currencyImportHandler) wired.push('currency-import');
+  if (einvoiceOutboxHandler) wired.push('einvoice-outbox');
+  if (digestHandler) wired.push('management-digest');
+  if (pushHandler) wired.push('notification-push');
   log.info(
-    handlers
-      ? "Worker hazır — email-send ve outbox-dispatch handler'ları bağlı."
+    wired.length > 0
+      ? `Worker hazır — bağlı handler'lar: ${wired.join(', ')}.`
       : 'Worker iskelet hazır (handler bağımlılıkları verilmedi).',
   );
   return {

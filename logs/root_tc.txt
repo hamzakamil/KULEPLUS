@@ -1,0 +1,29 @@
+
+> kuleplus@4.1.0 typecheck
+> npm run typecheck --workspaces --if-present
+
+
+> @kuleplus/api@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/web@0.1.0 typecheck
+> vue-tsc --noEmit
+
+
+> @kuleplus/worker@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/db@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/shared@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @kuleplus/ui@0.1.0 typecheck
+> vue-tsc --noEmit
+
+EXIT=0 
