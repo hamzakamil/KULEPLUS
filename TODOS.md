@@ -20,7 +20,13 @@
 - [x] **İzinler** — `subscription.subscription.{read,create,update,delete,manage}`: `packages/shared/src/permissions.ts` (tek kaynak) + migration katalog senkronu (`ON CONFLICT DO UPDATE`) + `docs/api/permissions-catalog.md`; down'da `DELETE` ile geri alınır.
 - [x] **Testler: `tests/subscription.test.ts` (12)** — CRUD (tenant kapsamı, global kaynak, alt kaynak filtresi, whitelist sızdırmazlığı, NOT_FOUND/VALIDATION_ERROR) + checkout (sipariş yok / `pending` değil / fiyat yok / tahsilat başarılı / kart reddi) + webhook (uygulanan ve yinelenen olay).
 - [x] **Doğrulama:** `typecheck` ✓ · `eslint` ✓ · `prettier` ✓ · `governance:check` ✓ (14 modül, 156 tablo) · testler **api 206**, tüm paketler yeşil.
-- ⏳ **Bekleyenler (Faz 4 kalanı):** K-03 fiyat kararının `prices` satırlarına yazılması, K-08 sanal POS (gerçek `PaymentProvider` + imzalı webhook), iade/taksit (`billing_refunds`, `billing_allocations` — GOVERNANCE §2'de ayrılmış, şeması henüz yok), kullanım sayaçları (`usage_counters`) ve web paneli ekranları.
+- [x] **İade + fatura/alacak eşleştirme (`billing_refunds`, `billing_allocations`)** — migration `202610360000_subscription_refunds.sql` (+down): iki tablo RLS + grant'lerle; `billing_payments` durum CHECK'i SPEC §8.7 sözlüğüne genişletildi (`partially_refunded`/`refunded`/`disputed`). **Canlı DB'ye uygulandı.**
+- [x] **`refundPayment` (kısmi/tam iade)** — ödeme `succeeded`/`partially_refunded` olmalı → kalan tutar `billing_refunds` toplamından hesaplanır (çift iade engeli) → `PaymentProvider.refund` (**harici I/O transaction dışında**) → TEK transaction: iade kaydı + ödeme durumu (`refunded`/`partially_refunded`) + tam iadede sipariş `refunded` + audit. Uç: `POST /api/v1/subscription/payments/:paymentId/refunds`.
+- [x] **`allocatePayment` (alacak eşleştirme, SPEC §8.6)** — `issued` fatura ↔ başarılı ödeme; toplam eşleştirme fatura bakiyesini aşamaz, para birimi uyuşmazlığı reddedilir, kalan bakiye döner. Checkout artık tahsilatı kestiği faturaya **otomatik eşleştirme** satırı yazar. Uç: `POST /api/v1/subscription/payments/:paymentId/allocations`.
+- [x] **Webhook `refund.succeeded`** — async iade onayı: `billing_refunds` `pending` → `succeeded` (yinelenen olay ikinci iade üretmez).
+- [x] **Testler: `tests/subscription.test.ts` (22)** — önceki 12 + iade 6 (ödeme yok / durum yanlış / bakiye kalmamış / tutar aşımı / tam iade / kısmi iade) + eşleştirme 4 (fatura yok / bakiye kalmamış / başarılı + audit / checkout eşleştirmesi).
+- [x] **Doğrulama (bu adım):** `typecheck` ✓ · `eslint` ✓ · `prettier` ✓ · `governance:check` ✓ (14 modül, 156 tablo) · testler **api 216** (önce 206).
+- ⏳ **Bekleyenler (Faz 4 kalanı):** K-03 fiyat kararının `prices` satırlarına yazılması, K-08 sanal POS (gerçek `PaymentProvider` + imzalı kamu webhook'u), gelir paneli (MRR/ARR + `platform_metrics_daily`), dunning/yeniden deneme ve web paneli ekranları.
 
 ### Faz 5 (Muhasebe) + Faz 2 (Public İletişim) — bu oturumda tamamlananlar
 - [x] **TDHP hesap planı genişletildi** — `apps/api/src/modules/accounting/tdhp.ts` 49 → **~260 hesap** (1 Dönen + 2 Duran Varlık, 3/4 Yabancı Kaynak, 5 Öz Kaynak, 6 Gelir Tablosu, 7 Maliyet). Önceki şablon 199'da kesiliyordu → bilanço/gelir tablosu ve otomatik muhasebeleştirme imkânsızdı. `ensureChartOfAccounts` idempotent bootstrap korundu.
@@ -254,6 +260,12 @@
 | brand.md: domain, destek e-postası | ⏳ Kullanıcı kararı — kişisel e-posta sızıntısı temizlendi |
 | Hosting bölgesi (TR) — K-12 | KVKK için kritik; karar verildi |
 | SMMM danışmanlığı, golden test | Dış kişi/şirket — Faz 2 sonrası ertelendi |
+
+### Faz 8 — Entegrasyonlar + Public API + WhatsApp ( Başlatıldı)
+- [x] **WhatsAppProvider arayüzü + MockProvider** — `whatsapp-port.ts` oluşturuldu; `WhatsAppProvider` interface + `MockWhatsAppProvider` implementasyonu EInvoiceProvider kalıbına (SPEC §29.1 Liskov) göre eklendi.
+- [ ] **§20 Webhook**: Zaten `/webhooks/:provider` rotası + handler mevcut, testler 43/43 yeşil.
+- [ ] **§22 Public API**: Açık API dokümantasyonu / eksik uçların belirlenmesi.
+- [ ] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi).
 
 ## 📌 Bu oturumda düzeltilen doküman↔kod tutarsızlıkları (8 Ekim 2026)
 | # | Tutarsızlık | Çözüm |

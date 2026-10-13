@@ -25,5 +25,13 @@ fix-*.mjs
 check-index.ts
 reset-ownership.sql
 
+# Yerel debug/audit artıkları ve tek seferlik araçlar (commitlenmez)
+TECHNICAL_AUDIT.md
+_*
+scripts/_*
+tools/
+*.tsbuildinfo
+packages/db/*.tmp.mts
+
 # Drizzle introspect/generate çıktıları — proje ham SQL migration kullanır (ROADMAP Kararı)
 packages/db/drizzle/
