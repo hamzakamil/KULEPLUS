@@ -42,7 +42,9 @@ function makeRes(statusCode = 200) {
 }
 
 function makeReq(overrides: Partial<AuthenticatedRequest['user']> = {}) {
-  return { user: { sub: 'user-1', email: 'a@b.com', tenantId: 'tenant-1', ...overrides } } as Request;
+  return {
+    user: { sub: 'user-1', email: 'a@b.com', tenantId: 'tenant-1', ...overrides },
+  } as unknown as Request;
 }
 
 /** async IIFE'nin (void (async()=>{})()) bitmesini bekle. */
@@ -61,7 +63,7 @@ describe('tenantContext middleware (SPEC §7.1)', () => {
     membershipQuery.mockReset();
     vi.mocked(getPool).mockReturnValue({ query: membershipQuery } as unknown as ReturnType<typeof getPool>);
     vi.mocked(beginTenantScope).mockResolvedValue({
-      scope: { client: {}, tenantId: 'tenant-1' },
+      scope: { client: {} as never, tenantId: 'tenant-1' },
       finish,
     });
     vi.mocked(runWithTenantScope).mockImplementation((_scope, fn) => fn());
