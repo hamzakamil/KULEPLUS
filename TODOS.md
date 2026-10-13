@@ -2,7 +2,7 @@
 
 **Amaç:** ROADMAP v5.1.0'a göre ilerlemeyi, tamamlananları ve sıradaki adımları takip etmek.
 **Son güncelleme:** 13 Ekim 2026
-**Durum:** Faz 0 ✅ onaylandı · Faz 1 ✅ onaylandı → **Faz 2 başladı**
+**Durum:** Faz 0–3 · 5 · 6 · 8 ✅ tamamlandı · **Faz 4 (e-Dönüşüm) 🔄** · **Faz 7 (patron deneyimi/frontend) 🔄** devam
 
 **İlgili dokümanlar:** `docs/ROADMAP.md` · `docs/GOVERNANCE.md` · `docs/TECHNICAL_SPEC.md` · `readme.md`
 
