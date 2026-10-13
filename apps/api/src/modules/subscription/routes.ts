@@ -200,6 +200,17 @@ mountResource('partnerCommissions', '/partners/:partnerId/commissions', {
   parentParam: 'partnerId',
   mode: 'create',
 });
+// İade + alacak eşleştirme kayıtları (ödeme altında, salt okunur — yazma uçları aşağıda):
+mountResource('billingRefunds', '/payments/:paymentId/refunds', {
+  idParam: 'refundId',
+  parentParam: 'paymentId',
+  mode: 'read',
+});
+mountResource('billingAllocations', '/payments/:paymentId/allocations', {
+  idParam: 'allocationId',
+  parentParam: 'paymentId',
+  mode: 'read',
+});
 
 // Üst kaynaklar:
 mountResource('commercialOrders', '/orders');
