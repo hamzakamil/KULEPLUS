@@ -15,10 +15,12 @@
 | # | Değişiklik |
 |---|-----------|
 | 1 | **K-03: Fiyatlandırma kararları** (6f31a89) — Core+ `299 ₺/ay`, `2990 ₺/yıl`, Enterprise `799 ₺/ay`, `7990 ₺/yıl`. Her ikisi de KDV hariç. Seed + migration + site fiyat sayfası birleştirildi. |
-| 2 | **Faz 8 tamamlandı** (bbab236) — WhatsAppProvider arayüzü + MockProvider (`SPEC S18/S29.1`), `GET /api/v1/public/status` (kimliksiz sistem durumu uçu). |
-| 3 | **Faz 8: WhatsAppProvider arayüzü + mock** (8d716c4) — `packages/shared/src/integrations/whatsapp.ts` + `whatsapp-mock.test.ts`. |
+| 2 | **Faz 8 tamamlandı — Entegrasyon & Webhook** (405f15f, 37ee3a4) — `/api/v1/integrations` CRUD + `webhook_events` / `integration_credentials` / `external_mappings` tabloları (RLS), HMAC-SHA256 imza doğrulama (`SPEC §20`), `GET /integrations/:id/events` ucu. Web'de `IntegrationsView` + Pinia store + `/integrations` rotası + nav linki. |
+| 3 | **Faz 8: WhatsApp + Public API** (bbab236, 8d716c4) — `WhatsAppProvider` arayüzü + `MockProvider` (`SPEC §18/§29.1`), `GET /api/v1/public/status` (kimliksiz sistem durumu ucu). |
 | 4 | **Faz 4 Hat B: iade + alacak eşleştirme** (5848a2b) — `billing_refunds`, `billing_allocations` tabloları + webhook işleyicisi. |
 | 5 | **Faz 4 Hat B: Subscription billing (mock)** (0123389, 18ea46f) — checkout, webhook, subscription billing alt yapısı. |
+
+*Doğrulama: `typecheck` ✓ · `vue-tsc` ✓ · testler **216/216** ✓ · `governance:check` ✓ (14 modül, 156 tablo).*
 
 ---
 
