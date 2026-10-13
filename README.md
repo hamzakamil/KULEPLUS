@@ -2,7 +2,7 @@
 
 ### Patron için sade, muhasebeci için derin. Modüler, çok şirketli (multi-tenant) bulut yazılımı.
 
-**Sürüm:** 4.1.0 · **Güncelleme:** 5 Ekim 2026 · **Durum:** Planlama / Faz 0
+**Sürüm:** 4.3.0 · **Güncelleme:** 13 Ekim 2026 · **Durum:** Planlama / Faz 0
 **İlgili dokümanlar:** [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) · [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 > Bu README ürünün **ne olduğunu, kime satıldığını ve nasıl ayağa kaldırılacağını** anlatır.
