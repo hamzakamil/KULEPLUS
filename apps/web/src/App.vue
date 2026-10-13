@@ -146,6 +146,7 @@ const navGroups: {
       { to: '/management/approvals', label: 'Onay Kutusu', module: 'management' },
       { to: '/management/rules', label: 'Kural Ayarları', module: 'management' },
       { to: '/integrations', label: 'Entegrasyonlar', module: 'integrations' },
+      { to: '/subscription', label: 'Abonelik & Faturalar', module: 'subscription' },
     ],
   },
   { label: 'Ayarlar', items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }] },
