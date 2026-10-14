@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createHmac } from 'node:crypto';
 import { SubscriptionService } from '../src/modules/subscription/service';
-import { IyzicoPaymentProvider } from '@kuleplus/shared';
+import { IyzicoPaymentProvider } from '@kuleplus/shared/integrations/payment-server';
 
 /**
  * İmzalı kamu webhook'u (K-08 sanal POS) testleri.

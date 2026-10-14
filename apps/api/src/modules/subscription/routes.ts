@@ -22,7 +22,7 @@ import {
   type ManualConfirmInput,
 } from './schemas';
 import { SubscriptionService, type ResourceSelector } from './service';
-import { createPaymentProvider } from '@kuleplus/shared';
+import { createPaymentProvider } from '@kuleplus/shared/integrations/payment-server';
 
 const router = Router();
 

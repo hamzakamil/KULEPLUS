@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import pino from 'pino';
-import { createPaymentProvider } from '@kuleplus/shared';
+import { createPaymentProvider } from '@kuleplus/shared/integrations/payment-server';
 import { QUEUE_NAMES, startWorker } from './index';
 import {
   createEInvoiceMockProvider,

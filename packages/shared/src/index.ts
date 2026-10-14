@@ -53,13 +53,6 @@ export type {
   WebhookEvent,
 } from './integrations/payment';
 export { MockPaymentProvider } from './integrations/mock-payment';
-export {
-  IyzicoPaymentProvider,
-  buildIyzicoAuthHeader,
-  verifyIyzicoWebhookSignature,
-} from './integrations/iyzico-payment';
-export type { IyzicoConfig, IyzicoAuthHeader } from './integrations/iyzico-payment';
-export { createPaymentProvider } from './integrations/payment-factory';
 export type {
   CancelResult,
   EDocumentStatus,
