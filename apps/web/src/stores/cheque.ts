@@ -38,6 +38,34 @@ export interface PortfolioSummaryRow {
   totalAmount: number;
 }
 
+export interface DueCalendarRow {
+  id: string;
+  chequeType: 'cheque' | 'promissory';
+  direction: 'incoming' | 'outgoing';
+  chequeNo: string;
+  serialNo?: string | null;
+  drawerName: string;
+  dueDate: string;
+  amount: number;
+  currency: string;
+  status: ChequeStatus;
+  portfolioHolder: ChequeHolder;
+}
+
+export interface ChequeTransaction {
+  id: string;
+  chequeId: string;
+  transactionType: string;
+  fromStatus: string | null;
+  toStatus: string;
+  transactionDate: string;
+  amount: number | null;
+  partyName: string | null;
+  journalEntryId: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
 export interface CreateChequeInput {
   cheque_type?: 'cheque' | 'promissory';
   direction: 'incoming' | 'outgoing';
@@ -55,6 +83,8 @@ export interface CreateChequeInput {
 export const useChequeStore = defineStore('cheque', () => {
   const cheques = ref<Cheque[]>([]);
   const portfolioSummary = ref<PortfolioSummaryRow[]>([]);
+  const dueCalendar = ref<DueCalendarRow[]>([]);
+  const transactions = ref<ChequeTransaction[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -118,9 +148,37 @@ export const useChequeStore = defineStore('cheque', () => {
     }
   };
 
+  /** Vade takvimi: portföydeki yaklaşan vadeler (backend dueCalendar — Faz 6.6). */
+  const fetchDueCalendar = async (days = 30) => {
+    error.value = null;
+    try {
+      const response = await api.get('/v1/cheques/portfolio/due-calendar', {
+        params: { days },
+      });
+      dueCalendar.value = response.data ?? [];
+    } catch (err) {
+      error.value = errorMessage(err, 'Vade takvimi yüklenemedi');
+    }
+  };
+
+  /** Çekin durum geçmişi (cheque_transactions — Faz 6.6). */
+  const fetchTransactions = async (chequeId: string) => {
+    error.value = null;
+    try {
+      const response = await api.get(`/v1/cheques/${chequeId}/transactions`, {
+        params: { limit: 50 },
+      });
+      transactions.value = response.data.items ?? response.data.data ?? [];
+    } catch (err) {
+      error.value = errorMessage(err, 'Durum geçmişi yüklenemedi');
+    }
+  };
+
   return {
     cheques,
     portfolioSummary,
+    dueCalendar,
+    transactions,
     loading,
     error,
     fetchCheques,
@@ -130,5 +188,7 @@ export const useChequeStore = defineStore('cheque', () => {
     bounceCheque,
     cancelCheque,
     fetchPortfolioSummary,
+    fetchDueCalendar,
+    fetchTransactions,
   };
 });

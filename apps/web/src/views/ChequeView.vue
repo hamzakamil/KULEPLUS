@@ -10,7 +10,7 @@ import { useCashBankStore } from '@/stores/cash-bank';
 
 const store = useChequeStore();
 const cashBank = useCashBankStore();
-const activeTab = ref<'cheques' | 'portfolio'>('cheques');
+const activeTab = ref<'cheques' | 'portfolio' | 'calendar'>('cheques');
 const info = ref<string | null>(null);
 const today = new Date().toISOString().slice(0, 10);
 
@@ -27,6 +27,18 @@ const HOLDER_LABELS: Record<string, string> = {
   bank: 'Bankada',
   customer: 'Müşteride',
   supplier: 'Tedarikçide',
+};
+const TYPE_LABELS: Record<string, string> = {
+  cheque: 'Çek',
+  promissory: 'Senet',
+};
+const TRANSACTION_LABELS: Record<string, string> = {
+  created: 'Oluşturuldu',
+  endorsed: 'Ciro Edildi',
+  collected: 'Tahsil Edildi',
+  bounced: 'Karşılıksız',
+  cancelled: 'İptal',
+  note: 'Not',
 };
 
 function formatMoney(v: number | string | null | undefined): string {
@@ -122,6 +134,14 @@ function openAction(kind: ActionKind, cheque: Cheque) {
     reason: '',
   });
 }
+
+/** Durum geçmişi modal'ı — Faz 6.6 (vade takvimi + durum geçmişi görünürlüğü). */
+const historyModal = ref<Cheque | null>(null);
+async function openHistory(cheque: Cheque) {
+  info.value = null;
+  historyModal.value = cheque;
+  await store.fetchTransactions(cheque.id);
+}
 async function submitAction() {
   const modal = actionModal.value;
   if (!modal) return;
@@ -156,7 +176,12 @@ async function submitAction() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCheques(), loadPortfolio(), cashBank.fetchAccounts()]);
+  await Promise.all([
+    loadCheques(),
+    loadPortfolio(),
+    cashBank.fetchAccounts(),
+    store.fetchDueCalendar(30),
+  ]);
 });
 </script>
 
@@ -188,6 +213,14 @@ onMounted(async () => {
         @click="activeTab = 'portfolio'"
       >
         Portföy
+      </button>
+      <button
+        type="button"
+        class="tab"
+        :class="{ active: activeTab === 'calendar' }"
+        @click="activeTab = 'calendar'"
+      >
+        Vade Takvimi
       </button>
     </nav>
 
@@ -254,6 +287,13 @@ onMounted(async () => {
                     İptal
                   </button>
                 </template>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openHistory(c)"
+                >
+                  Geçmiş
+                </button>
               </td>
             </tr>
             <tr v-if="store.cheques.length === 0">
@@ -264,7 +304,7 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section v-else class="card">
+    <section v-else-if="activeTab === 'portfolio'" class="card">
       <div class="card-head">
         <h2 class="card-title">Portföy Özeti</h2>
       </div>
@@ -292,6 +332,40 @@ onMounted(async () => {
         </table>
       </div>
       <p class="muted small">Aktif çek (portföy + ciro): {{ activeCheques.length }}</p>
+    </section>
+
+    <section v-else class="card">
+      <div class="card-head">
+        <h2 class="card-title">Vade Takvimi</h2>
+        <span class="muted small">Portföydeki yaklaşan vadeler (önümüzdeki 30 gün)</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Tür</th>
+              <th>Vade</th>
+              <th>Çek No</th>
+              <th>Keşideci</th>
+              <th>Yön</th>
+              <th class="num">Tutar</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in store.dueCalendar" :key="d.id">
+              <td>{{ TYPE_LABELS[d.chequeType] ?? d.chequeType }}</td>
+              <td class="mono">{{ d.dueDate }}</td>
+              <td class="mono">{{ d.chequeNo }}</td>
+              <td>{{ d.drawerName }}</td>
+              <td>{{ d.direction === 'incoming' ? 'Alınan' : 'Verilen' }}</td>
+              <td class="num">{{ formatMoney(d.amount) }}</td>
+            </tr>
+            <tr v-if="store.dueCalendar.length === 0">
+              <td colspan="6" class="muted">Önümüzdeki 30 günde vadesi gelen aktif çek yok.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <div v-if="showModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="chq-title">
@@ -434,6 +508,54 @@ onMounted(async () => {
             İptal
           </button>
           <button type="button" class="btn btn-primary btn-sm" @click="submitAction">Onayla</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="historyModal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="chq-hist-title"
+    >
+      <div class="modal-card">
+        <h2 id="chq-hist-title" class="card-title">Durum Geçmişi — {{ historyModal.chequeNo }}</h2>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Tarih</th>
+                <th>İşlem</th>
+                <th>Geçiş</th>
+                <th class="num">Tutar</th>
+                <th>Taraf</th>
+                <th>Fiş</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="t in store.transactions" :key="t.id">
+                <td class="mono">{{ t.transactionDate }}</td>
+                <td>{{ TRANSACTION_LABELS[t.transactionType] ?? t.transactionType }}</td>
+                <td>
+                  <template v-if="t.fromStatus">{{ STATUS_LABELS[t.fromStatus] ?? t.fromStatus }} → </template
+                  >{{ STATUS_LABELS[t.toStatus] ?? t.toStatus }}
+                </td>
+                <td class="num">{{ t.amount != null ? formatMoney(t.amount) : '—' }}</td>
+                <td>{{ t.partyName ?? '—' }}</td>
+                <td>{{ t.journalEntryId ? '✓' : '—' }}</td>
+              </tr>
+              <tr v-if="store.transactions.length === 0">
+                <td colspan="6" class="muted">Durum geçmişi kaydı yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-secondary btn-sm" @click="historyModal = null">
+            Kapat
+          </button>
         </div>
       </div>
     </div>
