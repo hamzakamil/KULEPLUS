@@ -39,7 +39,13 @@ export interface RenderedEmail {
 }
 
 const BRAND = 'Kuleplus';
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173';
+/**
+ * CTA bağlantı tabanı. `process` Node'a özeldir; bu modül `@kuleplus/shared`
+ * barrel'ı üzerinden tarayıcıya (Vite) da girebildiği için erişim koşulludur —
+ * aksi halde tarayıcıda "process is not defined" ile modül grafiği çöker.
+ */
+const APP_URL =
+  (typeof process !== 'undefined' ? process.env?.APP_URL : undefined) ?? 'http://localhost:5173';
 
 /** HTML kaçışı — tüm değişkenler bu fonksiyondan geçer (SPEC §27.4). */
 function esc(value: string | undefined): string {
