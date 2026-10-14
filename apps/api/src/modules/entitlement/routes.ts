@@ -10,7 +10,7 @@ const router = Router();
 
 /** Tenant entitlement'lerini listele */
 router.get(
-  '/entitlements',
+  '/',
   authenticate,
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
@@ -54,7 +54,7 @@ router.get(
 
 /** Modül yetkisi doğrula - requireModule service fonksiyonunu kullanır */
 router.post(
-  '/entitlements/check-module',
+  '/check-module',
   authenticate,
   validate(requireModuleSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -85,7 +85,7 @@ router.post(
 
 /** Limit kontrolü - checkLimit service fonksiyonunu kullanır */
 router.post(
-  '/entitlements/check-limit',
+  '/check-limit',
   authenticate,
   validate(checkLimitSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -116,7 +116,7 @@ router.post(
 
 /** Kullanım sayacını artır - incrementUsage service fonksiyonunu kullanır */
 router.post(
-  '/entitlements/increment-usage',
+  '/increment-usage',
   authenticate,
   validate(incrementUsageSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
