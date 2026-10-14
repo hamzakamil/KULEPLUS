@@ -1,6 +1,6 @@
 <template>
   <div class="management-view">
-    <header class="page-header">
+    <header v-if="!embedded" class="page-header">
       <div>
         <h1 class="page-title">Bildirim Tercihleri</h1>
         <p class="page-sub">
@@ -131,6 +131,8 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '@/lib/push';
+
+defineProps<{ embedded?: boolean }>();
 
 const CHANNELS: { key: NotificationChannel; label: string }[] = [
   { key: 'in_app', label: 'Uygulama içi' },
@@ -440,3 +442,4 @@ async function save(type: string): Promise<void> {
   color: var(--c-success, #16a34a);
 }
 </style>
+

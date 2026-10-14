@@ -1,6 +1,6 @@
 <template>
   <div class="management-view">
-    <header class="page-header">
+    <header v-if="!embedded" class="page-header">
       <div>
         <h1 class="page-title">Kural Ayarları</h1>
         <p class="page-sub">
@@ -101,6 +101,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useManagementStore, type RuleSetting } from '@/stores/management';
+
+defineProps<{ embedded?: boolean }>();
 
 const store = useManagementStore();
 const rules = computed(() => store.rules);
@@ -256,3 +258,4 @@ async function save(rule: RuleSetting): Promise<void> {
   font-size: 0.875rem;
 }
 </style>
+

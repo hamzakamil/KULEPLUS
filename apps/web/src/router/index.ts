@@ -104,10 +104,14 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
-    path: '/settings/expense-categories',
-    name: 'expense-categories',
-    component: () => import('@/views/ExpenseCategoriesView.vue'),
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/views/SettingsView.vue'),
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/settings/expense-categories',
+    redirect: { name: 'settings', query: { group: 'finance', tab: 'expenses' } },
   },
   { path: '/reports', name: 'reports', component: ReportView, meta: { requiresAuth: true } },
   {
@@ -162,14 +166,12 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/management/preferences',
     name: 'management-preferences',
-    component: () => import('@/views/ManagementPreferencesView.vue'),
-    meta: { requiresAuth: true },
+    redirect: { name: 'settings', query: { group: 'management', tab: 'notifications' } },
   },
   {
     path: '/management/rules',
     name: 'management-rules',
-    component: () => import('@/views/ManagementRulesView.vue'),
-    meta: { requiresAuth: true },
+    redirect: { name: 'settings', query: { group: 'management', tab: 'rules' } },
   },
   {
     path: '/management/approvals',

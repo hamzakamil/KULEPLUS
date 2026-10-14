@@ -147,9 +147,7 @@ const navGroups: {
       { to: '/management/tasks', label: 'Görevler', module: 'management' },
       { to: '/management/appointments', label: 'Randevular', module: 'management' },
       { to: '/management/notifications', label: 'Bildirimler', module: 'management' },
-      { to: '/management/preferences', label: 'Bildirim Tercihleri', module: 'management' },
       { to: '/management/approvals', label: 'Onay Kutusu', module: 'management' },
-      { to: '/management/rules', label: 'Kural Ayarları', module: 'management' },
       { to: '/integrations', label: 'Entegrasyonlar', module: 'integrations' },
       { to: '/subscription', label: 'Abonelik & Faturalar', module: 'subscription' },
       { to: '/einvoice', label: 'e-Dönüşüm', module: 'einvoice' },
@@ -157,8 +155,8 @@ const navGroups: {
     ],
   },
   {
-    label: 'Ayarlar',
-    items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }],
+    label: 'Yapılandırma',
+    items: [{ to: '/settings', label: 'Ayarlar' }],
   },
 ];
 

@@ -1,6 +1,6 @@
 <template>
   <div class="cat-settings">
-    <header class="page-header">
+    <header v-if="!embedded" class="page-header">
       <div>
         <h1 class="page-title">Gider Kategori Ayarları</h1>
         <p class="page-sub">
@@ -186,6 +186,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { EXPENSE_GROUPS, useExpenseStore, type ExpenseCategory } from '@/stores/expense';
+
+defineProps<{ embedded?: boolean }>();
 
 const store = useExpenseStore();
 const groups = EXPENSE_GROUPS;
@@ -394,3 +396,4 @@ tr.inactive td {
   color: #475569;
 }
 </style>
+
