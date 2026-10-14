@@ -69,6 +69,35 @@ export class AccountingService {
     }
   }
 
+  /**
+   * Denetim kaydı — yazma işlemiyle AYNI transaction'da (ADR-0016, SPEC §27.3).
+   * tenant_id sunucu tarafında `current_tenant_id()` ile bağlanır (body'den gelmez);
+   * GUC tanımsızsa (bağımsız test çağrısı) NULL yazılır (kolon nullable).
+   */
+  private async writeAudit(
+    client: PoolClient,
+    entry: {
+      userId?: string;
+      action: string;
+      entityId: string;
+      oldValues?: Record<string, unknown> | null;
+      newValues?: Record<string, unknown> | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, old_values, new_values, created_at)
+       VALUES ($1, current_tenant_id(), $2, $3, 'journal_entries', $4, $5, $6, now())`,
+      [
+        newId(),
+        entry.userId ?? null,
+        entry.action,
+        entry.entityId,
+        entry.oldValues ? JSON.stringify(entry.oldValues) : null,
+        entry.newValues ? JSON.stringify(entry.newValues) : null,
+      ],
+    );
+  }
+
   /** Kapali dönem kontrolü - dönem kilidi varsa ve tarih kilidin öncesindeyse engel. */
   private async assertPeriodOpen(client: PoolClient, entryDate: string): Promise<void> {
     const period = await client.query(
@@ -198,10 +227,15 @@ export class AccountingService {
            updated_by = $8, updated_at = now()
          WHERE id = $9 AND tenant_id = current_tenant_id()`,
         [
-          input.code ?? null, input.name ?? null, input.type ?? null,
-          input.parent_id ?? null, input.is_active ?? null,
-          input.opening_debit ?? null, input.opening_credit ?? null,
-          userId, id,
+          input.code ?? null,
+          input.name ?? null,
+          input.type ?? null,
+          input.parent_id ?? null,
+          input.is_active ?? null,
+          input.opening_debit ?? null,
+          input.opening_credit ?? null,
+          userId,
+          id,
         ],
       );
       return this.getAccountById(id, tenantId);
@@ -246,10 +280,26 @@ export class AccountingService {
       const from = query.entry_date_from as string | undefined;
       const to = query.entry_date_to as string | undefined;
       const q = (query.q as string)?.trim();
-      if (status) { conditions.push(`e.status = $${i}`); values.push(status); i++; }
-      if (type) { conditions.push(`e.entry_type = $${i}`); values.push(type); i++; }
-      if (from) { conditions.push(`e.entry_date >= $${i}`); values.push(from); i++; }
-      if (to) { conditions.push(`e.entry_date <= $${i}`); values.push(to); i++; }
+      if (status) {
+        conditions.push(`e.status = $${i}`);
+        values.push(status);
+        i++;
+      }
+      if (type) {
+        conditions.push(`e.entry_type = $${i}`);
+        values.push(type);
+        i++;
+      }
+      if (from) {
+        conditions.push(`e.entry_date >= $${i}`);
+        values.push(from);
+        i++;
+      }
+      if (to) {
+        conditions.push(`e.entry_date <= $${i}`);
+        values.push(to);
+        i++;
+      }
       if (q) {
         conditions.push(`( e.description ILIKE $${i} OR e.entry_no::text ILIKE $${i})`);
         values.push(`%${q}%`);
@@ -304,7 +354,8 @@ export class AccountingService {
       const d = Number(l.debit ?? 0);
       const c = Number(l.credit ?? 0);
       if (d < 0 || c < 0) throw new AppError('VALIDATION_ERROR', 'Negatif tutar girilemez');
-      if (d > 0 && c > 0) throw new AppError('VALIDATION_ERROR', 'Satir tek tarafli olmali (borc veya alacak)');
+      if (d > 0 && c > 0)
+        throw new AppError('VALIDATION_ERROR', 'Satir tek tarafli olmali (borc veya alacak)');
       if (d === 0 && c === 0) throw new AppError('VALIDATION_ERROR', 'Bos satir girilemez');
       debit += d;
       credit += c;
@@ -343,13 +394,38 @@ export class AccountingService {
             source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
         [
-          entryId, entryNo, input.entry_date, input.period_id ?? null, input.entry_type,
-          input.status, input.description, input.source_type ?? null, input.source_id ?? null,
-          null, totals.debit, totals.credit,
-          postNow ? userId : null, postNow ? new Date() : null, userId,
+          entryId,
+          entryNo,
+          input.entry_date,
+          input.period_id ?? null,
+          input.entry_type,
+          input.status,
+          input.description,
+          input.source_type ?? null,
+          input.source_id ?? null,
+          null,
+          totals.debit,
+          totals.credit,
+          postNow ? userId : null,
+          postNow ? new Date() : null,
+          userId,
         ],
       );
       await this.insertLines(client, entryId, input.lines, userId);
+      await this.writeAudit(client, {
+        userId,
+        action: 'create',
+        entityId: entryId,
+        newValues: {
+          entry_no: entryNo,
+          entry_date: input.entry_date,
+          entry_type: input.entry_type,
+          status: input.status,
+          description: input.description,
+          total_debit: totals.debit,
+          total_credit: totals.credit,
+        },
+      });
       return { id: entryId, entryNo, status: input.status, totals };
     });
   }
@@ -380,7 +456,8 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
-      if (found.rows[0].status !== 'posted') throw new AppError('FORBIDDEN', 'Yalnizca onayli fis ters kaydedilir');
+      if (found.rows[0].status !== 'posted')
+        throw new AppError('FORBIDDEN', 'Yalnizca onayli fis ters kaydedilir');
       const orig = found.rows[0];
       await this.assertPeriodOpen(client, orig.entry_date);
 
@@ -399,9 +476,18 @@ export class AccountingService {
             source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, 'posted', $6, $7, $8, $9, $10, $11, $11, now(), $11, $11)`,
         [
-          reversalId, entryNo, orig.entry_date, orig.period_id, 'ters',
-          `${orig.description} - TERS KAYIT`, orig.source_type, orig.source_id,
-          id, orig.total_credit, orig.total_debit, userId,
+          reversalId,
+          entryNo,
+          orig.entry_date,
+          orig.period_id,
+          'ters',
+          `${orig.description} - TERS KAYIT`,
+          orig.source_type,
+          orig.source_id,
+          id,
+          orig.total_credit,
+          orig.total_debit,
+          userId,
         ],
       );
 
@@ -417,6 +503,12 @@ export class AccountingService {
           [newId(), reversalId, l.line_no, l.account_id, l.description, l.credit, l.debit, userId],
         );
       }
+      await this.writeAudit(client, {
+        userId,
+        action: 'reverse',
+        entityId: id,
+        newValues: { reversal_id: reversalId, reversal_entry_no: entryNo },
+      });
       return { id: reversalId, entryNo, status: 'posted' as const };
     });
   }
@@ -429,13 +521,21 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status === 'posted') throw new AppError('FORBIDDEN', 'Onayli fis iptal edilemez; ters kayit kullanin');
+      if (found.rows[0].status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis iptal edilemez; ters kayit kullanin');
       if (found.rows[0].status === 'cancelled') return { success: true };
       await client.query(
         `UPDATE journal_entries SET status = 'cancelled', updated_by = $1, updated_at = now()
           WHERE id = $2 AND tenant_id = current_tenant_id()`,
         [userId, id],
       );
+      await this.writeAudit(client, {
+        userId,
+        action: 'cancel',
+        entityId: id,
+        oldValues: { status: found.rows[0].status },
+        newValues: { status: 'cancelled' },
+      });
       return { success: true };
     });
   }
@@ -448,13 +548,15 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
-      if (found.rows[0].status === 'posted') throw new AppError('FORBIDDEN', 'Onayli fis guncellenemez');
+      if (found.rows[0].status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis guncellenemez');
       const totals = this.validateLines(input.lines ?? []);
       const postNow = input.status === 'posted';
       if (postNow && totals.debit !== totals.credit) {
         throw new AppError('VALIDATION_ERROR', 'Fis dengeli degil (SPEC §10.5)');
       }
-      if (postNow) await this.assertPeriodOpen(client, input.entry_date ?? found.rows[0].entry_date);
+      if (postNow)
+        await this.assertPeriodOpen(client, input.entry_date ?? found.rows[0].entry_date);
 
       await client.query(
         `UPDATE journal_entries SET
@@ -468,13 +570,33 @@ export class AccountingService {
            updated_by = $8, updated_at = now()
          WHERE id = $9 AND tenant_id = current_tenant_id()`,
         [
-          input.entry_date ?? null, input.period_id ?? null, input.entry_type ?? null,
-          input.description ?? null, input.status ?? null,
-          totals.debit, totals.credit, userId, id,
+          input.entry_date ?? null,
+          input.period_id ?? null,
+          input.entry_type ?? null,
+          input.description ?? null,
+          input.status ?? null,
+          totals.debit,
+          totals.credit,
+          userId,
+          id,
         ],
       );
       await this.deleteLines(client, id);
       await this.insertLines(client, id, input.lines ?? [], userId);
+      await this.writeAudit(client, {
+        userId,
+        action: 'update',
+        entityId: id,
+        oldValues: found.rows[0],
+        newValues: {
+          entry_date: input.entry_date ?? found.rows[0].entry_date,
+          entry_type: input.entry_type ?? found.rows[0].entry_type,
+          status: input.status ?? found.rows[0].status,
+          description: input.description ?? found.rows[0].description,
+          total_debit: totals.debit,
+          total_credit: totals.credit,
+        },
+      });
       return this.getEntryById(id, tenantId);
     });
   }
@@ -494,12 +616,18 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status === 'posted') throw new AppError('FORBIDDEN', 'Onayli fis silinemez; iptal edilir');
+      if (found.rows[0].status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis silinemez; iptal edilir');
       if (found.rows[0].status === 'cancelled') return { success: true };
       await client.query(
         'DELETE FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
       );
+      await this.writeAudit(client, {
+        action: 'delete',
+        entityId: id,
+        oldValues: found.rows[0],
+      });
       return { success: true };
     });
   }
@@ -517,9 +645,21 @@ export class AccountingService {
       const entryId = query.entry_id as string | undefined;
       const accountId = query.account_id as string | undefined;
       const q = (query.q as string)?.trim();
-      if (entryId) { conditions.push(`l.entry_id = $${i}`); values.push(entryId); i++; }
-      if (accountId) { conditions.push(`l.account_id = $${i}`); values.push(accountId); i++; }
-      if (q) { conditions.push(`l.description ILIKE $${i}`); values.push(`%${q}%`); i++; }
+      if (entryId) {
+        conditions.push(`l.entry_id = $${i}`);
+        values.push(entryId);
+        i++;
+      }
+      if (accountId) {
+        conditions.push(`l.account_id = $${i}`);
+        values.push(accountId);
+        i++;
+      }
+      if (q) {
+        conditions.push(`l.description ILIKE $${i}`);
+        values.push(`%${q}%`);
+        i++;
+      }
       const where = conditions.join(' AND ');
       const [list, count] = await Promise.all([
         client.query(
@@ -564,12 +704,22 @@ export class AccountingService {
         [input.entry_id],
       );
       if (entry.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
-      if (entry.rows[0].status !== 'draft') throw new AppError('FORBIDDEN', 'Yalnizca draft fislerde satir eklenebilir');
+      if (entry.rows[0].status !== 'draft')
+        throw new AppError('FORBIDDEN', 'Yalnizca draft fislerde satir eklenebilir');
       const lineId = newId();
       await client.query(
         `INSERT INTO journal_lines (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
            VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
-        [lineId, input.entry_id, input.line_no, input.account_id, input.description ?? '', input.debit, input.credit, userId],
+        [
+          lineId,
+          input.entry_id,
+          input.line_no,
+          input.account_id,
+          input.description ?? '',
+          input.debit,
+          input.credit,
+          userId,
+        ],
       );
       return this.getLineById(lineId, tenantId);
     });
@@ -584,7 +734,8 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status === 'posted') throw new AppError('FORBIDDEN', 'Onayli fis satiri guncellenemez');
+      if (found.rows[0].status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis satiri guncellenemez');
       await client.query(
         `UPDATE journal_lines SET
            line_no = COALESCE($1, line_no),
@@ -594,7 +745,15 @@ export class AccountingService {
            credit = COALESCE($5, credit),
            updated_by = $6, updated_at = now()
          WHERE id = $7 AND tenant_id = current_tenant_id()`,
-        [input.line_no ?? null, input.account_id ?? null, input.description ?? null, input.debit ?? null, input.credit ?? null, userId, id],
+        [
+          input.line_no ?? null,
+          input.account_id ?? null,
+          input.description ?? null,
+          input.debit ?? null,
+          input.credit ?? null,
+          userId,
+          id,
+        ],
       );
       return this.getLineById(id, tenantId);
     });
@@ -610,7 +769,8 @@ export class AccountingService {
         [id],
       );
       if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status === 'posted') throw new AppError('FORBIDDEN', 'Onayli fis satiri silinemez');
+      if (found.rows[0].status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis satiri silinemez');
       await client.query(
         'DELETE FROM journal_lines WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
@@ -618,7 +778,6 @@ export class AccountingService {
       return { success: true };
     });
   }
-
 
   // ==================== Mali Dönem ====================
 
@@ -633,9 +792,21 @@ export class AccountingService {
       const year = query.year as number | undefined;
       const status = query.status as string | undefined;
       const q = (query.q as string)?.trim();
-      if (year) { conditions.push(`p.year = $${i}`); values.push(year); i++; }
-      if (status) { conditions.push(`p.status = $${i}`); values.push(status); i++; }
-      if (q) { conditions.push(`p.label ILIKE $${i}`); values.push(`%${q}%`); i++; }
+      if (year) {
+        conditions.push(`p.year = $${i}`);
+        values.push(year);
+        i++;
+      }
+      if (status) {
+        conditions.push(`p.status = $${i}`);
+        values.push(status);
+        i++;
+      }
+      if (q) {
+        conditions.push(`p.label ILIKE $${i}`);
+        values.push(`%${q}%`);
+        i++;
+      }
       const where = conditions.join(' AND ');
       const [list, count] = await Promise.all([
         client.query(
@@ -672,9 +843,13 @@ export class AccountingService {
         `INSERT INTO fiscal_periods (id, tenant_id, label, year, start_date, end_date, status, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $7)`,
         [
-          periodId, input.label, input.year,
-          input.start_date, input.end_date,
-          input.status || 'open', userId,
+          periodId,
+          input.label,
+          input.year,
+          input.start_date,
+          input.end_date,
+          input.status || 'open',
+          userId,
         ],
       );
       return this.getPeriodById(periodId, tenantId);
@@ -693,9 +868,13 @@ export class AccountingService {
            updated_by = $6, updated_at = now()
          WHERE id = $7 AND tenant_id = current_tenant_id()`,
         [
-          input.label ?? null, input.year ?? null,
-          input.start_date ?? null, input.end_date ?? null,
-          input.status ?? null, userId, id,
+          input.label ?? null,
+          input.year ?? null,
+          input.start_date ?? null,
+          input.end_date ?? null,
+          input.status ?? null,
+          userId,
+          id,
         ],
       );
       return this.getPeriodById(id, tenantId);
@@ -731,7 +910,11 @@ export class AccountingService {
       const values: unknown[] = [];
       let i = 1;
       const periodId = query.period_id as string | undefined;
-      if (periodId) { conditions.push(`pl.period_id = $${i}`); values.push(periodId); i++; }
+      if (periodId) {
+        conditions.push(`pl.period_id = $${i}`);
+        values.push(periodId);
+        i++;
+      }
       const where = conditions.join(' AND ');
       const [list, count] = await Promise.all([
         client.query(
@@ -782,10 +965,7 @@ export class AccountingService {
            reason = COALESCE($3, reason),
            updated_by = $4, updated_at = now()
          WHERE id = $5 AND tenant_id = current_tenant_id()`,
-        [
-          input.period_id ?? null, input.lock_date ?? null,
-          input.reason ?? null, userId, id,
-        ],
+        [input.period_id ?? null, input.lock_date ?? null, input.reason ?? null, userId, id],
       );
       return this.getLockById(id, tenantId);
     });
@@ -819,9 +999,21 @@ export class AccountingService {
       const code = query.code as string | undefined;
       const name = query.name as string | undefined;
       const is_active = query.is_active as string | undefined;
-      if (code) { conditions.push(`pr.code = $${i}`); values.push(code); i++; }
-      if (name) { conditions.push(`pr.name = $${i}`); values.push(name); i++; }
-      if (is_active) { conditions.push(`pr.is_active = $${i}`); values.push(is_active); i++; }
+      if (code) {
+        conditions.push(`pr.code = $${i}`);
+        values.push(code);
+        i++;
+      }
+      if (name) {
+        conditions.push(`pr.name = $${i}`);
+        values.push(name);
+        i++;
+      }
+      if (is_active) {
+        conditions.push(`pr.is_active = $${i}`);
+        values.push(is_active);
+        i++;
+      }
       const where = conditions.join(' AND ');
       const [list, count] = await Promise.all([
         client.query(
@@ -857,10 +1049,7 @@ export class AccountingService {
       await client.query(
         `INSERT INTO posting_rules (id, tenant_id, code, name, config, is_active, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $6)`,
-        [
-          ruleId, input.code, input.name,
-          input.config || '{}', input.is_active || true, userId,
-        ],
+        [ruleId, input.code, input.name, input.config || '{}', input.is_active || true, userId],
       );
       return this.getRuleById(ruleId, tenantId);
     });
@@ -877,8 +1066,12 @@ export class AccountingService {
            updated_by = $5, updated_at = now()
          WHERE id = $6 AND tenant_id = current_tenant_id()`,
         [
-          input.code ?? null, input.name ?? null,
-          input.config || '{}', input.is_active || true, userId, id,
+          input.code ?? null,
+          input.name ?? null,
+          input.config || '{}',
+          input.is_active || true,
+          userId,
+          id,
         ],
       );
       return this.getRuleById(id, tenantId);
@@ -912,8 +1105,16 @@ export class AccountingService {
       let i = 1;
       const sourceType = query.source_type as string | undefined;
       const direction = query.direction as string | undefined;
-      if (sourceType) { conditions.push(`am.source_type = $${i}`); values.push(sourceType); i++; }
-      if (direction) { conditions.push(`am.direction = $${i}`); values.push(direction); i++; }
+      if (sourceType) {
+        conditions.push(`am.source_type = $${i}`);
+        values.push(sourceType);
+        i++;
+      }
+      if (direction) {
+        conditions.push(`am.direction = $${i}`);
+        values.push(direction);
+        i++;
+      }
       const where = conditions.join(' AND ');
       const [list, count] = await Promise.all([
         client.query(
@@ -955,7 +1156,12 @@ export class AccountingService {
     });
   }
 
-  async updateMapping(id: string, input: UpdateAccountMappingInput, userId: string, tenantId?: string) {
+  async updateMapping(
+    id: string,
+    input: UpdateAccountMappingInput,
+    userId: string,
+    tenantId?: string,
+  ) {
     return this.withTenantClient(tenantId, async (client) => {
       await client.query(
         `UPDATE account_mappings SET
@@ -964,7 +1170,13 @@ export class AccountingService {
            direction = COALESCE($3, direction),
            updated_by = $4, updated_at = now()
          WHERE id = $5 AND tenant_id = current_tenant_id()`,
-        [input.source_type || null, input.account_id || null, input.direction || 'debit', userId, id],
+        [
+          input.source_type || null,
+          input.account_id || null,
+          input.direction || 'debit',
+          userId,
+          id,
+        ],
       );
       return this.getMappingById(id, tenantId);
     });
@@ -1176,8 +1388,6 @@ export class AccountingService {
     });
   }
 }
-
-
 
 /**
  * Ham SQL satırları (snake_case kolonlar) → API nesnesi dönüşümleri.
@@ -1481,4 +1691,3 @@ export async function balanceSheet(input?: { as_of?: string }, tenantId?: string
 export async function incomeStatement(input?: { from?: string; to?: string }, tenantId?: string) {
   return accountingService.incomeStatement(input ?? {}, tenantId);
 }
-
