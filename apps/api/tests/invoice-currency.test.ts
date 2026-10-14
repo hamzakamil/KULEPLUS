@@ -290,6 +290,109 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       expect(updateCall![1][0]).toBe(400); // paid_amount belge PB sinde (total ile aynı birim)
       expect(updateCall![1][1]).toBe(800); // balance 1200 - 400
     });
+
+    /** Kur farkı senaryoları: ödeme günü kuru TCMB'den çözülür (rate), fatura kuru sabit 32.5. */
+    function routePaymentWithRate(rate: string, type: 'sales' | 'purchase' = 'sales') {
+      clientQuery.mockImplementation((sql: string) => {
+        const s = String(sql);
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+        if (s.includes('current_tenant_id() AS tid'))
+          return Promise.resolve({ rows: [{ tid: 'tenant-1' }] });
+        if (s.includes('FROM invoices')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'inv-1',
+                number: 'FAT-2026-000000001',
+                type,
+                total: '1200',
+                paid_amount: '0',
+                balance: '1200',
+                currency: 'USD',
+                exchange_rate: '32.5',
+              },
+            ],
+            rowCount: 1,
+          });
+        }
+        if (s.includes('FROM exchange_rates'))
+          return Promise.resolve({ rows: [{ rate, rate_date: '2026-10-02' }] });
+        if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ total: '1' }] });
+        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
+        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '9' }] });
+        return Promise.resolve({ rows: [] });
+      });
+    }
+
+    it('tahsilatta ödeme günü kuru daha yüksekse kur farkı kambiyo kârı olarak 645 hesabına yazılır', async () => {
+      routePaymentWithRate('33');
+      await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
+
+      // Ödeme TRY karşılığı ödeme günü kuruyla: 400 × 33 = 13200; cari kapanışı fatura kuruyla:
+      // 400 × 32.5 = 13000; fark 200 → kambiyo kârı (645 credit).
+      const payCall = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO invoice_payments'),
+      );
+      expect(payCall![1][2]).toBe(400); // belge PB
+      expect(payCall![1][7]).toBe(33); // ödeme kuru kalıcı
+      expect(payCall![1][8]).toBe(13200); // TRY karşılık kalıcı
+
+      const entryCall = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO journal_entries'),
+      );
+      expect(entryCall![1][6]).toBe(13200); // dengeli fiş (borç = alacak)
+
+      const lineCalls = clientQuery.mock.calls.filter((c) =>
+        String(c[0]).includes('INSERT INTO journal_lines'),
+      );
+      expect(lineCalls).toHaveLength(3);
+      expect(lineCalls[0][1][5]).toBe(13200); // kasa borç
+      expect(lineCalls[0][1][6]).toBe(0);
+      expect(lineCalls[1][1][5]).toBe(0);
+      expect(lineCalls[1][1][6]).toBe(13000); // 120 kapanış (fatura kuru)
+      expect(lineCalls[2][1][5]).toBe(0);
+      expect(lineCalls[2][1][6]).toBe(200); // 645 kambiyo kârı
+    });
+
+    it('tahsilatta ödeme günü kuru daha düşükse kur farkı kambiyo zararı olarak 655 e yazılır', async () => {
+      routePaymentWithRate('32');
+      await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
+
+      const lineCalls = clientQuery.mock.calls.filter((c) =>
+        String(c[0]).includes('INSERT INTO journal_lines'),
+      );
+      expect(lineCalls).toHaveLength(3);
+      expect(lineCalls[0][1][5]).toBe(12800); // kasa borç (400 × 32)
+      expect(lineCalls[0][1][6]).toBe(0);
+      expect(lineCalls[1][1][5]).toBe(0);
+      expect(lineCalls[1][1][6]).toBe(13000); // 120 kapanış
+      expect(lineCalls[2][1][5]).toBe(200); // 655 kambiyo zararı borç
+      expect(lineCalls[2][1][6]).toBe(0);
+    });
+
+    it('tediyede kur arttıysa ödenen fazla TL kambiyo zararı (655) olur', async () => {
+      routePaymentWithRate('33', 'purchase');
+      await service.addPayment(
+        'inv-1',
+        { amount: 400, payment_method: 'bank_transfer' } as never,
+        'user-1',
+      );
+
+      const lineCalls = clientQuery.mock.calls.filter((c) =>
+        String(c[0]).includes('INSERT INTO journal_lines'),
+      );
+      expect(lineCalls).toHaveLength(3);
+      expect(lineCalls[0][1][5]).toBe(13000); // 320 borç (fatura kuru kapanışı)
+      expect(lineCalls[0][1][6]).toBe(0);
+      expect(lineCalls[1][1][5]).toBe(0);
+      expect(lineCalls[1][1][6]).toBe(13200); // banka alacak (ödeme günü kuru)
+      expect(lineCalls[2][1][5]).toBe(200); // 655 kambiyo zararı
+      expect(lineCalls[2][1][6]).toBe(0);
+    });
   });
 });
 

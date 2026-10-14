@@ -647,10 +647,30 @@ export class InvoiceService {
       }
 
       const invoice = invoiceResult.rows[0];
-      // Çoklu para birimi (SPEC §9.2): tahsilat belge para biriminde kaydedilir (paid_amount/balance,
-      // invoices.total ile aynı birimde kalır), otomatik fiş ise fatura kuruyla TRY karşılığa (base) çevrilir.
-      const baseRate = Number(invoice.exchange_rate ?? 1);
-      const baseAmount = Number(data.amount) * baseRate;
+      const paymentDate = data.payment_date ?? new Date().toISOString().split('T')[0];
+
+      // Çoklu para birimi + kur farkı (SPEC §9.2):
+      // - paid_amount/balance, invoices.total ile aynı birimde (belge para biriminde) kalır.
+      // - Otomatik fiş TRY karşılıkla kesilir. Kur farkı hesapları (645 kambiyo kârı / 655 kambiyo
+      //   zararı) ve ödeme tarihi kuru çözülebiliyorsa ödeme ödeme günü kuruyla TRY'ye çevrilir;
+      //   fatura kuru (-kapanış) ile fark 645/655'e kur farkı olarak yazılır. Kur çözülemezse
+      //   fatura kuru kullanılır (kur farkı doğmaz — eski davranış).
+      const invoiceRate = Number(invoice.exchange_rate ?? 1);
+      const invoiceCurrency = (invoice.currency || 'TRY').toUpperCase();
+      const gainAccount = await this.resolveAccountByCode(client, '645');
+      const lossAccount = await this.resolveAccountByCode(client, '655');
+      let paymentRate = invoiceRate;
+      if (gainAccount && lossAccount && invoiceCurrency !== 'TRY') {
+        try {
+          const resolved = await this.resolveInvoiceRate(client, invoiceCurrency, undefined, paymentDate);
+          paymentRate = resolved.exchangeRate;
+        } catch {
+          /* kur çözülemedi → fatura kuru kullanılır */
+        }
+      }
+      const baseAmount = Number(data.amount) * paymentRate;
+      // Faturanın kurundan kapanış payı — cari (120/320) fatura kuruyla kapatılır.
+      const invoicePortion = Number(data.amount) * invoiceRate;
       const newPaidAmount = Number(invoice.paid_amount) + data.amount;
       const newBalance = Number(invoice.total) - newPaidAmount;
 
@@ -659,11 +679,10 @@ export class InvoiceService {
       else if (newPaidAmount > 0) newStatus = 'partial';
 
       const paymentId = newId();
-      const paymentDate = data.payment_date ?? new Date().toISOString().split('T')[0];
 
       await client.query(
-        `INSERT INTO invoice_payments (id, invoice_id, amount, payment_date, payment_method, reference, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        `INSERT INTO invoice_payments (id, invoice_id, amount, payment_date, payment_method, reference, notes, exchange_rate, base_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           paymentId,
           invoiceId,
@@ -672,6 +691,8 @@ export class InvoiceService {
           data.payment_method,
           data.reference ?? null,
           data.notes ?? null,
+          paymentRate,
+          baseAmount,
         ],
       );
 
@@ -721,12 +742,22 @@ export class InvoiceService {
           const lines = isInflow
             ? [
                 { accountId: cashBank, debit: baseAmount, credit: 0 },
-                { accountId: control, debit: 0, credit: baseAmount },
+                { accountId: control, debit: 0, credit: invoicePortion },
               ]
             : [
-                { accountId: control, debit: baseAmount, credit: 0 },
+                { accountId: control, debit: invoicePortion, credit: 0 },
                 { accountId: cashBank, debit: 0, credit: baseAmount },
               ];
+          // Kur farkı: satışta +fark kambiyo kârı (645), alışta +fark kambiyo zararı (655).
+          const fxDiff = baseAmount - invoicePortion;
+          let fxGain = 0;
+          let fxLoss = 0;
+          if (Math.abs(fxDiff) >= 0.005) {
+            if ((isInflow && fxDiff > 0) || (!isInflow && fxDiff < 0)) fxGain = Math.abs(fxDiff);
+            else fxLoss = Math.abs(fxDiff);
+          }
+          if (fxGain > 0) lines.push({ accountId: gainAccount!, debit: 0, credit: fxGain });
+          if (fxLoss > 0) lines.push({ accountId: lossAccount!, debit: fxLoss, credit: 0 });
           let lineNo = 1;
           for (const l of lines) {
             await client.query(
@@ -750,7 +781,7 @@ export class InvoiceService {
           invoice_id: invoiceId,
           invoice_number: invoice.number,
           amount: data.amount,
-          exchange_rate: baseRate,
+          exchange_rate: paymentRate,
           base_amount: baseAmount,
           payment_method: data.payment_method,
           new_status: newStatus,
