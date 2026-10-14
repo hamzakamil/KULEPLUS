@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { NextFunction, Response } from 'express';
 import { requirePlatformUser, requirePlatformOwner, requirePlatformRole } from '../src/middleware/platform';
 import type { PlatformRequest } from '../src/middleware/platform';
-import { AppError } from '@kuleplus/shared';
+import { type AppError } from '@kuleplus/shared';
 
 /**
  * Platform yetkilendirme middleware'i — SPEC §5.1, ADR-0003 (güvenlik-kritik).

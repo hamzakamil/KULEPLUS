@@ -12,7 +12,7 @@
  * (bkz. `invoice-posting.test.ts` ve `./db-test-utils.ts`).
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, type vi } from 'vitest';
 import { InvoiceService } from '../../src/modules/trade/invoice/service';
 import { createFakePool } from './db-test-utils';
 
