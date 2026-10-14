@@ -183,10 +183,13 @@ function toggleGroup(groupLabel: string) {
 </script>
 
 <template>
-  <a class="skip-link" href="#icerik">{{ t('web.a11y.skip') }}</a>
+  <!-- Skip link yalnızca tekrarlı gezinme (uygulama kabuğu) varken anlamlıdır. -->
+  <a v-if="isAuthenticated" class="skip-link" href="#icerik">{{ t('web.a11y.skip') }}</a>
 
-  <!-- Giriş yapılmamışken (login/2fa) çıplak ekran -->
-  <RouterView v-if="!isAuthenticated" id="icerik" />
+  <!-- Giriş yapılmamışken (login/2fa) çıplak ekran.
+       NOT: RouterView'a id verilmez — fragment root'lu view'larda attribute
+       otomatik taşınamaz ("Extraneous non-props attributes" Vue uyarısı). -->
+  <RouterView v-if="!isAuthenticated" />
 
   <!-- Uygulama kabuğu: sabit sol kenar çubuğu + içerik alanı -->
   <div v-else class="app-shell">
@@ -268,9 +271,9 @@ function toggleGroup(groupLabel: string) {
       </div>
     </aside>
 
-    <div class="main">
-      <RouterView id="icerik" />
-    </div>
+    <main id="icerik" class="main" tabindex="-1">
+      <RouterView />
+    </main>
 
     <!-- Kirli fatura taslağı varken geri dönüş affordance'ı (erp-workspace-panels) -->
     <button
