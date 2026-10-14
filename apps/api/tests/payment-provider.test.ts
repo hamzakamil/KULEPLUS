@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPaymentProvider } from '../src/modules/subscription/payment-provider';
-import { IyzicoPaymentProvider, MockPaymentProvider } from '@kuleplus/shared';
+import { createPaymentProvider, IyzicoPaymentProvider, MockPaymentProvider } from '@kuleplus/shared';
 
 /**
  * Ödeme sağlayıcı seçimi testleri — Faz 4 K-08 (SPEC §29.1 adapter kalıbı).

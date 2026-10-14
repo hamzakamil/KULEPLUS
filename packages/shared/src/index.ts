@@ -59,6 +59,7 @@ export {
   verifyIyzicoWebhookSignature,
 } from './integrations/iyzico-payment';
 export type { IyzicoConfig, IyzicoAuthHeader } from './integrations/iyzico-payment';
+export { createPaymentProvider } from './integrations/payment-factory';
 export type {
   CancelResult,
   EDocumentStatus,
@@ -97,5 +98,11 @@ export type {
 } from './management/indicators';
 export { formatDigestSummary } from './management/digest';
 export type { DigestPeriod } from './management/digest';
+export { claimDueDunningRow, applyDunningOutcome } from './subscription/dunning';
+export type {
+  DunningClaimRow,
+  ApplyDunningInput,
+  ProcessDunningResult,
+} from './subscription/dunning';
 export { isWithinQuietHours, buildPushPayload, entityPath } from './management/push';
 export type { QuietHours, PushPayload, PushPayloadInput } from './management/push';

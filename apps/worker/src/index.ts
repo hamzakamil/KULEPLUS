@@ -7,6 +7,7 @@ import {
   createEInvoiceOutboxHandler,
   createDigestHandler,
   createPushDispatchHandler,
+  createDunningHandler,
   type EmailSendJob,
   type WorkerHandlerDeps,
 } from './handlers';
@@ -24,6 +25,7 @@ export const QUEUE_NAMES = {
   einvoiceOutbox: 'einvoice-outbox',
   digest: 'management-digest',
   push: 'notification-push',
+  billingDunning: 'billing-dunning',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -126,6 +128,19 @@ export async function startWorker({
     },
   );
 
+  // Repeatable job: Faturalama dunning — vadesi gelmiş başarısız tahsilatları yeniden dener
+  // (SPEC §8.7/§8.8). Idempotent: SKIP LOCKED + processing işareti (ADR-0020). `handlers.payment`
+  // yoksa handler kurulmaz ve job'lar atlanır (K-08 kapalıyken no-op).
+  await queues[QUEUE_NAMES.billingDunning].upsertJobScheduler(
+    'billing-dunning',
+    { every: 60_000, immediately: true },
+    {
+      name: 'process-due',
+      data: {},
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
   const emailHandler =
     handlers?.email && handlers?.outbox ? createEmailSendHandler(handlers) : null;
   const outboxHandler = handlers?.outbox
@@ -146,6 +161,9 @@ export async function startWorker({
     : null;
   const digestHandler = handlers ? createDigestHandler(handlers) : null;
   const pushHandler = handlers?.push ? createPushDispatchHandler(handlers) : null;
+  // Dunning handler'ı yalnız payment sağlayıcısı verildiyse kurulur (K-08). Verilmezse
+  // job'lar "handler atandı değil" ile atlanır (geliştirme/iskelet davranışı).
+  const dunningHandler = handlers?.payment ? createDunningHandler(handlers) : null;
 
   const processor = async (name: QueueName, job: Job) => {
     if (name === QUEUE_NAMES.email && emailHandler) return emailHandler(job);
@@ -156,6 +174,7 @@ export async function startWorker({
       return einvoiceOutboxHandler(job);
     if (name === QUEUE_NAMES.digest && digestHandler) return digestHandler(job);
     if (name === QUEUE_NAMES.push && pushHandler) return pushHandler(job);
+    if (name === QUEUE_NAMES.billingDunning && dunningHandler) return dunningHandler(job);
     log.warn({ queue: name, jobId: job.id }, 'Handler atandı değil — job atlandı.');
   };
 
@@ -174,6 +193,7 @@ export async function startWorker({
   if (einvoiceOutboxHandler) wired.push('einvoice-outbox');
   if (digestHandler) wired.push('management-digest');
   if (pushHandler) wired.push('notification-push');
+  if (dunningHandler) wired.push('billing-dunning');
   log.info(
     wired.length > 0
       ? `Worker hazır — bağlı handler'lar: ${wired.join(', ')}.`

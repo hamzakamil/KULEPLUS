@@ -20,7 +20,7 @@ import {
   type AllocationInput,
 } from './schemas';
 import { SubscriptionService, type ResourceSelector } from './service';
-import { createPaymentProvider } from './payment-provider';
+import { createPaymentProvider } from '@kuleplus/shared';
 
 const router = Router();
 

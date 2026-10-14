@@ -1,5 +1,6 @@
-import { MockPaymentProvider, type PaymentProvider } from '@kuleplus/shared';
-import { IyzicoPaymentProvider } from '@kuleplus/shared';
+import { MockPaymentProvider } from './mock-payment.js';
+import { IyzicoPaymentProvider } from './iyzico-payment.js';
+import type { PaymentProvider } from './payment.js';
 
 /**
  * Ödeme sağlayıcı seçimi (Faz 4 K-08, SPEC §29.1 adapter kalıbı).
@@ -9,12 +10,12 @@ import { IyzicoPaymentProvider } from '@kuleplus/shared';
  *  - `iyzico` → IyzicoPaymentProvider (gerçek sanal POS; anahtarlar zorunlu).
  *  - `manual` → MockPaymentProvider (havale/EFT manuel onay — K-08 sonrası).
  *
- * Fail-fast (Faz 1 ilkesi): `iyzico` seçiliyse API/secret/pricing plan
- * anahtarları okunduğu anda doğrulanır; eksikse açıkça hata fırlatılır.
+ * Hem API (`SubscriptionService`) hem worker (`billing-dunning` handler) bu tek
+ * fabrikayı kullanır; ortam okuma bir yerde toplanır (DRY + DIP — modüller
+ * `apps/*` değil paylaşılan çekirdek). Fail-fast (Faz 1 ilkesi): `iyzico` seçiliyse
+ * anahtarlar okunduğu anda doğrulanır, eksikse açıkça hata fırlatılır.
  *
- * Sınır: burada `process.env` doğrudan okunur (routes modül seviyesinde servis
- * kurulur; env singleton'ı createApp'e parametre olarak geçtiği için). Birim
- * testler env'yi geçici olarak ayarlayıp doğrular.
+ * Sınır: `process.env` doğrudan okunur; birim testler env'yi geçici olarak ayarlayıp doğrular.
  */
 export function createPaymentProvider(env: NodeJS.ProcessEnv = process.env): PaymentProvider {
   const kind = env.PAYMENT_PROVIDER ?? 'mock';

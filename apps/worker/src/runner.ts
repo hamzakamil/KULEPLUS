@@ -1,7 +1,12 @@
 import 'dotenv/config';
 import pino from 'pino';
+import { createPaymentProvider } from '@kuleplus/shared';
 import { QUEUE_NAMES, startWorker } from './index';
-import { createEInvoiceMockProvider, createWebPushMockProvider, createWebPushProvider } from './handlers';
+import {
+  createEInvoiceMockProvider,
+  createWebPushMockProvider,
+  createWebPushProvider,
+} from './handlers';
 
 const logger = pino({
   level: process.env.NODE_ENV === 'test' ? 'silent' : 'info',
@@ -26,17 +31,39 @@ function createWorkerPushProvider(logger: pino.Logger) {
   return createWebPushMockProvider(logger);
 }
 
+/**
+ * Ödeme sağlayıcısını ortamdan seçer (Faz 4 K-08, dunning için gerekli).
+ * `PAYMENT_PROVIDER=mock` (dev varsayılan) → Mock; `iyzico` → gerçek sanal POS
+ * (anahtarlar zorunlu, eksikse fail-fast). Fabrika `@kuleplus/shared`'ta (API ile
+ * paylaşımlı — DRY/DIP); `manual` da Mock üzerinden imzalı webhook ile ilerler.
+ */
+function createWorkerPaymentProvider(logger: pino.Logger) {
+  const kind = process.env.PAYMENT_PROVIDER ?? 'mock';
+  try {
+    if (kind !== 'mock' && kind !== 'manual') {
+      logger.info(`Ödeme: ${kind} sağlayıcısı etkin (dunning).`);
+    }
+    return createPaymentProvider(process.env);
+  } catch (error) {
+    // Fail-fast: iyzico seçiliyse anahtarlar eksikse worker başlamamalı (Faz 1 ilkesi).
+    logger.error(`Ödeme sağlayıcısı kurulamadı: ${String(error)}`);
+    throw error;
+  }
+}
+
 const { queues, close } = await startWorker({
   redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
   logger,
   // e-Dönüşüm sağlayıcısı: dev'de idempotent mock (SPEC §29.1). Gerçek GİB entegratörü
   // (K-07 kararı sonrası) aynı `WorkerEInvoicePort` arayüzünü implement eder → buradan değişir.
   // Web Push: VAPID anahtarları tanımlıysa gerçek gönderim, değilse log mock'u (dev).
+  // Ödeme: PAYMENT_PROVIDER seçimine göre (dunning handler'ını etkinleştirir).
   // E-posta/outbox bağımlılıkları verilmediği için ilgili handler'lar kurulmaz (iskelet kalır).
   handlers: {
     logger,
     einvoice: createEInvoiceMockProvider(),
     push: createWorkerPushProvider(logger),
+    payment: createWorkerPaymentProvider(logger),
   },
 });
 

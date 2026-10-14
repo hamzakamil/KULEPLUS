@@ -2,11 +2,15 @@ import { getPool } from '@kuleplus/db';
 import {
   AppError,
   MockPaymentProvider,
+  applyDunningOutcome,
+  claimDueDunningRow,
   compareMoney,
   newId,
   subMoney,
+  type DunningClaimRow,
   type MoneyString,
   type PaymentProvider,
+  type ProcessDunningResult,
 } from '@kuleplus/shared';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
@@ -133,13 +137,6 @@ interface ScheduleDunningResult {
   subscriptionId: string;
   attemptCount: number;
   gracePeriodUntil: string;
-}
-
-/** Dunning işleme sonucu — worker tek turda raporlar. */
-interface ProcessDunningResult {
-  processed: number;
-  succeeded: number;
-  suspended: number;
 }
 
 /** İade edilebilir ödeme satırı (`billing_payments`). */
@@ -1090,40 +1087,10 @@ export class SubscriptionService {
   }
 
   /** Vadesi gelmiş ilk denemeyi kilitler (eşzamanlı worker güvenli — SKIP LOCKED). */
-  private async claimDueDunning(tenantId: string): Promise<{
-    id: string;
-    subscription_id: string;
-    order_id: string;
-    attempt_no: number;
-    amount: MoneyString;
-    currency: string;
-  } | null> {
-    return this.withTenantClient(tenantId, async (client) => {
-      const r = await client.query<{
-        id: string;
-        subscription_id: string;
-        order_id: string;
-        attempt_no: number;
-        amount: MoneyString;
-        currency: string;
-      }>(
-        `SELECT da.id, da.subscription_id, da.order_id, da.attempt_no, co.amount::text AS amount, co.currency
-           FROM dunning_attempts da
-           JOIN commercial_orders co ON co.id = da.order_id
-          WHERE da.status = 'pending' AND da.scheduled_at <= now()
-            AND da.tenant_id = current_tenant_id()
-          ORDER BY da.attempt_no
-          FOR UPDATE OF da SKIP LOCKED
-          LIMIT 1`,
-      );
-      const row = r.rows[0];
-      if (!row) return null;
-      await client.query(
-        `UPDATE dunning_attempts SET status = 'processing', processed_at = now() WHERE id = $1`,
-        [row.id],
-      );
-      return row;
-    });
+  private async claimDueDunning(tenantId: string): Promise<DunningClaimRow | null> {
+    return this.withTenantClient(tenantId, (client) =>
+      claimDueDunningRow((text, params) => client.query(text, params)),
+    );
   }
 
   /**
@@ -1153,52 +1120,13 @@ export class SubscriptionService {
     });
     const succeeded = charge.status === 'succeeded';
 
-    return this.withTenantClient(tenantId, async (client) => {
-      await client.query(
-        `UPDATE dunning_attempts
-           SET status = $2, provider_ref = $3, detail = $4, processed_at = now()
-         WHERE id = $1 AND tenant_id = current_tenant_id()`,
-        [attempt.id, succeeded ? 'succeeded' : 'failed', charge.providerRef, charge.detail ?? null],
-      );
-      if (succeeded) {
-        await client.query(
-          `UPDATE dunning_attempts SET status = 'skipped', processed_at = now()
-           WHERE subscription_id = $1 AND status = 'pending' AND tenant_id = current_tenant_id()`,
-          [attempt.subscription_id],
-        );
-        await client.query(
-          `UPDATE subscriptions
-             SET status = 'active', grace_period_until = NULL,
-                 current_period_start = now(), current_period_end = now() + interval '1 month',
-                 updated_at = now()
-           WHERE id = $1 AND tenant_id = current_tenant_id()`,
-          [attempt.subscription_id],
-        );
-        await client.query(
-          `UPDATE commercial_orders SET status = 'paid', updated_at = now()
-           WHERE id = $1 AND tenant_id = current_tenant_id() AND status <> 'paid'`,
-          [attempt.order_id],
-        );
-        return { processed: 1, succeeded: 1, suspended: 0 };
-      }
-      const { rows } = await client.query<{ remaining: number; grace: Date | null }>(
-        `SELECT
-           (SELECT count(*)::int FROM dunning_attempts
-             WHERE subscription_id = $1 AND status = 'pending') AS remaining,
-           (SELECT grace_period_until FROM subscriptions WHERE id = $1) AS grace`,
-        [attempt.subscription_id],
-      );
-      const remaining = rows[0]?.remaining ?? 0;
-      const gracePassed = rows[0]?.grace ? rows[0].grace.getTime() <= Date.now() : false;
-      if (remaining === 0 && gracePassed) {
-        await client.query(
-          `UPDATE subscriptions SET status = 'suspended', updated_at = now()
-           WHERE id = $1 AND tenant_id = current_tenant_id()`,
-          [attempt.subscription_id],
-        );
-        return { processed: 1, succeeded: 0, suspended: 1 };
-      }
-      return { processed: 1, succeeded: 0, suspended: 0 };
-    });
+    return this.withTenantClient(tenantId, (client) =>
+      applyDunningOutcome((text, params) => client.query(text, params), {
+        attempt,
+        succeeded,
+        providerRef: charge.providerRef,
+        detail: charge.detail ?? null,
+      }),
+    );
   }
 }

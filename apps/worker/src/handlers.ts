@@ -6,11 +6,14 @@ import { getPool, withTenant } from '@kuleplus/db';
 import {
   buildDashboardSummary,
   buildPushPayload,
+  claimDueDunningRow,
+  applyDunningOutcome,
   formatDigestSummary,
   isWithinQuietHours,
   newId,
   renderEmailTemplate,
   type DigestPeriod,
+  type PaymentProvider,
   type RowQuery,
 } from '@kuleplus/shared';
 
@@ -122,6 +125,8 @@ export interface WorkerHandlerDeps {
   outbox?: WorkerOutboxRepository;
   einvoice?: WorkerEInvoicePort;
   push?: WorkerPushPort;
+  /** Ödeme sağlayıcısı — dunning yeniden tahsilatı için (K-08). Verilmezse dunning atlanır. */
+  payment?: PaymentProvider;
 }
 
 /**
@@ -531,6 +536,92 @@ export function createDigestHandler(deps: WorkerHandlerDeps) {
     }
 
     deps.logger.info({ period, queued, skipped }, 'Özet e-postası tamamlandı');
+  };
+}
+
+// ======================= Faturalama dunning (Faz 4 — SPEC §8.7/§8.8) =======================
+
+/**
+ * Dunning job'ı — başarısız tahsilatta yeniden deneme.
+ *
+ * Her aktif tenant için bekleyen ilk denemeyi kilitler (SKIP LOCKED — eşzamanlı
+ * worker güvenli), `deps.payment.charge` ile yeniden tahsilat dener (harici I/O
+ * **transaction DIŞINDA**), sonucu paylaşılan kernel `applyDunningOutcome` ile tek
+ * transaction'da uygular. API'nin `processDueDunning`'iyle AYNI orkestrasyon (DRY —
+ * `@kuleplus/shared` kernel fonksiyonları).
+ *
+ * Idempotency (ADR-0020): `SKIP LOCKED` + `processing` işareti aynı denemenin iki kez
+ * tahsil edilmesini engeller. `deps.payment` verilmezse dunning atlanır (K-08 kapalıyken
+ * no-op). `tenantIds` verilirse yalnız o tenant'lar taranar (test/manuel tetik).
+ */
+export interface BillingDunningJob {
+  /** Hedef tenant'lar; boşsa bekleyen denemesi olan tüm aktif tenant'lar. */
+  tenantIds?: string[];
+}
+
+export function createDunningHandler(deps: WorkerHandlerDeps) {
+  return async (job: Job<BillingDunningJob>): Promise<void> => {
+    if (!deps.payment) {
+      deps.logger.warn(
+        { jobId: job.id },
+        'Dunning atlandı: payment sağlayıcısı tanımlı değil (PAYMENT_PROVIDER kapalı)',
+      );
+      return;
+    }
+    const pool = getPool('app');
+    const tenantIds = job.data.tenantIds ?? null;
+
+    // Bekleyen denemesi olan aktif tenant'lar (hedef tenant filtresi varsa ona göre).
+    const { rows } = await pool.query<{ tenant_id: string }>(
+      `SELECT DISTINCT da.tenant_id
+         FROM dunning_attempts da
+         JOIN tenants t ON t.id = da.tenant_id AND t.status = 'active'
+        WHERE da.status = 'pending' AND da.scheduled_at <= now()
+          ${tenantIds ? 'AND da.tenant_id = ANY($1::uuid[])' : ''}
+        ORDER BY da.tenant_id`,
+      tenantIds ? [tenantIds] : [],
+    );
+
+    deps.logger.info(
+      { queue: 'billing-dunning', jobId: job.id, count: rows.length },
+      'Dunning taraması başlıyor',
+    );
+
+    let processed = 0;
+    let succeeded = 0;
+    let suspended = 0;
+    for (const { tenant_id: tenantId } of rows) {
+      const attempt = await withTenant(pool, tenantId, (client) =>
+        claimDueDunningRow(digestQueryOf(client)),
+      );
+      if (!attempt) continue;
+
+      // Harici tahsilat — transaction DIŞINDA (kilitli bağlantıyı I/O'da tutmayız).
+      const charge = await deps.payment.charge({
+        providerCustomerRef: '',
+        idempotencyKey: `${attempt.order_id}:dunning:${attempt.attempt_no}`,
+        amount: attempt.amount,
+        currency: attempt.currency,
+        description: `Dunning — sipariş ${attempt.order_id}`,
+      });
+
+      const result = await withTenant(pool, tenantId, (client) =>
+        applyDunningOutcome(digestQueryOf(client), {
+          attempt,
+          succeeded: charge.status === 'succeeded',
+          providerRef: charge.providerRef,
+          detail: charge.detail ?? null,
+        }),
+      );
+      processed += result.processed;
+      succeeded += result.succeeded;
+      suspended += result.suspended;
+    }
+
+    deps.logger.info(
+      { jobId: job.id, tenants: rows.length, processed, succeeded, suspended },
+      'Dunning taraması tamamlandı',
+    );
   };
 }
 
