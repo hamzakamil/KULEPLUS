@@ -152,20 +152,26 @@ describe('ExpenseService - Unit Tests', () => {
     it('bulunmayan giderde NOT_FOUND fırlatır', async () => {
       mockQuery.mockResolvedValueOnce({ rows: [] });
 
-      await expect(service.deleteExpense('yok')).rejects.toThrow('Gider bulunamadı');
+      await expect(service.deleteExpense('yok', 'user-1')).rejects.toThrow('Gider bulunamadı');
     });
 
-    it('mevcut gideri iptal eder (soft-delete)', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'e1' }] });
+    it('mevcut gideri iptal eder (soft-delete) + denetim izi yazar', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'e1', amount: '10.00', status: 'draft' }] });
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
         .mockResolvedValueOnce({}) // UPDATE
+        .mockResolvedValueOnce({}) // writeAudit (INSERT audit_logs)
         .mockResolvedValueOnce({}); // COMMIT
 
-      const result = await service.deleteExpense('e1');
+      const result = await service.deleteExpense('e1', 'user-1');
 
       expect(result).toEqual({ success: true });
       expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+      // Denetim izi aynı transaction'da (ADR-0016): audit INSERT sorgusu audit_logs tablosuna yazılır.
+      const auditCall = mockClient.query.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO audit_logs'),
+      );
+      expect(auditCall).toBeDefined();
     });
   });
 

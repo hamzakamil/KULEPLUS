@@ -161,14 +161,18 @@ router.patch(
   },
 );
 
-router.delete('/:id', canExpenseDelete, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const result = await deleteExpense(req.params.id);
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.delete(
+  '/:id',
+  canExpenseDelete,
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await deleteExpense(req.params.id, req.user!.sub);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // ============ Expense Payments ============
 

@@ -1,6 +1,6 @@
 import { getPool } from '@kuleplus/db';
 import { AppError } from '@kuleplus/shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { newId } from '@kuleplus/shared';
 import { z } from 'zod';
 
@@ -279,6 +279,35 @@ export class ExpenseService {
     };
   }
 
+  /**
+   * Denetim kaydı — yazma işlemiyle AYNI transaction'da (ADR-0016, SPEC §27.3).
+   * tenant_id sunucu tarafında `current_tenant_id()` ile bağlanır (body'den gelmez);
+   * GUC tanımsızsa (bağımsız test çağrısı) NULL yazılır (kolon nullable).
+   */
+  private async writeAudit(
+    client: PoolClient,
+    entry: {
+      userId?: string;
+      action: string;
+      entityId: string;
+      oldValues?: Record<string, unknown> | null;
+      newValues?: Record<string, unknown> | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, old_values, new_values, created_at)
+       VALUES ($1, current_tenant_id(), $2, $3, 'expenses', $4, $5, $6, now())`,
+      [
+        newId(),
+        entry.userId ?? null,
+        entry.action,
+        entry.entityId,
+        entry.oldValues ? JSON.stringify(entry.oldValues) : null,
+        entry.newValues ? JSON.stringify(entry.newValues) : null,
+      ],
+    );
+  }
+
   async createExpense(input: CreateExpenseInput, userId: string) {
     const pool = this.getPoolInstance();
     const expenseId = newId();
@@ -308,6 +337,17 @@ export class ExpenseService {
           userId,
         ],
       );
+
+      await this.writeAudit(client, {
+        userId,
+        action: 'create',
+        entityId: expenseId,
+        newValues: {
+          invoice_number: input.invoice_number,
+          amount: input.amount,
+          status: input.status,
+        },
+      });
 
       await client.query('COMMIT');
     } catch (err) {
@@ -362,6 +402,17 @@ export class ExpenseService {
         ],
       );
 
+      await this.writeAudit(client, {
+        userId,
+        action: 'update',
+        entityId: id,
+        newValues: {
+          amount: input.amount,
+          status: input.status,
+          payment_status: input.payment_status,
+        },
+      });
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -372,7 +423,7 @@ export class ExpenseService {
     return this.getExpenseById(id);
   }
 
-  async deleteExpense(id: string) {
+  async deleteExpense(id: string, userId: string) {
     const pool = this.getPoolInstance();
     const expense = await pool.query(
       `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id()`,
@@ -388,6 +439,13 @@ export class ExpenseService {
         `UPDATE expenses SET status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [id],
       );
+
+      await this.writeAudit(client, {
+        userId,
+        action: 'delete',
+        entityId: id,
+        oldValues: { amount: expense.rows[0].amount, status: expense.rows[0].status },
+      });
 
       await client.query('COMMIT');
     } catch (err) {
@@ -553,8 +611,8 @@ export async function updateExpense(id: string, input: UpdateExpenseInput, userI
   return expenseService.updateExpense(id, input, userId);
 }
 
-export async function deleteExpense(id: string) {
-  return expenseService.deleteExpense(id);
+export async function deleteExpense(id: string, userId: string) {
+  return expenseService.deleteExpense(id, userId);
 }
 
 export async function createExpensePayment(
