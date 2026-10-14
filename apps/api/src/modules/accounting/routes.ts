@@ -163,16 +163,6 @@ router.get(
   },
 );
 
-router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await getAccountById(req.params.id, (req as TenantRequest).tenantId);
-    if (!result) throw new AppError('NOT_FOUND', 'Hesap bulunamadi');
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
 router.post(
   '/',
   validate(createAccountSchema),
@@ -664,6 +654,20 @@ router.delete('/account-mappings/:id', async (req: Request, res: Response, next:
 router.get('/next-entry-no', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await getNextEntryNo((req as TenantRequest).tenantId);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DİKKAT sıralama: parametrik hesap detayı (`/:id`) TÜM statik rotalardan SONRA
+// tanımlanır. Aksi halde tek segmentli statik yollar (`/entries`, `/periods`,
+// `/period-locks`, `/posting-rules`, `/account-mappings`, `/next-entry-no`)
+// `/:id` ile eşleşip "invalid input syntax for type uuid" (500) üretir.
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await getAccountById(req.params.id, (req as TenantRequest).tenantId);
+    if (!result) throw new AppError('NOT_FOUND', 'Hesap bulunamadi');
     res.json(result);
   } catch (error) {
     next(error);
