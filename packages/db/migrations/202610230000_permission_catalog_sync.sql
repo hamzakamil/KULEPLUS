@@ -5,7 +5,14 @@
 --   baktigi icin RBAC fiilen zorlanamiyordu (requirePermission her zaman 403 uretirdi).
 -- Kural: ON CONFLICT ile upsert → katalog ile DB artik ayrisamaz.
 
-INSERT INTO permissions (module, resource, action, code, name, delegatable, is_system_permission) VALUES
+-- Deterministik UUID: ADR-0002 (id uygulama/DB'de deterministik üretilir; gen_random_uuid() yasak).
+-- id = md5('permission:' || code) → tireli uuid cast (expense_categories deseni).
+INSERT INTO permissions (id, module, resource, action, code, name, delegatable, is_system_permission)
+SELECT
+  (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid,
+  v.module, v.resource, v.action, v.code, v.name, v.delegatable, v.is_system_permission
+FROM (
+  VALUES
   ('core', 'user', 'read', 'core.user.read', 'Kullanıcıları görüntüle', true, true),
   ('core', 'user', 'create', 'core.user.create', 'Kullanıcı davet et', true, true),
   ('core', 'user', 'update', 'core.user.update', 'Kullanıcı güncelle', true, true),
@@ -58,6 +65,8 @@ INSERT INTO permissions (module, resource, action, code, name, delegatable, is_s
   ('accounting', 'entry', 'update', 'accounting.entry.update', 'Yevmiye fişi güncelle', true, true),
   ('accounting', 'entry', 'delete', 'accounting.entry.delete', 'Yevmiye fişi sil', true, true),
   ('accounting', 'entry', 'approve', 'accounting.entry.approve', 'Yevmiye fişi onayla (post)', false, true)
+) AS v(module, resource, action, code, name, delegatable, is_system_permission)
+CROSS JOIN LATERAL (SELECT md5('permission:' || v.code) AS h) m
 ON CONFLICT (code) DO UPDATE
   SET module = EXCLUDED.module,
       resource = EXCLUDED.resource,

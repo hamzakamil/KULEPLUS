@@ -20,7 +20,11 @@ INSERT INTO modules (code, name, description, is_core) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 -- ===== FEATURES (modül başına) =====
-INSERT INTO features (module_code, code, name) VALUES
+-- deterministik UUID (ADR-0002): id = md5('feature:' || module_code || ':' || code)
+INSERT INTO features (id, module_code, code, name)
+SELECT (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid, v.module_code, v.code, v.name
+FROM (
+  VALUES
   ('contacts', 'contact.read', 'Cari okuma'),
   ('contacts', 'contact.write', 'Cari yazma'),
   ('contacts', 'contact.import', 'Cari içe aktarma'),
@@ -45,19 +49,29 @@ INSERT INTO features (module_code, code, name) VALUES
   ('subscription', 'plan.manage', 'Plan yönetimi'),
   ('subscription', 'limit.check', 'Limit kontrolü'),
   ('subscription', 'entitlement.grant', 'Hak verme')
+) AS v(module_code, code, name)
+CROSS JOIN LATERAL (SELECT md5('feature:' || v.module_code || ':' || v.code) AS h) m
 ON CONFLICT (module_code, code) DO NOTHING;
 
 -- ===== PLANS =====
-INSERT INTO plans (code, name, description, is_active) VALUES
+-- deterministik UUID (ADR-0002): id = md5('plan:' || code)
+INSERT INTO plans (id, code, name, description, is_active)
+SELECT (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid, v.code, v.name, v.description, v.is_active
+FROM (
+  VALUES
   ('free', 'Başlangıç (Ücretsiz)', 'Cari VEYA Stok — sınırsız süre, 1 özel rol', true),
   ('core_plus', 'Çekirdek+', 'Cari + Stok + Fatura + Kasa/Banka', true),
   ('enterprise', 'Kurumsal', 'Tüm modüller + Yönetim + Entegrasyonlar', true)
+) AS v(code, name, description, is_active)
+CROSS JOIN LATERAL (SELECT md5('plan:' || v.code) AS h) m
 ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO plan_versions (plan_id, version, effective_from) VALUES
-  ((SELECT id FROM plans WHERE code = 'free'), 1, '2026-10-05'),
-  ((SELECT id FROM plans WHERE code = 'core_plus'), 1, '2026-10-05'),
-  ((SELECT id FROM plans WHERE code = 'enterprise'), 1, '2026-10-05')
+-- deterministik UUID (ADR-0002): id = md5('plan_version:' || code || ':' || version)
+INSERT INTO plan_versions (id, plan_id, version, effective_from)
+SELECT (substr(h,1,8)||'-'||substr(h,9,4)||'-'||substr(h,13,4)||'-'||substr(h,17,4)||'-'||substr(h,21,12))::uuid, p.id, v.version, v.effective_from
+FROM (VALUES ('free', 1, '2026-10-05'::date), ('core_plus', 1, '2026-10-05'::date), ('enterprise', 1, '2026-10-05'::date)) AS v(code, version, effective_from)
+JOIN plans p ON p.code = v.code
+CROSS JOIN LATERAL (SELECT md5('plan_version:' || v.code || ':' || v.version) AS h) m
 ON CONFLICT (plan_id, version) DO NOTHING;
 
 -- ===== PLAN FEATURES =====
@@ -102,14 +116,25 @@ INSERT INTO plan_limits (plan_version_id, limit_key, value) VALUES
 ON CONFLICT (plan_version_id, limit_key) DO UPDATE SET value = EXCLUDED.value;
 
 -- ===== PRICES =====
-INSERT INTO prices (plan_version_id, currency, amount_monthly, amount_yearly, vat_included) VALUES
-  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'free' AND pv.version = 1), 'TRY', 0, 0, true),
-  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'core_plus' AND pv.version = 1), 'TRY', 299.00, 2990.00, false),
-  ((SELECT pv.id FROM plan_versions pv JOIN plans p ON pv.plan_id = p.id WHERE p.code = 'enterprise' AND pv.version = 1), 'TRY', 799.00, 7990.00, false)
+-- deterministik UUID (ADR-0002): id = md5('price:' || plan || ':' || currency)
+INSERT INTO prices (id, plan_version_id, currency, amount_monthly, amount_yearly, vat_included)
+SELECT (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid, pv.id, v.currency, v.amount_monthly, v.amount_yearly, v.vat_included
+FROM (VALUES
+  ('free', 'TRY', 0::numeric, 0::numeric, true),
+  ('core_plus', 'TRY', 299.00::numeric, 2990.00::numeric, false),
+  ('enterprise', 'TRY', 799.00::numeric, 7990.00::numeric, false)
+) AS v(plan_code, currency, amount_monthly, amount_yearly, vat_included)
+JOIN plans p ON p.code = v.plan_code
+JOIN plan_versions pv ON pv.plan_id = p.id AND pv.version = 1
+CROSS JOIN LATERAL (SELECT md5('price:' || v.plan_code || ':1:' || v.currency) AS h) m
 ON CONFLICT DO NOTHING;
 
 -- ===== CORE PERMISSIONS =====
-INSERT INTO permissions (module, resource, action, code, name, is_system_permission) VALUES
+-- deterministik UUID (ADR-0002): id = md5('permission:' || code)
+INSERT INTO permissions (id, module, resource, action, code, name, is_system_permission)
+SELECT (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid, v.module, v.resource, v.action, v.code, v.name, v.is_system_permission
+FROM (
+  VALUES
   ('core', 'user', 'read', 'core.user.read', 'Kullanıcı okuma', true),
   ('core', 'user', 'write', 'core.user.write', 'Kullanıcı yazma', true),
   ('core', 'tenant', 'read', 'core.tenant.read', 'Tenant okuma', true),
@@ -119,6 +144,8 @@ INSERT INTO permissions (module, resource, action, code, name, is_system_permiss
   ('core', 'permission', 'read', 'core.permission.read', 'Permission okuma', true),
   ('core', 'owner', 'transfer', 'core.owner.transfer', 'Owner transfer', true),
   ('core', 'legal', 'accept', 'core.legal.accept', 'Yasal metin kabul', true)
+) AS v(module, resource, action, code, name, is_system_permission)
+CROSS JOIN LATERAL (SELECT md5('permission:' || v.code) AS h) m
 ON CONFLICT (code) DO NOTHING;
 
 -- ===== YASAL METİN SEED (ADR-0011) =====

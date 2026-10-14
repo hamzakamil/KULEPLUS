@@ -27,9 +27,17 @@ CREATE INDEX IF NOT EXISTS idx_management_rule_settings_tenant
 GRANT SELECT, INSERT, UPDATE, DELETE ON management_rule_settings TO app_user;
 
 -- ======================= Permission katalog senkronu =======================
-INSERT INTO permissions (module, resource, action, code, name, delegatable, is_system_permission) VALUES
+-- Deterministik UUID: ADR-0002 (id deterministik üretilir; gen_random_uuid() yasak).
+-- id = md5('permission:' || code) → tireli uuid cast (expense_categories deseni).
+INSERT INTO permissions (id, module, resource, action, code, name, delegatable, is_system_permission)
+SELECT
+  (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid,
+  v.module, v.resource, v.action, v.code, v.name, v.delegatable, v.is_system_permission
+FROM (
+  VALUES
   ('management', 'rule', 'read', 'management.rule.read', 'Kural ayarlarini goruntule', true, true),
-  ('management', 'rule', 'manage', 'management.rule.manage', 'Kural ayarlarini yonet', true, true)
+  ('management', 'rule', 'manage', 'management.rule.manage', 'Kural ayarlarini yonet', true, true)) AS v(module, resource, action, code, name, delegatable, is_system_permission)
+CROSS JOIN LATERAL (SELECT md5('permission:' || v.code) AS h) m
 ON CONFLICT (code) DO UPDATE
   SET module = EXCLUDED.module,
       resource = EXCLUDED.resource,

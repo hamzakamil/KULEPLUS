@@ -206,12 +206,20 @@ TO app_user;
 
 -- ======================= Permission katalog senkronu (Faz 4 Hat B) =======================
 -- Kaynak: packages/shared/src/permissions.ts (TEK KAYNAK — SPEC §6.5, ADR-0006).
-INSERT INTO permissions (module, resource, action, code, name, delegatable, is_system_permission) VALUES
+-- Deterministik UUID: ADR-0002 (id deterministik üretilir; gen_random_uuid() yasak).
+-- id = md5('permission:' || code) → tireli uuid cast (expense_categories deseni).
+INSERT INTO permissions (id, module, resource, action, code, name, delegatable, is_system_permission)
+SELECT
+  (substr(m.h,1,8)||'-'||substr(m.h,9,4)||'-'||substr(m.h,13,4)||'-'||substr(m.h,17,4)||'-'||substr(m.h,21,12))::uuid,
+  v.module, v.resource, v.action, v.code, v.name, v.delegatable, v.is_system_permission
+FROM (
+  VALUES
   ('subscription', 'subscription', 'read', 'subscription.subscription.read', 'Abonelikleri goruntule', true, true),
   ('subscription', 'subscription', 'create', 'subscription.subscription.create', 'Abonelik/siparis olustur', true, true),
   ('subscription', 'subscription', 'update', 'subscription.subscription.update', 'Abonelik guncelle', true, true),
   ('subscription', 'subscription', 'delete', 'subscription.subscription.delete', 'Abonelik/iptal', true, true),
-  ('subscription', 'subscription', 'manage', 'subscription.subscription.manage', 'Abonelik yasam dongusu ve faturalama yonetimi', true, true)
+  ('subscription', 'subscription', 'manage', 'subscription.subscription.manage', 'Abonelik yasam dongusu ve faturalama yonetimi', true, true)) AS v(module, resource, action, code, name, delegatable, is_system_permission)
+CROSS JOIN LATERAL (SELECT md5('permission:' || v.code) AS h) m
 ON CONFLICT (code) DO UPDATE
   SET module = EXCLUDED.module,
       resource = EXCLUDED.resource,
