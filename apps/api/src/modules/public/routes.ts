@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { OutboxService } from '../outbox/service.js';
@@ -12,6 +13,30 @@ import { OutboxService } from '../outbox/service.js';
  */
 const router = Router();
 const outbox = new OutboxService();
+
+/** Sürüm bilgisi — kök package.json'dan bir kez okunur (SPEC §22 public status). */
+function readVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../../../../package.json', import.meta.url), 'utf8'),
+    ) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+/**
+ * Sağlık/durum ucu — SPEC §22: kimlik gerektirmez; `{status, uptime, version}` döner.
+ * Pazarlama sitesi ve izleme için kamu bilgisi (sürüm + ayakta kalma süresi).
+ */
+router.get('/status', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    version: readVersion(),
+  });
+});
 
 export const contactRequestSchema = z.object({
   name: z.string().min(1).max(200),
