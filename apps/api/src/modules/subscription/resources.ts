@@ -43,6 +43,7 @@ export const SUBSCRIPTION_STATUSES = [
 export const CHANGE_TYPES = ['create', 'upgrade', 'downgrade', 'cancel', 'reactivate'] as const;
 export const CHANGE_STATUSES = ['scheduled', 'applied', 'cancelled'] as const;
 export const ORDER_STATUSES = ['pending', 'paid', 'failed', 'cancelled', 'refunded'] as const;
+export const PAYMENT_METHODS = ['card', 'bank_transfer'] as const;
 export const PAYMENT_STATUSES = [
   'pending',
   'succeeded',
@@ -124,6 +125,7 @@ export const RESOURCES: Record<string, ResourceDef> = {
       'plan_version_id',
       'amount',
       'currency',
+      'payment_method',
       'status',
       'created_at',
       'updated_at',
@@ -133,6 +135,7 @@ export const RESOURCES: Record<string, ResourceDef> = {
       { name: 'plan_version_id', kind: 'uuid', required: true },
       { name: 'amount', kind: 'numeric', required: true },
       { name: 'currency', kind: 'text', maxLength: 3 },
+      { name: 'payment_method', kind: 'text', enum: PAYMENT_METHODS },
       { name: 'status', kind: 'text', enum: ORDER_STATUSES },
     ],
   },

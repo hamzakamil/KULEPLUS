@@ -269,6 +269,64 @@ describe('SubscriptionService — checkout (SPEC §8.6 aktivasyon zinciri)', () 
     );
   });
 });
+
+// ======================= Havale/EFT manuel onay (SPEC §8.5) =======================
+
+describe('SubscriptionService — havale/EFT manuel onay (SPEC §8.5)', () => {
+  beforeEach(resetPool);
+
+  const manualHandlers = (
+    row: Record<string, unknown> | null,
+  ): Array<[RegExp, () => Promise<{ rows: unknown[] }>]> => [
+    [/FROM "commercial_orders"/, () => Promise.resolve({ rows: row ? [row] : [] })],
+    [/FROM plan_features/, () => Promise.resolve({ rows: [{ module_code: 'accounting' }] })],
+  ];
+
+  it('sipariş yoksa NOT_FOUND', async () => {
+    routeBySql(manualHandlers(null));
+    const service = new SubscriptionService({ pool: sharedMockPool as never });
+    await expect(
+      service.confirmManualPayment({ orderId: 'o1', userId: 'u1', tenantId: 't1' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it("sipariş 'pending' değilse VALIDATION_ERROR (çift onay engeli)", async () => {
+    routeBySql(manualHandlers({ ...ORDER_ROW, status: 'paid' }));
+    const service = new SubscriptionService({ pool: sharedMockPool as never });
+    await expect(
+      service.confirmManualPayment({ orderId: 'o1', userId: 'u1', tenantId: 't1' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('onay → bank_transfer tahsilat + fatura + abonelik + sipariş paid (tek transaction)', async () => {
+    routeBySql(manualHandlers(ORDER_ROW));
+    const service = new SubscriptionService({ pool: sharedMockPool as never });
+
+    const result = await service.confirmManualPayment({
+      orderId: 'o1',
+      reference: 'HAVALE-2026-001',
+      note: 'Banka dekontu doğrulandı',
+      userId: 'u1',
+      tenantId: 't1',
+    });
+
+    expect(result.status).toBe('paid');
+    expect(result.invoiceId).toBeDefined();
+    expect(result.subscriptionId).toBeDefined();
+    const sqls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('INSERT INTO payment_attempts'))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO billing_invoices'))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO billing_payments'))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO tenant_entitlements'))).toBe(true);
+    expect(sqls.some((s) => s.includes("UPDATE commercial_orders SET status = 'paid'"))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO audit_logs'))).toBe(true);
+    // bank_transfer provider'ı payment_attempts kaydına yazılır (denetlenebilir).
+    const attemptCall = sharedMockQuery.mock.calls.find((c) =>
+      String(c[0]).includes('INSERT INTO payment_attempts'),
+    ) as [string, unknown[]];
+    expect(attemptCall[1]).toContain('bank_transfer');
+  });
+});
 // ======================= İade (SPEC §8.7) =======================
 
 /** İade/eşleştirme testlarının ödeme satırı (`billing_payments`). */

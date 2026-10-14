@@ -124,6 +124,17 @@ export const allocationSchema = z.object({
 });
 export type AllocationInput = z.infer<typeof allocationSchema>;
 
+/**
+ * Havale/EFT manuel onay gövdesi — `POST /subscription/orders/:orderId/manual-confirm`
+ * (SPEC §8.5). Yetkili personel tahsilat doğrulamasıdır; `reference` dekont/EFT
+ * referans no + isteğe bağlı not denetim izine yazılır.
+ */
+export const manualConfirmSchema = z.object({
+  reference: z.string().min(1).max(120).optional(),
+  note: z.string().min(1).max(500).optional(),
+});
+export type ManualConfirmInput = z.infer<typeof manualConfirmSchema>;
+
 /** Her kaynak için hazırlanmış şema haritası (rota katmanı kullanır). */
 export function schemaMap(
   defs: Record<string, ResourceDef>,

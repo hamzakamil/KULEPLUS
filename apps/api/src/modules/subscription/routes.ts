@@ -14,10 +14,12 @@ import {
   webhookSchema,
   refundSchema,
   allocationSchema,
+  manualConfirmSchema,
   type CheckoutInput,
   type ListQueryInput,
   type RefundInput,
   type AllocationInput,
+  type ManualConfirmInput,
 } from './schemas';
 import { SubscriptionService, type ResourceSelector } from './service';
 import { createPaymentProvider } from '@kuleplus/shared';
@@ -202,6 +204,23 @@ mountResource('subscriptionChanges', '/subscriptions/:subscriptionId/changes', {
   parentParam: 'subscriptionId',
   mode: 'create',
 });
+// Havale/EFT manuel onay (SPEC §8.5) — statik alt desen; `/orders` kök `/:id`
+// kalıbından ÖNCE bağlanır (Express ilk eşleşen kuralı).
+router.post(
+  '/orders/:orderId/manual-confirm',
+  canManage,
+  validate(manualConfirmSchema),
+  h(async (req) => {
+    const input = req.body as unknown as ManualConfirmInput;
+    return service.confirmManualPayment({
+      orderId: (req.params as Record<string, string>).orderId,
+      reference: input.reference,
+      note: input.note,
+      userId: (req as TenantRequest).user!.sub,
+      tenantId: (req as TenantRequest).tenantId!,
+    });
+  }, 201),
+);
 mountResource('commercialOrderItems', '/orders/:orderId/items', {
   idParam: 'itemId',
   parentParam: 'orderId',

@@ -468,6 +468,46 @@ export class SubscriptionService {
     });
   }
 
+  /**
+   * Havale/EFT manuel onay (SPEC §8.5) — "yetkili personel tahsilat doğrulaması".
+   *
+   * Sanal POS/webhook YOK; harici provider imzası yerine bilinçli, yetkili bir
+   * personel (`subscription.subscription.manage`) tahsilatı doğrular. `recordCheckout`
+   * succeeded dalı birebir yeniden kullanılır: payment_attempts → fatura → abonelik
+   * → entitlement → sipariş `paid`, hepsi AYNI transaction'da + denetim izi.
+   * `reference` dekont/EFT no, `note` onay notu `payment_attempts.detail`e yazılır.
+   */
+  async confirmManualPayment(input: {
+    orderId: string;
+    reference?: string;
+    note?: string;
+    userId: string;
+    tenantId: string;
+  }): Promise<CheckoutResult> {
+    const order = await this.getResource<CheckoutOrder>({
+      table: 'commercial_orders',
+      columns: ['id', 'tenant_id', 'order_no', 'plan_version_id', 'amount', 'currency', 'status'],
+      id: input.orderId,
+      tenantId: input.tenantId,
+    });
+    if (!order) throw new AppError('NOT_FOUND', 'Ticari sipariş bulunamadı');
+    if (order.status !== 'pending') {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `Sipariş '${order.status}' durumunda; yalnızca 'pending' onaylanabilir`,
+      );
+    }
+    return this.recordCheckout({
+      order,
+      provider: 'bank_transfer',
+      providerRef: input.reference ?? `manual:${input.orderId}`,
+      succeeded: true,
+      detail: input.note ?? 'Havale/EFT manuel onay (yetkili personel)',
+      userId: input.userId,
+      tenantId: input.tenantId,
+    });
+  }
+
   /** Tahsilat sonucunu TEK transaction'da kalıcılaştırır. */
   private async recordCheckout(args: {
     order: CheckoutOrder;
