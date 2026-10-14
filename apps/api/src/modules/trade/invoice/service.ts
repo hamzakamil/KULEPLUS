@@ -1,5 +1,5 @@
 import { getPool } from '@kuleplus/db';
-import { AppError, newId } from '@kuleplus/shared';
+import { AppError, newId, getRate, getLatestRate } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { ensureChartOfAccountsOn } from '../../accounting/chart.js';
 import type {
@@ -226,6 +226,51 @@ export class InvoiceService {
     );
   }
 
+  /**
+   * Çoklu para birimi (SPEC §9.2): fatura kuru çözer.
+   * - TRY → kur 1, rate_date yok (null).
+   * - Kullanıcı exchange_rate verdiyse onu sabitler (bilinçli kur — snapshot).
+   * - Vermediyse exchange_rates'ten tarih bazlı kur getirilir; o tarihte kur yoksa
+   *   en güncel kur alınır (kur getirilemeyen tarih için en güncel kurun tarihi kullanılır).
+   * - Kur hiç bulunamazsa VALIDATION_ERROR (kullanıcı manuel kur girmeli).
+   */
+  private async resolveInvoiceRate(
+    client: PoolClient,
+    currency: string,
+    explicitRate?: number,
+    requestedDate?: string,
+  ): Promise<{ exchangeRate: number; rateDate: string | null }> {
+    const cur = (currency || 'TRY').toUpperCase();
+    if (cur === 'TRY') return { exchangeRate: 1, rateDate: null };
+
+    if (explicitRate !== undefined && explicitRate > 0) {
+      return {
+        exchangeRate: explicitRate,
+        rateDate: requestedDate ?? new Date().toISOString().slice(0, 10),
+      };
+    }
+
+    const tenantRow = await client.query<{ tid: string }>('SELECT current_tenant_id() AS tid');
+    const tenantId = tenantRow.rows[0]?.tid ?? null;
+    const rateDate = requestedDate ?? new Date().toISOString().slice(0, 10);
+
+    let rate: number | null = null;
+    if (tenantId) rate = await getRate(client, tenantId, cur, rateDate);
+    if (!rate || !(rate > 0)) {
+      const latest = tenantId ? await getLatestRate(client, tenantId, cur) : null;
+      if (latest && latest.rate > 0) {
+        return { exchangeRate: latest.rate, rateDate: latest.date };
+      }
+    }
+    if (!rate || !(rate > 0)) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `${cur} için kur bulunamadı. Döviz kuru girmelisiniz (exchange_rate).`,
+      );
+    }
+    return { exchangeRate: rate, rateDate };
+  }
+
   async createInvoice(data: CreateInvoiceInput, userId?: string) {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
@@ -272,17 +317,28 @@ export class InvoiceService {
       const calculatedLines = this.calculateLineTotals(linesWithTax);
       const { subtotal, discountTotal, taxTotal, total } = this.calculateTotals(calculatedLines);
 
+      // Çoklu para birimi (SPEC §9.2): kur çözülür. Kullanıcı exchange_rate verdiyse onu sabitler
+      // (<b>bilinçli kur</b> — snapshot); vermediyse issue_date bazlı TCMB kuru getirilir.
+      const invoiceCurrency = (data.currency ?? 'TRY').toUpperCase();
+      const issueDateStr = data.issue_date ?? new Date().toISOString().split('T')[0];
+      const { exchangeRate, rateDate } = await this.resolveInvoiceRate(
+        client,
+        invoiceCurrency,
+        data.exchange_rate,
+        data.rate_date ?? issueDateStr,
+      );
+
       // Insert invoice
       const invoiceResult = await client.query(
         `INSERT INTO invoices (
           id, tenant_id, sequence_id, number, type, status, contact_id, warehouse_id,
-          issue_date, due_date, currency, exchange_rate,
+          issue_date, due_date, currency, exchange_rate, rate_date,
           subtotal, discount_total, tax_total, total, balance,
           notes, reference_type, reference_id
         ) VALUES (
           $1, current_tenant_id(),
           (SELECT id FROM invoice_sequences WHERE tenant_id = current_tenant_id() AND fiscal_year = $2),
-          $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16, $17
+          $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18
         ) RETURNING *`,
         [
           newId(),
@@ -291,10 +347,11 @@ export class InvoiceService {
           data.type,
           data.contact_id ?? null,
           data.warehouse_id ?? null,
-          data.issue_date ?? new Date().toISOString().split('T')[0],
+          issueDateStr,
           data.due_date ?? null,
-          data.currency,
-          data.exchange_rate,
+          invoiceCurrency,
+          exchangeRate,
+          rateDate,
           subtotal,
           discountTotal,
           taxTotal,
@@ -387,6 +444,22 @@ export class InvoiceService {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Çoklu para birimi (SPEC §9.2) — düzenlemede kur verilmediyse otomatik çöz:
+      // - currency dövize geçtiyse ve exchange_rate verilmediyse kur çekilir.
+      // - currency TRY'ye döndüyse kur 1'e sabitlenir, rate_date temizlenir (base_total tutarlı kalır).
+      if (data.currency) {
+        const normalized = data.currency.toUpperCase();
+        if (normalized !== 'TRY' && data.exchange_rate === undefined) {
+          const resolved = await this.resolveInvoiceRate(client, normalized, undefined, data.rate_date);
+          data.exchange_rate = resolved.exchangeRate;
+          data.rate_date = resolved.rateDate ?? undefined;
+        } else if (normalized === 'TRY' && data.exchange_rate === undefined) {
+          data.exchange_rate = 1;
+          (data as { rate_date?: string | null }).rate_date = null;
+        }
+      }
+
       const prev = await client.query(
         `SELECT status, total, balance FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [id],
@@ -823,9 +896,13 @@ export class InvoiceService {
         );
       }
 
-      const net = Number(invoice.subtotal) - Number(invoice.discount_total);
-      const vat = Number(invoice.tax_total);
-      const total = Number(invoice.total);
+      // Çoklu para birimi (SPEC §9.2): fiş TRY (yerel) cinsinden üretilir — belge tutarları
+      // base_total / exchange_rate ile TRY karşılığa çevrilir (dövizli faturada 120/320/600
+      // gibi hesaplar her zaman TRY bazında dengelenir).
+      const rate = Number(invoice.exchange_rate) || 1;
+      const net = (Number(invoice.subtotal) - Number(invoice.discount_total)) * rate;
+      const vat = Number(invoice.tax_total) * rate;
+      const total = Number(invoice.base_total) || Number(invoice.total) * rate;
       const rawDate = invoice.issue_date;
       const entryDate =
         (rawDate instanceof Date ? rawDate.toISOString() : String(rawDate)).slice(0, 10) ||

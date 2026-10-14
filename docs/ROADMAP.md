@@ -28,6 +28,7 @@
 | 13 | §8 Kalite kapılarına **test coverage eşiği** eklendi (genel %75, kritik %95). | B13 |
 | 14 | §8.1 Sürüm Aşamaları'na **preview environment** notu eklendi. | B14 |
 | 15 | Yeni dosya referansları: `docs/product/import-templates/`, `docs/legal/`, `docs/operations/incident-runbook.md`. | B17, B22, B25 |
+| 16 | Faz 6 döviz / çoklu para birimi **backend** tamamlandı: faturalarda otomatik kur çözümü (tarih bazlı → en güncel TCMB kuru), `invoices.rate_date` + `base_total` kolonları (202610450000), otomatik muhasebeleştirmede TRY karşılık (base) kullanımı. UI iş akışı açık (Faz 6). | Faz 6, SPEC §9.2 |
 
 ### v5.0.0'da Ne Değişti?
 
@@ -765,8 +766,8 @@ Muhasebe derinliğini tamamlayıp üst pakete değer katmak.
 
 İş Listesi
 □ Çek / Senet (cheque): cheques, cheque_transactions, cheque_portfolio — portföy, ciro, tahsil, karşılıksız, vade takvimi, durum geçmişi + muhasebe kaydı.
-□ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2), kur farkı, dönem sonu değerleme.
-□ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur; UI + iş akışı tam aktif.
+□ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2) ✅ backend + dönem sonu değerleme (revalue) ✅ backend; kur farkı açık.
+□ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur ✅ backend (202610450000: `invoices.rate_date` + `base_total`); UI iş akışı açık.
 □ KDV hazırlık raporu (hesaplanan/indirilecek/devreden, tevkifat, istisna) + belge–defter mutabakatı.
 □ Ba-Bs raporu, cari mutabakat mektubu.
 □ e-İrsaliye (entegratör adapter'ı üzerinden).

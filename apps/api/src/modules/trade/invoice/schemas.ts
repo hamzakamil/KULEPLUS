@@ -13,7 +13,13 @@ export const createInvoiceSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   currency: z.string().length(3).default('TRY'),
-  exchange_rate: z.number().positive().default(1),
+  // Kur isteğe bağlıdır: verilmezse fatura servisi tarih bazlı kuru çözer (SPEC §9.2).
+  exchange_rate: z.number().positive().optional(),
+  // Kurun referans alındığı tarih (varsayılan: issue_date; TRY'de yok sayılır).
+  rate_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   notes: z.string().optional(),
   reference_type: z.string().optional(),
   reference_id: z.string().uuid().optional(),
@@ -46,6 +52,10 @@ export const updateInvoiceSchema = z.object({
     .optional(),
   currency: z.string().length(3).optional(),
   exchange_rate: z.number().positive().optional(),
+  rate_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   status: z.enum(['draft', 'sent', 'paid', 'partial', 'cancelled', 'overdue']).optional(),
   notes: z.string().optional(),
   reference_type: z.string().optional(),
