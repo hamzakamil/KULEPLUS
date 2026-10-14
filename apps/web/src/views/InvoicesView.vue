@@ -90,7 +90,12 @@
                 {{ invoice.due_date ? formatDate(invoice.due_date) : '-' }}
               </td>
               <td>{{ invoice.contact_name || '—' }}</td>
-              <td class="num strong">{{ formatCurrency(invoice.total) }}</td>
+              <td class="num strong">
+                {{ formatCurrency(invoice.total) }}
+                <div v-if="invoice.currency && invoice.currency !== 'TRY'" class="muted small">
+                  {{ invoice.currency }} ≈ {{ formatCurrency(invoice.base_total) }} TL
+                </div>
+              </td>
               <td>
                 <span :class="statusBadgeClass(invoice.status)">{{
                   statusLabel(invoice.status)
@@ -180,6 +185,17 @@
         <div>
           <span class="label">Genel Toplam</span>
           <span class="amount total">{{ formatCurrency(selectedInvoice.total) }}</span>
+          <span
+            v-if="selectedInvoice.currency && selectedInvoice.currency !== 'TRY'"
+            class="amount muted small"
+            :title="'Kur: ' + selectedInvoice.exchange_rate"
+          >
+            ≈ {{ formatCurrency(selectedInvoice.base_total) }} TL @
+            {{ selectedInvoice.exchange_rate }}
+            <span v-if="selectedInvoice.rate_date" class="nowrap">
+              ({{ formatDate(selectedInvoice.rate_date) }})
+            </span>
+          </span>
         </div>
         <div>
           <span class="label">Ödenen</span>
@@ -450,6 +466,20 @@
                 min="0.0001"
                 step="0.0001"
                 class="input"
+                :placeholder="draftForm.currency !== 'TRY' ? 'Otomatik' : '1'"
+              />
+              <span v-if="draftForm.currency !== 'TRY'" class="muted small"
+                >Boşsa tarih bazlı TCMB kuru</span
+              >
+            </div>
+            <div>
+              <label class="field-label" for="f-rate-date">Kur Tarihi</label>
+              <input
+                id="f-rate-date"
+                v-model="draftForm.rate_date"
+                type="date"
+                class="input"
+                :disabled="draftForm.currency === 'TRY'"
               />
             </div>
           </div>
@@ -881,6 +911,7 @@ function emptyDraft(type: 'sales' | 'purchase' = 'sales'): InvoiceDraft {
     due_date: '',
     currency: 'TRY',
     exchange_rate: 1,
+    rate_date: '',
     notes: '',
     lines: [],
   };
@@ -906,6 +937,7 @@ function editInvoice(invoice: (typeof invoiceStore.invoices)[0]) {
     due_date: invoice.due_date || '',
     currency: invoice.currency,
     exchange_rate: invoice.exchange_rate,
+    rate_date: invoice.rate_date || '',
     notes: invoice.notes || '',
     lines: invoice.lines.map((l) => ({ ...l })),
   });
@@ -957,7 +989,8 @@ async function saveInvoice() {
         issue_date: draftForm.value.issue_date,
         due_date: draftForm.value.due_date || undefined,
         currency: draftForm.value.currency,
-        exchange_rate: draftForm.value.exchange_rate,
+        exchange_rate: draftForm.value.exchange_rate || undefined,
+        rate_date: draftForm.value.rate_date || undefined,
         notes: draftForm.value.notes || undefined,
       });
       await invoiceStore.replaceLines(draftForm.value.id, draftForm.value.lines);
@@ -969,7 +1002,8 @@ async function saveInvoice() {
         issue_date: draftForm.value.issue_date,
         due_date: draftForm.value.due_date || undefined,
         currency: draftForm.value.currency,
-        exchange_rate: draftForm.value.exchange_rate,
+        exchange_rate: draftForm.value.exchange_rate || undefined,
+        rate_date: draftForm.value.rate_date || undefined,
         notes: draftForm.value.notes || undefined,
         lines: draftForm.value.lines,
       });
@@ -1172,6 +1206,23 @@ watch(
     }
   },
   { immediate: true },
+);
+
+// Döviz değişince kur/rate_date davranışını senkronla
+watch(
+  () => draftForm.value?.currency,
+  (currency, prev) => {
+    if (!draftForm.value) return;
+    isDirty.value = true;
+    if (currency === 'TRY') {
+      draftForm.value.exchange_rate = 1;
+      draftForm.value.rate_date = '';
+    } else if (prev === 'TRY') {
+      // Kur boş bırakılırsa API otomatik çözer; kur tarihi issue_date'e oturur.
+      draftForm.value.exchange_rate = undefined;
+      if (!draftForm.value.rate_date) draftForm.value.rate_date = draftForm.value.issue_date;
+    }
+  },
 );
 </script>
 

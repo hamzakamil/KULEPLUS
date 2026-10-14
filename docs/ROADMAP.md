@@ -767,7 +767,7 @@ Muhasebe derinliğini tamamlayıp üst pakete değer katmak.
 İş Listesi
 □ Çek / Senet (cheque): cheques, cheque_transactions, cheque_portfolio — portföy, ciro, tahsil, karşılıksız, vade takvimi, durum geçmişi + muhasebe kaydı.
 □ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2) ✅ backend + dönem sonu değerleme (revalue) ✅ backend; kur farkı açık.
-□ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur ✅ backend (202610450000: `invoices.rate_date` + `base_total`); UI iş akışı açık.
+□ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur ✅ backend (202610450000: `invoices.rate_date` + `base_total`) + ✅ Web UI (fatura formunda kur/kur tarihi alanları — boş bırakılınca tarihe göre otomatik TCMB kuru; liste ve detayda TRY karşılık görünümü). Kur farkı muhasebeleştirme ayrı iş olarak açık.
 □ KDV hazırlık raporu (hesaplanan/indirilecek/devreden, tevkifat, istisna) + belge–defter mutabakatı.
 □ Ba-Bs raporu, cari mutabakat mektubu.
 □ e-İrsaliye (entegratör adapter'ı üzerinden).

@@ -28,6 +28,10 @@ export interface Invoice {
   due_date?: string;
   currency: string;
   exchange_rate: number;
+  /** Kurun referans alındığı tarih (dövizli belgeler; TRY'de null). */
+  rate_date?: string | null;
+  /** TRY karşılık: total * exchange_rate (DB generated). */
+  base_total?: number;
   subtotal: number;
   discount_total: number;
   tax_total: number;
@@ -65,7 +69,10 @@ export interface InvoiceDraft {
   issue_date: string;
   due_date: string;
   currency: string;
-  exchange_rate: number;
+  /** Bilinçli kur; boş/undefined ise API tarih bazlı otomatik kur çözer. */
+  exchange_rate?: number;
+  /** Kurun referans alındığı tarih (dövizli belgeler). */
+  rate_date?: string;
   notes: string;
   lines: InvoiceLine[];
 }
@@ -203,7 +210,8 @@ export const useInvoiceStore = defineStore('invoices', () => {
     issue_date?: string;
     due_date?: string;
     currency: string;
-    exchange_rate: number;
+    exchange_rate?: number;
+    rate_date?: string;
     notes?: string;
     lines: InvoiceLine[];
   }) => {
