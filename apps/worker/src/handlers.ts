@@ -1,7 +1,8 @@
 import type { Logger } from 'pino';
 import type { Job } from 'bullmq';
 import type * as pg from 'pg';
-import { sendNotification, setVapidDetails, type PushSubscription } from 'web-push';
+import webpush, { type PushSubscription } from 'web-push';
+const { sendNotification, setVapidDetails } = webpush;
 import { getPool, withTenant } from '@kuleplus/db';
 import {
   buildDashboardSummary,
