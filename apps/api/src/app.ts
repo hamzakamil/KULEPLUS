@@ -68,7 +68,17 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   app.use(helmet());
   app.use(cors({ origin: env.APP_URL, credentials: true }));
   app.use(cookieParser());
-  app.use(express.json({ limit: '1mb' }));
+  // Raw gövde, ödeme sağlayıcı webhook imza doğrulaması için saklanır
+  // (Faz 4 K-08): ayrıştırılmış `req.body` değişmeden kalır, yalnızca ham metin
+  // eklenir. İmza her zaman HAM gövde üzerinden hesaplanır.
+  app.use(
+    express.json({
+      limit: '1mb',
+      verify: (req, _res, buf) => {
+        (req as unknown as { rawBody?: string }).rawBody = buf.toString('utf8');
+      },
+    }),
+  );
 
   // ---- API rotaları ----
   app.use('/api/v1/auth', identityRoutes);

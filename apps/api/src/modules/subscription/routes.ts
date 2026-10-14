@@ -24,6 +24,28 @@ import { createPaymentProvider } from './payment-provider';
 
 const router = Router();
 
+// İmzalı kamu webhook'u (Faz 4 K-08) — AUTH'SUZ. iyzico JWT göndermez; yetkilendirme
+// HAM gövde + X-IYZ-SIGNATURE-V3 imzasıyla yapılır. `router.use(authenticate)` satırından
+// ÖNCE bağlanmalıdır (aksi halde tüm alt route'lar kimlik ister). `service` aşağıda
+// tanımlıdır; handler yalnızca istek anında çalıştığı için erişim güvenlidir.
+router.post(
+  '/webhooks/public/:provider',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rawBody = (req as unknown as { rawBody?: string }).rawBody ?? '';
+      const signature = req.get('x-iyzi-signature-v3') ?? undefined;
+      const data = await service.handleProviderWebhook({
+        provider: (req.params as Record<string, string>).provider,
+        rawBody,
+        signature,
+      });
+      res.status(200).json(data);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // Tüm abonelik uçları: kimlik + tenant + entitlement.
 // Modül kodu GOVERNANCE §2'ye göre 'subscription' (Faz 4 Hat B).
 router.use(authenticate, tenantContext, requireEntitlement('subscription'));

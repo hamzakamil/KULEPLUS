@@ -925,4 +925,52 @@ export class SubscriptionService {
       return { recorded: true, applied: true };
     });
   }
+
+  // ======================= İmzalı kamu webhook'u (K-08 sanal POS) =======================
+
+  /**
+   * Sağlayıcıdan gelen AUTH'SUZ + İMZALI webhook'u işler (iyzico JWT göndermez).
+   *
+   * Sıra güvenlik açısından kritik:
+   *  1. İmza HAM gövde üzerinden doğrulanır; geçersizse hiç DB dokunulmaz (401).
+   *  2. `provider_ref` → `payment_attempts.tenant_id` MIGRATOR havuzuyla (RLS
+   *     bypass; iyzico tenant bağlamı göndermez) çözülür.
+   *  3. Bulunan tenant bağlamında mevcut idempotent uygulama mantığı koşar.
+   *
+   * Bilinmeyen `provider_ref` güvenle yutulur (iyzico gereksiz retry etmesin);
+   * yalnızca imza/yük hatalıysa hata döner (SPEC §22.1).
+   */
+  async handleProviderWebhook(input: {
+    provider: string;
+    rawBody: string;
+    signature: string | undefined;
+  }): Promise<{ recorded: boolean; applied: boolean }> {
+    const event = this.paymentProvider.parseWebhook(input.rawBody, input.signature);
+    if (!event) {
+      throw new AppError('UNAUTHENTICATED', 'Geçersiz webhook imzası veya yükü');
+    }
+    // Tenant çözümü — RLS'li `payment_attempts`, migrator havuzu (tablo sahibi) ile okunur.
+    const { rows } = await getPool('migrator').query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM payment_attempts WHERE provider_ref = $1 LIMIT 1`,
+      [event.providerRef],
+    );
+    const tenantId = rows[0]?.tenant_id;
+    if (!tenantId) {
+      // Yeni/bilinmeyen tahsilat referansı — olayı yut, işlem uygulama.
+      return { recorded: false, applied: false };
+    }
+    const eventId =
+      (event.raw as { iyziReferenceCode?: string }).iyziReferenceCode ??
+      `${event.providerRef}:${event.type}`;
+    return this.handleWebhook(
+      {
+        provider: input.provider,
+        eventId,
+        type: event.type,
+        providerRef: event.providerRef,
+        raw: event.raw,
+      },
+      tenantId,
+    );
+  }
 }
