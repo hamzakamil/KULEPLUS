@@ -128,6 +128,20 @@ export interface WebhookRequest {
   raw?: unknown;
 }
 
+/** Dunning planlama sonucu — ek süre + açılan deneme sayısı (SPEC §8.7). */
+interface ScheduleDunningResult {
+  subscriptionId: string;
+  attemptCount: number;
+  gracePeriodUntil: string;
+}
+
+/** Dunning işleme sonucu — worker tek turda raporlar. */
+interface ProcessDunningResult {
+  processed: number;
+  succeeded: number;
+  suspended: number;
+}
+
 /** İade edilebilir ödeme satırı (`billing_payments`). */
 interface RefundablePayment {
   id: string;
@@ -906,6 +920,37 @@ export class SubscriptionService {
         );
         return { recorded: true, applied: rows.length > 0 };
       }
+      if (input.type === 'payment.failed') {
+        // SPEC §8.7/§8.8 — başarısız tahsilat → dunning (abonelik past_due + 1/3/7 retry).
+        if (!tenantId) return { recorded: true, applied: false };
+        const { rows } = await client.query<{ order_id: string }>(
+          `SELECT order_id FROM payment_attempts
+             WHERE provider_ref = $1 AND tenant_id = current_tenant_id() LIMIT 1`,
+          [input.providerRef],
+        );
+        const failedOrderId = rows[0]?.order_id;
+        if (!failedOrderId) return { recorded: true, applied: false };
+        // Siparişin bağlı olduğu abonelik: tenant'taki son yaşayan kayıt (tek abonelik modeli).
+        const sub = await client.query<{ id: string }>(
+          `SELECT id FROM subscriptions
+             WHERE tenant_id = current_tenant_id()
+               AND status IN ('active','past_due','pending_activation')
+             ORDER BY created_at DESC LIMIT 1`,
+        );
+        const subId = sub.rows[0]?.id;
+        if (!subId) return { recorded: true, applied: false };
+        await client.query(
+          `UPDATE commercial_orders SET status = 'failed', updated_at = now()
+             WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [failedOrderId],
+        );
+        await this.writeDunning(client, {
+          subscriptionId: subId,
+          orderId: failedOrderId,
+          tenantId,
+        });
+        return { recorded: true, applied: true };
+      }
       if (input.type !== 'payment.succeeded') return { recorded: true, applied: false };
 
       const { rows } = await client.query(
@@ -972,5 +1017,188 @@ export class SubscriptionService {
       },
       tenantId,
     );
+  }
+
+  // ======================= Dunning (başarısız ödeme yeniden deneme — SPEC §8.7/§8.8) =======================
+
+  /**
+   * Dunning durumlarını tek transaction'da yazar: aboneliği `past_due` + ek süre
+   * (grace, bugün + 10 gün) yapar ve 1/3/7. gün için `dunning_attempts` açar
+   * (idempotent — `ON CONFLICT (subscription_id, attempt_no)`). Denemeler
+   * `provider.charge` ile worker'da işlenir (`processDueDunning`).
+   *
+   * Hem `scheduleDunning` (kamusal) hem `handleWebhook`'un `payment.failed` dalı
+   * (aynı transaction içinde) bu helper'ı çağırır — nested transaction açılmaz.
+   */
+  private async writeDunning(
+    client: PoolClient,
+    input: { subscriptionId: string; orderId: string; tenantId: string; userId?: string },
+  ): Promise<ScheduleDunningResult> {
+    const grace = new Date();
+    grace.setUTCDate(grace.getUTCDate() + 10); // 3 deneme (1/3/7) + 3 gün ek süre
+    await client.query(
+      `UPDATE subscriptions
+         SET status = 'past_due', grace_period_until = $2, updated_at = now()
+       WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [input.subscriptionId, grace.toISOString()],
+    );
+    const offsetsDays = [1, 3, 7];
+    for (const [i, days] of offsetsDays.entries()) {
+      const scheduled = new Date();
+      scheduled.setUTCDate(scheduled.getUTCDate() + days);
+      await client.query(
+        `INSERT INTO dunning_attempts
+           (id, tenant_id, subscription_id, order_id, attempt_no, scheduled_at, status, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', now())
+         ON CONFLICT (subscription_id, attempt_no) DO NOTHING`,
+        [
+          newId(),
+          input.tenantId,
+          input.subscriptionId,
+          input.orderId,
+          i + 1,
+          scheduled.toISOString(),
+        ],
+      );
+    }
+    await this.audit(
+      client,
+      { table: 'subscriptions', columns: ['id'], tenantId: input.tenantId },
+      'update',
+      { id: input.subscriptionId, status: 'past_due', grace_period_until: grace.toISOString() },
+      undefined,
+      input.userId,
+    );
+    return {
+      subscriptionId: input.subscriptionId,
+      attemptCount: offsetsDays.length,
+      gracePeriodUntil: grace.toISOString(),
+    };
+  }
+
+  /**
+   * Başarısız tahsilat sonrası dunning başlatır (kamusal). TEK transaction.
+   * Abonelik bulunamazsa `AppError('NOT_FOUND')`.
+   */
+  async scheduleDunning(input: {
+    orderId: string;
+    subscriptionId: string;
+    tenantId: string;
+    userId?: string;
+  }): Promise<ScheduleDunningResult> {
+    return this.withTenantClient(input.tenantId, (client) => this.writeDunning(client, input));
+  }
+
+  /** Vadesi gelmiş ilk denemeyi kilitler (eşzamanlı worker güvenli — SKIP LOCKED). */
+  private async claimDueDunning(tenantId: string): Promise<{
+    id: string;
+    subscription_id: string;
+    order_id: string;
+    attempt_no: number;
+    amount: MoneyString;
+    currency: string;
+  } | null> {
+    return this.withTenantClient(tenantId, async (client) => {
+      const r = await client.query<{
+        id: string;
+        subscription_id: string;
+        order_id: string;
+        attempt_no: number;
+        amount: MoneyString;
+        currency: string;
+      }>(
+        `SELECT da.id, da.subscription_id, da.order_id, da.attempt_no, co.amount::text AS amount, co.currency
+           FROM dunning_attempts da
+           JOIN commercial_orders co ON co.id = da.order_id
+          WHERE da.status = 'pending' AND da.scheduled_at <= now()
+            AND da.tenant_id = current_tenant_id()
+          ORDER BY da.attempt_no
+          FOR UPDATE OF da SKIP LOCKED
+          LIMIT 1`,
+      );
+      const row = r.rows[0];
+      if (!row) return null;
+      await client.query(
+        `UPDATE dunning_attempts SET status = 'processing', processed_at = now() WHERE id = $1`,
+        [row.id],
+      );
+      return row;
+    });
+  }
+
+  /**
+   * Vadesi gelmiş dunning denemesini işler (worker periyodik çağırır):
+   *  - kilitle (`claimDueDunning`) → `provider.charge` ile yeniden tahsilat (I/O
+   *    DIŞINDA) → sonucu tek transaction'da uygular.
+   *  - succeeded → kalan denemeler `skipped`, abonelik `active` + periyot ilerler,
+   *    sipariş `paid`.
+   *  - failed → attempt `failed`; 3 deneme de tükendiyse ve ek süre dolduysa
+   *    abonelik `suspended` (ücretsiz plana düşürme Faz 5 UI'ı).
+   *
+   * Kapsam notu: mock/direct provider senkron succeeded/failed döner ve uçtan uca
+   * çalışır. iyzico HOSTED akış `charge` → `pending` döner; orada yeniden deneme
+   * yeni bir hosted form + webhook bekleme deseni ister (Faz 5). Bu metot yalnız
+   * doğrudan (direct) provider ile çağrılmalıdır.
+   */
+  async processDueDunning(tenantId: string): Promise<ProcessDunningResult> {
+    const attempt = await this.claimDueDunning(tenantId);
+    if (!attempt) return { processed: 0, succeeded: 0, suspended: 0 };
+
+    const charge = await this.paymentProvider.charge({
+      providerCustomerRef: '',
+      idempotencyKey: `${attempt.order_id}:dunning:${attempt.attempt_no}`,
+      amount: attempt.amount,
+      currency: attempt.currency,
+      description: `Dunning — sipariş ${attempt.order_id}`,
+    });
+    const succeeded = charge.status === 'succeeded';
+
+    return this.withTenantClient(tenantId, async (client) => {
+      await client.query(
+        `UPDATE dunning_attempts
+           SET status = $2, provider_ref = $3, detail = $4, processed_at = now()
+         WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [attempt.id, succeeded ? 'succeeded' : 'failed', charge.providerRef, charge.detail ?? null],
+      );
+      if (succeeded) {
+        await client.query(
+          `UPDATE dunning_attempts SET status = 'skipped', processed_at = now()
+           WHERE subscription_id = $1 AND status = 'pending' AND tenant_id = current_tenant_id()`,
+          [attempt.subscription_id],
+        );
+        await client.query(
+          `UPDATE subscriptions
+             SET status = 'active', grace_period_until = NULL,
+                 current_period_start = now(), current_period_end = now() + interval '1 month',
+                 updated_at = now()
+           WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [attempt.subscription_id],
+        );
+        await client.query(
+          `UPDATE commercial_orders SET status = 'paid', updated_at = now()
+           WHERE id = $1 AND tenant_id = current_tenant_id() AND status <> 'paid'`,
+          [attempt.order_id],
+        );
+        return { processed: 1, succeeded: 1, suspended: 0 };
+      }
+      const { rows } = await client.query<{ remaining: number; grace: Date | null }>(
+        `SELECT
+           (SELECT count(*)::int FROM dunning_attempts
+             WHERE subscription_id = $1 AND status = 'pending') AS remaining,
+           (SELECT grace_period_until FROM subscriptions WHERE id = $1) AS grace`,
+        [attempt.subscription_id],
+      );
+      const remaining = rows[0]?.remaining ?? 0;
+      const gracePassed = rows[0]?.grace ? rows[0].grace.getTime() <= Date.now() : false;
+      if (remaining === 0 && gracePassed) {
+        await client.query(
+          `UPDATE subscriptions SET status = 'suspended', updated_at = now()
+           WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [attempt.subscription_id],
+        );
+        return { processed: 1, succeeded: 0, suspended: 1 };
+      }
+      return { processed: 1, succeeded: 0, suspended: 0 };
+    });
   }
 }
