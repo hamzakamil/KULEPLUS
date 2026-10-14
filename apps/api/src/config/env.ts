@@ -14,6 +14,13 @@ export const envSchema = z.object({
   REDIS_URL: z.string().min(1, 'REDIS_URL zorunlu'),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET en az 32 karakter olmalı'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET en az 32 karakter olmalı'),
+  // Ödeme sağlayıcısı (Faz 4 K-08). Varsayılan mock; iyzico seçilirse anahtarlar zorunlu.
+  PAYMENT_PROVIDER: z.enum(['mock', 'iyzico', 'manual']).default('mock'),
+  IYZICO_API_KEY: z.string().optional(),
+  IYZICO_SECRET_KEY: z.string().optional(),
+  IYZICO_BASE_URL: z.string().url().optional(),
+  IYZICO_PRICING_PLAN_REF: z.string().optional(),
+  IYZICO_MERCHANT_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

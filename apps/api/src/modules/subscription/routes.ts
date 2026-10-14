@@ -20,7 +20,7 @@ import {
   type AllocationInput,
 } from './schemas';
 import { SubscriptionService, type ResourceSelector } from './service';
-import { createPaymentProvider } from './provider-factory';
+import { createPaymentProvider } from './payment-provider';
 
 const router = Router();
 
