@@ -2,10 +2,17 @@
   <div class="cashbank-view">
     <header class="page-header">
       <div>
-        <h1 class="page-title">Kasa & Banka</h1>
+        <h1 class="page-title">{{ activeLedger === 'cash' ? 'Kasa' : 'Banka' }}</h1>
         <p class="page-sub">
-          Nakit kasa ve banka hesapları ayrı yönetilir; banka altında krediler, kredi kartları ve
-          POS hesapları bulunur.
+          <template v-if="activeLedger === 'cash'">
+            Nakit kasalar bu ekranda ayrı yönetilir. Banka hesapları, krediler, kredi kartları ve
+            POS için <RouterLink class="inline-link" to="/bank">Banka</RouterLink> ekranına geçin.
+          </template>
+          <template v-else>
+            Banka hesapları bu ekranda ayrı yönetilir; krediler, kredi kartları ve POS hesapları
+            burada bulunur. Nakit için
+            <RouterLink class="inline-link" to="/cash">Kasa</RouterLink> ekranına geçin.
+          </template>
         </p>
       </div>
       <div class="head-actions">
@@ -14,30 +21,6 @@
         </button>
       </div>
     </header>
-
-    <!-- ── Üst düzey: Kasa | Banka ── -->
-    <div class="tabs" role="tablist" aria-label="Kasa veya banka">
-      <button
-        class="tab"
-        role="tab"
-        :aria-selected="activeLedger === 'cash'"
-        :class="{ active: activeLedger === 'cash' }"
-        @click="switchLedger('cash')"
-      >
-        <span aria-hidden="true">💵</span> Kasa
-        <span class="tab-count">{{ cashAccounts.length }}</span>
-      </button>
-      <button
-        class="tab"
-        role="tab"
-        :aria-selected="activeLedger === 'bank'"
-        :class="{ active: activeLedger === 'bank' }"
-        @click="switchLedger('bank')"
-      >
-        <span aria-hidden="true">🏦</span> Banka
-        <span class="tab-count">{{ bankAccounts.length }}</span>
-      </button>
-    </div>
 
     <!-- ── Özet kartları ── -->
     <section class="kpi-grid" aria-label="Özet">
@@ -712,7 +695,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import FilterableSelect from '@/components/FilterableSelect.vue';
 import {
   useCashBankStore,
@@ -724,8 +707,12 @@ import {
 
 const store = useCashBankStore();
 
-// ── Üst düzey ledger: kasa / banka ──
-const activeLedger = ref<'cash' | 'bank'>('cash');
+// Route prop'u bu ekranın hangi türü gösterdiğini belirler: 'cash' → Kasa, 'bank' → Banka.
+// Kasa ve banka ayrı ekranlardır (apps/web/src/router/index.ts → /cash ve /bank).
+const props = defineProps<{ ledger?: 'cash' | 'bank' }>();
+
+// ── Bu ekranın defter türü (kasa / banka) ──
+const activeLedger = ref<'cash' | 'bank'>(props.ledger ?? 'cash');
 const activeBankModule = ref<'loans' | 'cards' | 'pos'>('loans');
 const search = ref('');
 
@@ -965,12 +952,18 @@ const posForm = ref({
   installmentSupported: true,
 });
 
-const switchLedger = (ledger: 'cash' | 'bank') => {
-  activeLedger.value = ledger;
-  search.value = '';
-  movementAccount.value = null;
-  if (ledger === 'bank') reloadBankModule();
-};
+// Ekran değişimi (Kasa ↔ Banka) menü/route üzerinden yapılır; route prop'u burada izlenir.
+watch(
+  () => props.ledger,
+  (ledger) => {
+    if (!ledger) return;
+    activeLedger.value = ledger;
+    search.value = '';
+    movementAccount.value = null;
+    selectedBankAccountId.value = '';
+    if (ledger === 'bank') reloadBankModule();
+  },
+);
 
 const switchBankModule = (key: 'loans' | 'cards' | 'pos') => {
   activeBankModule.value = key;
@@ -1111,11 +1104,19 @@ const movementBadge = (t: string) =>
   'badge-neutral';
 
 onMounted(async () => {
+  // Bu ekran yalnızca kendi defter türünü listeler (sunucu tarafında filtreli).
+  store.filters.accountType = activeLedger.value;
   await store.fetchAccounts();
 });
 </script>
 
 <style scoped>
+.inline-link {
+  color: var(--c-primary, #1d4ed8);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
 .cashbank-view {
   --c-primary: #1d4ed8;
   --c-border: #e2e8f0;

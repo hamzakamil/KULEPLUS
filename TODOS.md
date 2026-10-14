@@ -213,6 +213,7 @@
 ## 3️⃣ FAZ 3 — Ücretsiz Çekirdek (Bitti, Faz 4'e Geçiş)
 - [x] **Entitlement rotalara bağlandı** — `requireEntitlement('trade')`, `'expense'` → `'trade'`, `'cashbank'` (SPEC §5.1/§8.5)
 - [x] **Kasa/Banka modülü** — `apps/api/src/modules/cash-bank/`: list/deposit/withdrawal/transfer/cancel modülleri + frontend stores ve view'lar
+- [x] **Kasa ve Banka ayrı ekranlar** — tek "Kasa & Banka" sayfası yerine `/cash` (Kasa) ve `/bank` (Banka) ayrı route/ekranlar; sol menüde ayrı öğeler (App.vue) + Dashboard hızlı erişim kartları ayrıldı; her ekran yalnızca kendi defter türünü listeler (`store.filters.accountType` sunucu tarafı filtreli). Back-end `/v1/cash-bank` ve `account_type` şeması değişmedi. Doğrulama: `vue-tsc` ✓ · web build ✓ · `build:site` 29 sayfa ✓ · `bundle:budget` ✓ · `governance:check` ✓ · prettier ✓.
 - [x] **Gider modülü** — `apps/api/src/modules/expense/`: giriş/gider rotaları, servisler + frontend view'lar
 - [x] **Ticaret modülü** — `apps/api/src/modules/trade/`: faturalar, siparişler, teslimatlar, getiri/alış modülleri
 - [x] **Raporlar (reports_plus) Faz 3 desteği** — overview, sales, purchases, expenses, stock, cash-bank, profit-loss, tax-summary canlı raporlar

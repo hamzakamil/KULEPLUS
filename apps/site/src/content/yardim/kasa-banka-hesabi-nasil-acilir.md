@@ -9,9 +9,11 @@ phase: 3
 
 ## Beklenen adımlar
 
-1. **Kasa & Banka → Yeni Hesap** seçin.
-2. Hesap türünü (kasa/banka), adı ve para birimini girin.
-3. Banka hesapları için IBAN ekleyin.
+> Kasa ve banka **ayrı ekranlardır**: sol menüde **Kasa** ve **Banka** ayrı sayfalardır.
+
+1. **Kasa** ekranında **+ Yeni Kasa** veya **Banka** ekranında **+ Yeni Banka Hesabı** ile başlayın.
+2. Kasa için ad ve para birimi; banka hesabı için ad, hesap/IBAN bilgisi ve para birimi girin.
+3. Kasalar yalnızca **Kasa** ekranında, banka hesapları yalnızca **Banka** ekranında yönetilir.
 
 ## Sonrasında
 

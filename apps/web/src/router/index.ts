@@ -73,12 +73,23 @@ const routes: RouteRecordRaw[] = [
     component: DeliveryListView,
     meta: { requiresAuth: true },
   },
+  // Kasa ve Banka ayrı ekranlar olarak yönetilir (kasa ayrı, banka ayrı).
   {
-    path: '/cash-bank',
-    name: 'cash-bank',
+    path: '/cash',
+    name: 'cash',
     component: () => import('@/views/CashBankView.vue'),
+    props: { ledger: 'cash' },
     meta: { requiresAuth: true },
   },
+  {
+    path: '/bank',
+    name: 'bank',
+    component: () => import('@/views/CashBankView.vue'),
+    props: { ledger: 'bank' },
+    meta: { requiresAuth: true },
+  },
+  // Eski birleşik yol — geriye dönük uyumluluk için Kasa ekranına yönlendirilir.
+  { path: '/cash-bank', redirect: '/cash' },
   { path: '/expenses', name: 'expenses', component: ExpenseListView, meta: { requiresAuth: true } },
   {
     path: '/expenses/new',

@@ -132,8 +132,9 @@ const navGroups: {
       { to: '/purchase-orders', label: 'Satın Alma', module: 'trade' },
       { to: '/deliveries', label: 'İrsaliye', module: 'trade' },
       { to: '/invoices', label: 'Faturalar', module: 'trade' },
-      // Finansal işlemler
-      { to: '/cash-bank', label: 'Kasa & Banka', module: 'cashbank' },
+      // Finansal işlemler — kasa ve banka ayrı ekranlarda yönetilir
+      { to: '/cash', label: 'Kasa', module: 'cashbank' },
+      { to: '/bank', label: 'Banka', module: 'cashbank' },
       { to: '/expenses', label: 'Giderler', module: 'trade' },
       { to: '/accounting', label: 'Genel Muhasebe', module: 'accounting' },
       { to: '/cheques', label: 'Çek / Senet', module: 'cheque' },

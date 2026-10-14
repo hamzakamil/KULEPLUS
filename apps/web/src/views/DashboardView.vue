@@ -67,7 +67,8 @@ const shortcuts = [
   { to: '/invoices', label: 'Faturalar', hint: 'Satış ve alış faturaları' },
   { to: '/stock', label: 'Stok', hint: 'Ürün kartları ve miktarlar' },
   { to: '/expenses', label: 'Giderler', hint: 'Gider kayıtları' },
-  { to: '/cash-bank', label: 'Kasa & Banka', hint: 'Nakit ve banka hareketleri' },
+  { to: '/cash', label: 'Kasa', hint: 'Nakit kasalar ve para hareketleri' },
+  { to: '/bank', label: 'Banka', hint: 'Banka hesapları, krediler, kartlar, POS' },
   { to: '/reports', label: 'Raporlar', hint: 'Finansal raporlar' },
 ];
 
