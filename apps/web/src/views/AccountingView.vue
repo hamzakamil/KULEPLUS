@@ -14,6 +14,19 @@ function formatMoney(v: number | string | null | undefined): string {
 const today = new Date().toISOString().slice(0, 10);
 const yearStart = `${today.slice(0, 4)}-01-01`;
 const ENTRY_TYPES = ['mahsup', 'tahsil', 'tediye', 'acilis', 'duzeltme', 'ters'] as const;
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Taslak',
+  posted: 'Onaylı',
+  cancelled: 'İptal',
+};
+
+/** SPEC §22.1 hata sözleşmesinden (`{ error: { message } }`) mesaj çıkarır. */
+function apiErrorMessage(err: unknown, fallback: string): string {
+  const data = (err as {
+    response?: { data?: { error?: { message?: string }; message?: string } };
+  })?.response?.data;
+  return data?.error?.message || data?.message || fallback;
+}
 
 const detailAccounts = computed(() => store.accounts.filter((a) => a.type === 'detail'));
 
@@ -86,9 +99,20 @@ async function submitEntry() {
   }
 }
 async function reverse(id: string) {
-  if (!window.confirm('Fiş ters kayıtla düzeltilsin mi?')) return;
-  await store.reverseEntry(id);
-  await loadEntries();
+  if (
+    !window.confirm(
+      'Fiş ters kayıtla düzeltilsin mi?\n\nOrijinal fiş değişmez; borç/alacak kalemleri yer değiştiren yeni bir "ters" fişi oluşturulur ve yevmiyeye işlenir.',
+    )
+  )
+    return;
+  info.value = null;
+  try {
+    await store.reverseEntry(id);
+    await loadEntries();
+    info.value = 'Ters kayıt oluşturuldu — yeni "ters" fişi yevmiyeye işlendi.';
+  } catch (err) {
+    info.value = apiErrorMessage(err, 'Ters kayıt oluşturulamadı.');
+  }
 }
 
 // --- Raporlar ---
@@ -220,13 +244,15 @@ onMounted(async () => {
               <td class="num">{{ formatMoney(e.totalDebit) }}</td>
               <td class="num">{{ formatMoney(e.totalCredit) }}</td>
               <td>
-                <span class="pill">{{ e.status }}</span>
+                <span v-if="e.entry_type === 'ters'" class="pill pill-rev">TERS KAYIT</span>
+                <span class="pill">{{ STATUS_LABELS[e.status] ?? e.status }}</span>
               </td>
               <td class="num">
                 <button
                   v-if="e.status === 'posted'"
                   type="button"
                   class="btn btn-secondary btn-sm"
+                  title="Onaylı fişi ters kayıtla düzeltir — silmez, yeni 'ters' fişi oluşturur"
                   @click="reverse(e.id)"
                 >
                   Ters Kayıt
@@ -471,6 +497,12 @@ onMounted(async () => {
   gap: 4px;
   margin: 12px 0;
   border-bottom: 1px solid #e5e7eb;
+}
+.pill-rev {
+  margin-right: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
 }
 .tab {
   padding: 8px 14px;
