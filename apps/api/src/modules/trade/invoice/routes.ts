@@ -62,9 +62,9 @@ router.get('/sequences', async (req: Request, res: Response, next: NextFunction)
 router.post(
   '/',
   validate(createInvoiceSchema),
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await service.createInvoice(req.body);
+      const result = await service.createInvoice(req.body, req.user?.sub);
       res.status(201).json(result);
     } catch (error) {
       next(error);
@@ -89,9 +89,9 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 router.patch(
   '/:id',
   validate(updateInvoiceSchema),
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await service.updateInvoice(req.params.id, req.body);
+      const result = await service.updateInvoice(req.params.id, req.body, req.user?.sub);
       if (!result) {
         throw new AppError('NOT_FOUND', 'Fatura bulunamadı');
       }
@@ -106,9 +106,9 @@ router.patch(
 router.put(
   '/:id/lines',
   validate(replaceInvoiceLinesSchema),
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await service.replaceLines(req.params.id, req.body);
+      const result = await service.replaceLines(req.params.id, req.body, req.user?.sub);
       if (!result) {
         throw new AppError('NOT_FOUND', 'Fatura bulunamadı');
       }
@@ -120,9 +120,9 @@ router.put(
 );
 
 /** Fatura sil */
-router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
-    const deleted = await service.deleteInvoice(req.params.id);
+    const deleted = await service.deleteInvoice(req.params.id, req.user?.sub);
     if (!deleted) {
       throw new AppError('NOT_FOUND', 'Fatura bulunamadı');
     }

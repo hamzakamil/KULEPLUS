@@ -195,7 +195,38 @@ export class InvoiceService {
     };
   }
 
-  async createInvoice(data: CreateInvoiceInput) {
+  /**
+   * Denetim izi kaydı (ADR-0016). Aynı transaction'ın client'ı ile çağrılır —
+   * belge ve izi birlikte kalıcılaşır (ya tamamı ya hiç). `entity_type` free-text
+   * (faturada `invoices`, tahsilatta `invoice_payments`).
+   */
+  private async writeAudit(
+    client: PoolClient,
+    entry: {
+      action: 'create' | 'update' | 'delete';
+      entityType: string;
+      entityId: string;
+      userId?: string;
+      oldValues?: Record<string, unknown> | null;
+      newValues?: Record<string, unknown> | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, old_values, new_values, created_at)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, now())`,
+      [
+        newId(),
+        entry.userId ?? null,
+        `${entry.entityType}.${entry.action}`,
+        entry.entityType,
+        entry.entityId,
+        entry.oldValues ? JSON.stringify(entry.oldValues) : null,
+        entry.newValues ? JSON.stringify(entry.newValues) : null,
+      ],
+    );
+  }
+
+  async createInvoice(data: CreateInvoiceInput, userId?: string) {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
     try {
@@ -303,6 +334,20 @@ export class InvoiceService {
         );
       }
 
+      // ADR-0016: fatura oluşturma denetim izi (aynı transaction — belge ve izi birlikte).
+      await this.writeAudit(client, {
+        action: 'create',
+        entityType: 'invoices',
+        entityId: invoice.id,
+        userId,
+        newValues: {
+          number: invoice.number,
+          type: invoice.type,
+          total: invoice.total,
+          status: invoice.status,
+        },
+      });
+
       await client.query('COMMIT');
       return this.getInvoice(invoice.id);
     } catch (err) {
@@ -313,7 +358,7 @@ export class InvoiceService {
     }
   }
 
-  async updateInvoice(id: string, data: UpdateInvoiceInput) {
+  async updateInvoice(id: string, data: UpdateInvoiceInput, userId?: string) {
     const pool = this.getPoolInstance();
     const fields: string[] = [];
     const values: unknown[] = [id];
@@ -337,11 +382,35 @@ export class InvoiceService {
       WHERE id = $1 AND tenant_id = current_tenant_id()
       RETURNING *
     `;
-    await pool.query(query, values);
+
+    // ADR-0016: güncelleme denetim izi — önceki durum + değişiklik tek transaction'da.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const prev = await client.query(
+        `SELECT status, total, balance FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [id],
+      );
+      await client.query(query, values);
+      await this.writeAudit(client, {
+        action: 'update',
+        entityType: 'invoices',
+        entityId: id,
+        userId,
+        oldValues: prev.rows[0] ?? null,
+        newValues: { ...data },
+      });
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
     return this.getInvoice(id);
   }
 
-  async replaceLines(invoiceId: string, data: ReplaceInvoiceLinesInput) {
+  async replaceLines(invoiceId: string, data: ReplaceInvoiceLinesInput, userId?: string) {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
     try {
@@ -427,6 +496,21 @@ export class InvoiceService {
         [subtotal, discountTotal, taxTotal, total, invoiceId],
       );
 
+      // ADR-0016: satır değişimi denetim izi — belge satırları + izi tek transaction'da.
+      await this.writeAudit(client, {
+        action: 'update',
+        entityType: 'invoice_lines',
+        entityId: invoiceId,
+        userId,
+        oldValues: { replaced: true },
+        newValues: {
+          line_count: calculatedLines.length,
+          subtotal,
+          tax_total: taxTotal,
+          total,
+        },
+      });
+
       await client.query('COMMIT');
       return this.getInvoice(invoiceId);
     } catch (err) {
@@ -437,13 +521,37 @@ export class InvoiceService {
     }
   }
 
-  async deleteInvoice(id: string) {
+  async deleteInvoice(id: string, userId?: string) {
     const pool = this.getPoolInstance();
-    const result = await pool.query(
-      `DELETE FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
-      [id],
-    );
-    return result.rowCount !== null && result.rowCount > 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const prev = await client.query(
+        `SELECT number, type, status, total FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [id],
+      );
+      const result = await client.query(
+        `DELETE FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [id],
+      );
+      if (result.rowCount !== null && result.rowCount > 0) {
+        // ADR-0016: silme denetim izi — silinen belge + izi tek transaction'da.
+        await this.writeAudit(client, {
+          action: 'delete',
+          entityType: 'invoices',
+          entityId: id,
+          userId,
+          oldValues: prev.rows[0] ?? null,
+        });
+      }
+      await client.query('COMMIT');
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   async addPayment(invoiceId: string, data: PaymentInput, userId: string) {
@@ -494,6 +602,7 @@ export class InvoiceService {
       // Otomatik muhasebeleştirme (tahsilat/ödeme) — SPEC §13/§15.
       // Tahsilat: Borç kasa/banka, Alacak 120 (Alıcılar).
       // Tediye : Borç 320 (Satıcılar), Alacak kasa/banka.
+      let journalEntryId: string | null = null;
       if (['sales', 'purchase'].includes(invoice.type) && data.amount > 0) {
         const isInflow = invoice.type === 'sales';
         await ensureChartOfAccountsOn(client);
@@ -509,6 +618,7 @@ export class InvoiceService {
           );
           const entryNo = Number(seq.rows[0].next_no);
           const entryId = newId();
+          journalEntryId = entryId;
           const description = `${isInflow ? 'Tahsilat' : 'Ödeme'} ${invoice.number}`;
           await client.query(
             `INSERT INTO journal_entries
@@ -547,6 +657,22 @@ export class InvoiceService {
           }
         }
       }
+
+      // ADR-0016: tahsilat/ödeme denetim izi (aynı transaction — ödeme + izi birlikte).
+      await this.writeAudit(client, {
+        action: 'create',
+        entityType: 'invoice_payments',
+        entityId: paymentId,
+        userId,
+        newValues: {
+          invoice_id: invoiceId,
+          invoice_number: invoice.number,
+          amount: data.amount,
+          payment_method: data.payment_method,
+          new_status: newStatus,
+          journal_entry_id: journalEntryId,
+        },
+      });
 
       await client.query('COMMIT');
       return this.getInvoice(invoiceId);
@@ -776,6 +902,25 @@ export class InvoiceService {
           WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [id],
       );
+
+      // ADR-0016: kesinleştirme (otomatik muhasebeleştirme) denetim izi — aynı
+      // transaction. Fatura + fiş + iz birlikte kalıcılaşır (SPEC §12.2, §15).
+      await this.writeAudit(client, {
+        action: 'update',
+        entityType: 'invoices',
+        entityId: id,
+        userId,
+        newValues: {
+          action: 'posted',
+          invoice_number: invoice.number,
+          invoice_type: invoice.type,
+          posting_status: 'posted',
+          journal_entry_id: entryId,
+          journal_entry_no: entryNo,
+          total_debit: totalDebit,
+          total_credit: totalCredit,
+        },
+      });
 
       await client.query('COMMIT');
       return {

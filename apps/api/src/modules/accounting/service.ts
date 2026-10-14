@@ -90,7 +90,7 @@ export class AccountingService {
       [
         newId(),
         entry.userId ?? null,
-        entry.action,
+        `journal_entries.${entry.action}`,
         entry.entityId,
         entry.oldValues ? JSON.stringify(entry.oldValues) : null,
         entry.newValues ? JSON.stringify(entry.newValues) : null,

@@ -300,7 +300,7 @@ export class ExpenseService {
       [
         newId(),
         entry.userId ?? null,
-        entry.action,
+        `expenses.${entry.action}`,
         entry.entityId,
         entry.oldValues ? JSON.stringify(entry.oldValues) : null,
         entry.newValues ? JSON.stringify(entry.newValues) : null,
