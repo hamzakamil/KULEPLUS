@@ -308,6 +308,11 @@ export class ExpenseService {
     );
   }
 
+  /** Bugünün tarihi (Europe/Istanbul) — `expense_date` NOT NULL için fallback (SPEC T-7.3). */
+  private todayIso(): string {
+    return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Istanbul' });
+  }
+
   async createExpense(input: CreateExpenseInput, userId: string) {
     const pool = this.getPoolInstance();
     const expenseId = newId();
@@ -323,7 +328,8 @@ export class ExpenseService {
           expenseId,
           input.invoice_number,
           input.invoice_date,
-          input.expense_date,
+          // `expense_date` DB'de NOT NULL; API'de optional → verilmezse bugünün tarihi (Europe/Istanbul).
+          input.expense_date ?? this.todayIso(),
           input.category_id,
           input.contact_id,
           input.description,
