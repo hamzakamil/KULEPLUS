@@ -38,7 +38,7 @@ export async function fetchTCMBRates(date?: string): Promise<TCMBRate[]> {
   const xml = await res.text();
 
   const currencyMatches = xml.matchAll(
-    /<Currency\s+[^>]*Kod="([^"]+)"[^>]*>\s*<Unit>([\d.]+)<\/Unit>\s*<Isim[^>]*>([^<]+)<\/Isim>\s*<ForexBuying>([\d.]+)?<\/ForexBuying>\s*<ForexSelling>([\d.]+)?<\/ForexSelling>/g,
+    /<Currency\s+[^>]*Kod="([^"]+)"[^>]*>\s*<Unit>([\d.]+)<\/Unit>\s*<Isim[^>]*>([^<]+)<\/Isim>\s*(?:<CurrencyName[^>]*>[^<]*<\/CurrencyName>\s*)?<ForexBuying>([\d.]+)?<\/ForexBuying>\s*<ForexSelling>([\d.]+)?<\/ForexSelling>/g,
   );
 
   const rates: TCMBRate[] = [];
@@ -59,7 +59,18 @@ export async function fetchTCMBRates(date?: string): Promise<TCMBRate[]> {
   return rates;
 }
 
-/** Kurları exchange_rates tablosuna upsert eder (tenant bazlı). */
+const isPoolClient = (pool: PoolLike): pool is PoolClient =>
+  typeof (pool as { release?: unknown }).release === 'function';
+
+/**
+ * Kurları exchange_rates tablosuna upsert eder (tenant bazlı).
+ *
+ * Çift mod (SPEC §10.3 — ya hep ya hiç):
+ *  - `Pool` verildiğinde kendi transaction'ını açar (BEGIN → set_config → yaz → COMMIT)
+ *    ve `set_config('app.tenant_id', ...)` ile tenant bağlamını kurar (worker kullanımı).
+ *  - `PoolClient` verildiğinde DİŞ transaction'ı kullanır; BEGIN/COMMIT/ROLLBACK ve
+ *    tenant bağlamını çağırana bırakır (API katmanı ortak transaction kullanır).
+ */
 export async function upsertRates(
   pool: PoolLike,
   tenantId: string,
@@ -71,10 +82,13 @@ export async function upsertRates(
   let inserted = 0;
   let updated = 0;
 
-  const client = await pool.connect();
+  const client = isPoolClient(pool) ? pool : await pool.connect();
+  const ownsTx = !isPoolClient(pool);
   try {
-    await client.query('BEGIN');
-    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    if (ownsTx) {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+    }
 
     for (const r of rates) {
       const trPerUnit = r.forexSelling / r.unit;
@@ -93,16 +107,50 @@ export async function upsertRates(
       else updated++;
     }
 
-    await client.query('COMMIT');
+    if (ownsTx) await client.query('COMMIT');
     return { inserted, updated };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (ownsTx) await client.query('ROLLBACK');
     throw err;
   } finally {
-    if (client && typeof client === 'object' && 'release' in client) {
-      (client as { release?: () => void }).release?.();
-    }
+    if (ownsTx) client.release();
   }
+}
+
+/** Dönem sonu değerleme girdisi — tek bir dövizli pozisyon için (SPEC §9.1/§9.2). */
+export interface RateRevaluationInput {
+  /** Hesap para birimindeki net pozisyon (opening + toplam hareket). */
+  foreignPosition: number;
+  /** Mevcut TRY karşılığı (saklı `balance` / base_amount toplamı). */
+  currentBaseValue: number;
+  /** Son kur: 1 base (TRY) = latestRate hedef para birimi (exchange_rates.rate). */
+  latestRate: number;
+}
+
+export interface RateRevaluationResult {
+  foreignPosition: number;
+  currentBaseValue: number;
+  /** Yeni TRY karşılığı = foreignPosition / latestRate. */
+  newBaseValue: number;
+  /** Kur farkı TL: newBaseValue - currentBaseValue. Pozitif = lehte. */
+  diff: number;
+  /** Kur mevcut ve pozitif mi? Değilse değerleme yapılamaz (diff=0 döner). */
+  rateAvailable: boolean;
+}
+
+/**
+ * Dövizli pozisyonun güncel kur ile TRY karşılığını ve kur farkını hesaplar (saf).
+ *
+ * Kur yönü (migration 202610250000): `exchange_rates.rate` = ``1 base = rate hedef``,
+ * yani 1 TRY başına hedef para birimi miktarı. Döviz → TRY çevrimi bu nedenle
+ * `foreignPosition / latestRate` ile yapılır (ör. 100 USD / 0.02717 = 3.680 TRY).
+ */
+export function computeRateRevaluation(input: RateRevaluationInput): RateRevaluationResult {
+  const { foreignPosition, currentBaseValue, latestRate } = input;
+  const rateAvailable = Number.isFinite(latestRate) && latestRate > 0;
+  const newBaseValue = rateAvailable ? foreignPosition / latestRate : currentBaseValue;
+  const diff = rateAvailable ? newBaseValue - currentBaseValue : 0;
+  return { foreignPosition, currentBaseValue, newBaseValue, diff, rateAvailable };
 }
 
 /** Belirli tarih ve para birimi çifti için kur getirir. */

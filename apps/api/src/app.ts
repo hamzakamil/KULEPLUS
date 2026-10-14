@@ -19,6 +19,7 @@ import invoiceRoutes from './modules/trade/invoice/routes';
 import { cashBankRoutes } from './modules/cash-bank/routes';
 import { cashBankMovementRoutes as cashBankMovementsRoutes } from './modules/cash-bank/movement.routes';
 import { bankExtrasRoutes } from './modules/cash-bank/bank-extras.routes';
+import { currencyRoutes } from './modules/cash-bank/currency.routes';
 import { expenseRoutes } from './modules/expense/routes';
 import { reportRoutes } from './modules/reports_plus/routes';
 import backupRoutes from './modules/backup/routes';
@@ -96,6 +97,8 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   // "movements"/"bank"ı id olarak yutar → uuid 500'ü).
   app.use('/api/v1/cash-bank/movements', cashBankMovementsRoutes);
   app.use('/api/v1/cash-bank/bank', bankExtrasRoutes);
+  // Döviz kuru uçları — `/:id` parametrik rotadan ÖNCE (özel yol önceliği).
+  app.use('/api/v1/cash-bank/exchange-rates', currencyRoutes);
   app.use('/api/v1/cash-bank', cashBankRoutes);
   app.use('/api/v1/expenses', expenseRoutes);
   app.use('/api/v1/reports', reportRoutes);

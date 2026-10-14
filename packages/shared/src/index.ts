@@ -70,8 +70,9 @@ export {
   getRate,
   getLatestRate,
   calculateRateDifference,
+  computeRateRevaluation,
 } from './currency';
-export type { TCMBRate } from './currency';
+export type { TCMBRate, RateRevaluationInput, RateRevaluationResult } from './currency';
 export { EMAIL_TEMPLATES, renderEmailTemplate, appUrl } from './email/templates';
 export type { EmailTemplateKey, TemplateVars, RenderedEmail } from './email/templates';
 export { RULE_KEYS, RULE_DEFINITIONS, isRuleKey, mergeRuleParams } from './management/rules';

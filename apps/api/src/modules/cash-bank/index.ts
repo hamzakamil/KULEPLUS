@@ -1,5 +1,6 @@
 import { cashBankRoutes } from './routes';
 import { cashBankMovementRoutes } from './movement.routes';
+import { currencyRoutes } from './currency.routes';
 import {
   createCashBankAccount,
   getCashBankAccountById,
@@ -19,6 +20,7 @@ import {
 export {
   cashBankRoutes,
   cashBankMovementRoutes,
+  currencyRoutes,
   createCashBankAccount,
   getCashBankAccountById,
   listCashBankAccounts,
