@@ -41,24 +41,32 @@ router.get('/loans', async (req, res, next) => {
   }
 });
 
-router.post('/loans', validate(createBankLoanSchema), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
-    res.status(201).json(await createBankLoan(req.body, userId, tenantOf(req)));
-  } catch (e) {
-    next(e);
-  }
-});
+router.post(
+  '/loans',
+  validate(createBankLoanSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
+      res.status(201).json(await createBankLoan(req.body, userId, tenantOf(req)));
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
-router.patch('/loans/:id', validate(updateBankLoanSchema), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
-    const result = await updateBankLoan(req.params.id, req.body, userId, tenantOf(req));
-    res.json(result);
-  } catch (e) {
-    next(e);
-  }
-});
+router.patch(
+  '/loans/:id',
+  validate(updateBankLoanSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
+      const result = await updateBankLoan(req.params.id, req.body, userId, tenantOf(req));
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.delete('/loans/:id', async (req, res, next) => {
   try {

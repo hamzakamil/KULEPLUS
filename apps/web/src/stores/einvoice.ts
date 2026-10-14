@@ -12,36 +12,21 @@ import { api } from '@/lib/api';
 
 /** API hata sözleşmesi: `{ error: { code, message } }` (SPEC §22.1). */
 function errorMessage(err: unknown, fallback: string): string {
-  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response?.data;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
   return data?.error?.message || data?.message || fallback;
 }
 
 const BASE = '/v1/einvoice';
 
 export type InvoiceStatus =
-  | 'draft'
-  | 'sent'
-  | 'delivered'
-  | 'accepted'
-  | 'rejected'
-  | 'cancelled'
-  | 'expired';
+  'draft' | 'sent' | 'delivered' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
 
 export type DocumentType =
-  | 'invoice'
-  | 'credit_note'
-  | 'debit_note'
-  | 'delivery_note'
-  | 'original_evrak'
-  | 'evrak_eni';
+  'invoice' | 'credit_note' | 'debit_note' | 'delivery_note' | 'original_evrak' | 'evrak_eni';
 
 export type SourceType =
-  | 'sales_quote'
-  | 'sales_order'
-  | 'purchase_order'
-  | 'delivery'
-  | 'invoice'
-  | 'manual';
+  'sales_quote' | 'sales_order' | 'purchase_order' | 'delivery' | 'invoice' | 'manual';
 
 /** Gönderim kutusu kaydı (einvoice_documents). */
 export interface EInvoiceDocument {
@@ -93,7 +78,9 @@ export const useEinvoiceStore = defineStore('einvoice', () => {
   const error = ref<string | null>(null);
   const notice = ref<string | null>(null);
 
-  async function fetchDocuments(params: { status?: InvoiceStatus; page?: number; limit?: number } = {}) {
+  async function fetchDocuments(
+    params: { status?: InvoiceStatus; page?: number; limit?: number } = {},
+  ) {
     loading.value = true;
     error.value = null;
     try {

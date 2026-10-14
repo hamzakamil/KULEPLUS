@@ -26,14 +26,17 @@ async function requestLink() {
   error.value = null;
   info.value = null;
   try {
-    const res = await api.post('/v1/auth/password/reset', { email: email.value.trim().toLowerCase() });
+    const res = await api.post('/v1/auth/password/reset', {
+      email: email.value.trim().toLowerCase(),
+    });
     info.value =
       res.data?.token && import.meta.env.DEV
         ? `Geliştirme ortamı: ${import.meta.env.VITE_APP_URL ?? 'http://localhost:5173'}/reset-password?token=${res.data.token}`
         : 'E-posta adresiniz kayıtlıysa sıfırlama bağlantısı gönderildi.';
   } catch (err) {
-    error.value = (err as { response?: { data?: { message?: string } } }).response?.data?.message
-      ?? 'Bağlantı oluşturulamadı. Lütfen tekrar deneyin.';
+    error.value =
+      (err as { response?: { data?: { message?: string } } }).response?.data?.message ??
+      'Bağlantı oluşturulamadı. Lütfen tekrar deneyin.';
   } finally {
     busy.value = false;
   }
@@ -47,12 +50,16 @@ async function setNewPassword() {
   busy.value = true;
   error.value = null;
   try {
-    await api.post('/v1/auth/password/reset/confirm', { token: token.value, password: password.value });
+    await api.post('/v1/auth/password/reset/confirm', {
+      token: token.value,
+      password: password.value,
+    });
     info.value = 'Şifreniz güncellendi. Yeni şifrenizle giriş yapabilirsiniz.';
     setTimeout(() => void router.replace('/login'), 1200);
   } catch (err) {
-    error.value = (err as { response?: { data?: { message?: string } } }).response?.data?.message
-      ?? 'Şifre güncellenemedi. Bağlantı süresi dolmuş olabilir.';
+    error.value =
+      (err as { response?: { data?: { message?: string } } }).response?.data?.message ??
+      'Şifre güncellenemedi. Bağlantı süresi dolmuş olabilir.';
   } finally {
     busy.value = false;
   }

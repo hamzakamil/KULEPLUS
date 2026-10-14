@@ -10,7 +10,9 @@
       <div class="page-actions">
         <span v-if="autoRefresh" class="auto-pill" :class="{ live: lastAutoRefresh }">
           <span class="dot" aria-hidden="true"></span>
-          {{ lastAutoRefresh ? `Otomatik güncellendi ${lastAutoRefresh}` : 'Otomatik yenileme açık' }}
+          {{
+            lastAutoRefresh ? `Otomatik güncellendi ${lastAutoRefresh}` : 'Otomatik yenileme açık'
+          }}
         </span>
         <button type="button" class="btn btn-secondary" :disabled="loading" @click="reloadAll">
           ⟳ Yenile
@@ -31,11 +33,15 @@
         <input v-model="rangeTo" type="date" class="input" @change="onRangeChange" />
       </label>
       <div class="quick-range">
-        <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('month')">Bu Ay</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('month')">
+          Bu Ay
+        </button>
         <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('quarter')">
           Bu Çeyrek
         </button>
-        <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('year')">Bu Yıl</button>
+        <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('year')">
+          Bu Yıl
+        </button>
         <button type="button" class="btn btn-ghost btn-sm" @click="setPreset('last30')">
           Son 30 Gün
         </button>
@@ -70,17 +76,24 @@
         <article class="kpi">
           <p class="kpi-label">Satış (brüt)</p>
           <p class="kpi-value">{{ money(overview.sales.total) }}</p>
-          <p class="kpi-sub">{{ overview.sales.document_count }} fatura · KDV {{ money(overview.sales.tax) }}</p>
+          <p class="kpi-sub">
+            {{ overview.sales.document_count }} fatura · KDV {{ money(overview.sales.tax) }}
+          </p>
         </article>
         <article class="kpi">
           <p class="kpi-label">Alış (brüt)</p>
           <p class="kpi-value">{{ money(overview.purchases.total) }}</p>
-          <p class="kpi-sub">{{ overview.purchases.document_count }} fatura · KDV {{ money(overview.purchases.tax) }}</p>
+          <p class="kpi-sub">
+            {{ overview.purchases.document_count }} fatura · KDV {{ money(overview.purchases.tax) }}
+          </p>
         </article>
         <article class="kpi">
           <p class="kpi-label">Giderler</p>
           <p class="kpi-value">{{ money(overview.expenses.base_total) }}</p>
-          <p class="kpi-sub">{{ overview.expenses.document_count }} kayıt · {{ overview.expenses.unpaid_count }} ödenmemiş</p>
+          <p class="kpi-sub">
+            {{ overview.expenses.document_count }} kayıt ·
+            {{ overview.expenses.unpaid_count }} ödenmemiş
+          </p>
         </article>
         <article class="kpi" :class="overview.profit.netProfit >= 0 ? 'pos' : 'neg'">
           <p class="kpi-label">Net Sonuç (Kâr/Zarar)</p>
@@ -102,7 +115,9 @@
         <article class="kpi">
           <p class="kpi-label">Stok Değeri</p>
           <p class="kpi-value">{{ money(overview.stock.total_value) }}</p>
-          <p class="kpi-sub">{{ overview.stock.product_count }} ürün · {{ overview.stock.out_of_stock }} stokta yok</p>
+          <p class="kpi-sub">
+            {{ overview.stock.product_count }} ürün · {{ overview.stock.out_of_stock }} stokta yok
+          </p>
         </article>
         <article class="kpi">
           <p class="kpi-label">Açık Belgeler</p>
@@ -170,7 +185,10 @@
     </section>
 
     <!-- ── Satış / Satın Alma ── -->
-    <section v-else-if="(active === 'sales' || active === 'purchases') && invoiceReport" class="report-body">
+    <section
+      v-else-if="(active === 'sales' || active === 'purchases') && invoiceReport"
+      class="report-body"
+    >
       <div class="kpi-grid compact">
         <article class="kpi">
           <p class="kpi-label">Toplam</p>
@@ -311,7 +329,9 @@
               <tr v-for="row in expenseReport.byCategory" :key="row.name + (row.grup ?? '')">
                 <td class="strong">{{ row.name }}</td>
                 <td>
-                  <span class="badge" :class="`tone-${tone(row.grup)}`">{{ groupLabel(row.grup) }}</span>
+                  <span class="badge" :class="`tone-${tone(row.grup)}`">{{
+                    groupLabel(row.grup)
+                  }}</span>
                 </td>
                 <td class="num">{{ row.document_count }}</td>
                 <td class="num strong">{{ money(row.total) }}</td>
@@ -336,7 +356,9 @@
             <tbody>
               <tr v-for="row in expenseReport.byGroup" :key="row.grup">
                 <td>
-                  <span class="badge" :class="`tone-${tone(row.grup)}`">{{ groupLabel(row.grup) }}</span>
+                  <span class="badge" :class="`tone-${tone(row.grup)}`">{{
+                    groupLabel(row.grup)
+                  }}</span>
                 </td>
                 <td class="num">{{ row.document_count }}</td>
                 <td class="num strong">{{ money(row.total) }}</td>
@@ -414,7 +436,10 @@
           <tbody>
             <tr v-for="row in profitLoss.expenseByGroup" :key="row.grup">
               <td>
-                <span class="badge" :class="`tone-${tone(row.grup === 'grupsuz' ? null : row.grup)}`">
+                <span
+                  class="badge"
+                  :class="`tone-${tone(row.grup === 'grupsuz' ? null : row.grup)}`"
+                >
                   {{ groupLabel(row.grup) }}
                 </span>
               </td>
@@ -617,7 +642,10 @@
             <tbody>
               <tr v-for="row in cashBankReport.accounts" :key="row.account_name + row.account_type">
                 <td>
-                  <span class="badge" :class="row.account_type === 'cash' ? 'tone-cyan' : 'tone-blue'">
+                  <span
+                    class="badge"
+                    :class="row.account_type === 'cash' ? 'tone-cyan' : 'tone-blue'"
+                  >
                     {{ row.account_type === 'cash' ? 'Kasa' : 'Banka' }}
                   </span>
                 </td>
@@ -658,7 +686,10 @@
     </section>
 
     <!-- ── Yaşlandırma ── -->
-    <section v-else-if="(active === 'aged-receivable' || active === 'aged-payable') && agedReport" class="report-body">
+    <section
+      v-else-if="(active === 'aged-receivable' || active === 'aged-payable') && agedReport"
+      class="report-body"
+    >
       <div class="kpi-grid compact">
         <article class="kpi">
           <p class="kpi-label">Toplam Açık</p>
@@ -688,7 +719,11 @@
 
       <article class="card">
         <h3 class="card-title">
-          {{ agedReport.type === 'payable' ? 'Ödenmemiş Alış Faturaları' : 'Tahsil Edilmemiş Satış Faturaları' }}
+          {{
+            agedReport.type === 'payable'
+              ? 'Ödenmemiş Alış Faturaları'
+              : 'Tahsil Edilmemiş Satış Faturaları'
+          }}
         </h3>
         <table class="data-table">
           <thead>
@@ -746,7 +781,9 @@
               <td class="strong">{{ reportTypeLabel(rep.report_type) }}</td>
               <td>{{ date(rep.date_from) }} – {{ date(rep.date_to) }}</td>
               <td>
-                <span class="badge" :class="statusClass(rep.status)">{{ statusLabel(rep.status) }}</span>
+                <span class="badge" :class="statusClass(rep.status)">{{
+                  statusLabel(rep.status)
+                }}</span>
               </td>
               <td class="muted">{{ rep.generated_at ? dateTime(rep.generated_at) : '—' }}</td>
             </tr>
@@ -833,7 +870,13 @@ interface TaxSummaryData {
 interface StockReportData {
   summary: { product_count: number; total_quantity: number; total_value: number };
   byWarehouse: { name: string; product_count: number; quantity: number; total_value: number }[];
-  critical: { code: string; name: string; quantity: number; cost_price: number; total_value: number }[];
+  critical: {
+    code: string;
+    name: string;
+    quantity: number;
+    cost_price: number;
+    total_value: number;
+  }[];
   movements: { type: string; movement_count: number; total_value: number }[];
 }
 interface CashBankReportData {
@@ -886,7 +929,9 @@ const expenseReport = computed(() => store.liveData.expenses as ExpenseReportDat
 const profitLoss = computed(() => store.liveData['profit-loss'] as ProfitLossData | undefined);
 const taxSummary = computed(() => store.liveData['tax-summary'] as TaxSummaryData | undefined);
 const stockReport = computed(() => store.liveData.stock as StockReportData | undefined);
-const cashBankReport = computed(() => store.liveData['cash-bank'] as CashBankReportData | undefined);
+const cashBankReport = computed(
+  () => store.liveData['cash-bank'] as CashBankReportData | undefined,
+);
 const agedReport = computed(() => {
   const key: LiveReportKey = active.value === 'aged-payable' ? 'aged-payable' : 'aged-receivable';
   return store.liveData[key] as AgedReportData | undefined;

@@ -8,8 +8,12 @@
           <span v-if="pagination.total" class="count">{{ pagination.total }}</span>
         </div>
         <div class="master-actions">
-          <button class="btn btn-primary btn-sm" @click="startNew('sales')">+ Satış Faturası</button>
-          <button class="btn btn-secondary btn-sm" @click="startNew('purchase')">+ Alış Faturası</button>
+          <button class="btn btn-primary btn-sm" @click="startNew('sales')">
+            + Satış Faturası
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="startNew('purchase')">
+            + Alış Faturası
+          </button>
         </div>
       </header>
 
@@ -38,8 +42,20 @@
           aria-label="Durum filtresi"
           @select="applyFilters"
         />
-        <input v-model="dateFrom" type="date" class="search-input date" aria-label="Başlangıç tarihi" @change="applyFilters" />
-        <input v-model="dateTo" type="date" class="search-input date" aria-label="Bitiş tarihi" @change="applyFilters" />
+        <input
+          v-model="dateFrom"
+          type="date"
+          class="search-input date"
+          aria-label="Başlangıç tarihi"
+          @change="applyFilters"
+        />
+        <input
+          v-model="dateTo"
+          type="date"
+          class="search-input date"
+          aria-label="Bitiş tarihi"
+          @change="applyFilters"
+        />
       </div>
 
       <div class="list-wrap">
@@ -66,17 +82,25 @@
               @keydown.space.prevent="selectInvoice(invoice.id)"
             >
               <td class="mono">{{ invoice.number }}</td>
-              <td><span :class="typeBadgeClass(invoice.type)">{{ typeLabel(invoice.type) }}</span></td>
+              <td>
+                <span :class="typeBadgeClass(invoice.type)">{{ typeLabel(invoice.type) }}</span>
+              </td>
               <td class="nowrap">{{ formatDate(invoice.issue_date) }}</td>
-              <td class="muted nowrap">{{ invoice.due_date ? formatDate(invoice.due_date) : '-' }}</td>
+              <td class="muted nowrap">
+                {{ invoice.due_date ? formatDate(invoice.due_date) : '-' }}
+              </td>
               <td>{{ invoice.contact_name || '—' }}</td>
               <td class="num strong">{{ formatCurrency(invoice.total) }}</td>
               <td>
-                <span :class="statusBadgeClass(invoice.status)">{{ statusLabel(invoice.status) }}</span>
+                <span :class="statusBadgeClass(invoice.status)">{{
+                  statusLabel(invoice.status)
+                }}</span>
               </td>
             </tr>
             <tr v-if="!invoices.length && !loading">
-              <td colspan="7" class="empty-cell">Henüz fatura bulunmuyor. Yeni fatura oluşturmak için yukarıdaki butonları kullanın.</td>
+              <td colspan="7" class="empty-cell">
+                Henüz fatura bulunmuyor. Yeni fatura oluşturmak için yukarıdaki butonları kullanın.
+              </td>
             </tr>
             <tr v-if="loading">
               <td colspan="7" class="empty-cell">Yükleniyor…</td>
@@ -88,9 +112,14 @@
       <div v-if="pagination.total > 0" class="pager">
         <span class="pager-info">
           {{ pagination.page * pagination.limit - pagination.limit + 1 }} –
-          {{ Math.min(pagination.page * pagination.limit, pagination.total) }} / {{ pagination.total }}
+          {{ Math.min(pagination.page * pagination.limit, pagination.total) }} /
+          {{ pagination.total }}
         </span>
-        <button class="btn btn-secondary btn-sm" :disabled="pagination.page === 1" @click="prevPage">
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="pagination.page === 1"
+          @click="prevPage"
+        >
           ‹ Önceki
         </button>
         <button
@@ -107,14 +136,22 @@
     <section v-if="selectedInvoice" class="detail-panel" aria-label="Fatura detayı">
       <div class="detail-header">
         <div>
-          <span :class="typeBadgeClass(selectedInvoice.type)">{{ typeLabel(selectedInvoice.type) }}</span>
+          <span :class="typeBadgeClass(selectedInvoice.type)">{{
+            typeLabel(selectedInvoice.type)
+          }}</span>
           <h2>{{ selectedInvoice.number }}</h2>
-          <p v-if="selectedInvoice.contact_name" class="detail-sub">{{ selectedInvoice.contact_name }}</p>
+          <p v-if="selectedInvoice.contact_name" class="detail-sub">
+            {{ selectedInvoice.contact_name }}
+          </p>
         </div>
         <div class="detail-meta">
           <div>
             <dt>Durum</dt>
-            <dd><span :class="statusBadgeClass(selectedInvoice.status)">{{ statusLabel(selectedInvoice.status) }}</span></dd>
+            <dd>
+              <span :class="statusBadgeClass(selectedInvoice.status)">{{
+                statusLabel(selectedInvoice.status)
+              }}</span>
+            </dd>
           </div>
           <div>
             <dt>Tarih</dt>
@@ -157,7 +194,9 @@
       <div class="detail-section">
         <div class="section-head">
           <h3>Satırlar</h3>
-          <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">Satırları Düzenle</button>
+          <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">
+            Satırları Düzenle
+          </button>
         </div>
         <div class="lines-wrap">
           <table class="lines-table">
@@ -191,7 +230,13 @@
       <div class="detail-section">
         <div class="section-head">
           <h3>Ödemeler</h3>
-          <button v-if="selectedInvoice.balance > 0" class="btn btn-primary btn-sm" @click="openPayment">+ Ödeme Al</button>
+          <button
+            v-if="selectedInvoice.balance > 0"
+            class="btn btn-primary btn-sm"
+            @click="openPayment"
+          >
+            + Ödeme Al
+          </button>
         </div>
         <div v-if="selectedInvoice.payments?.length" class="lines-wrap">
           <table class="lines-table">
@@ -217,9 +262,13 @@
       </div>
 
       <div class="detail-actions">
-        <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">Düzenle</button>
+        <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">
+          Düzenle
+        </button>
         <button class="btn btn-secondary btn-sm" @click="printInvoice">Yazdır / PDF</button>
-        <button class="btn btn-danger btn-sm" @click="deleteInvoice(selectedInvoice.id)">Sil</button>
+        <button class="btn btn-danger btn-sm" @click="deleteInvoice(selectedInvoice.id)">
+          Sil
+        </button>
       </div>
     </section>
 
@@ -233,13 +282,23 @@
       <div class="modal-content">
         <div class="modal-head">
           <h2>Ödeme Al</h2>
-          <button class="modal-close" aria-label="Kapat" @click="showPaymentModal = false">&times;</button>
+          <button class="modal-close" aria-label="Kapat" @click="showPaymentModal = false">
+            &times;
+          </button>
         </div>
         <form @submit.prevent="submitPayment">
           <div class="form-grid">
             <div>
               <label class="field-label" for="pay-amount">Tutar *</label>
-              <input id="pay-amount" v-model.number="paymentForm.amount" type="number" min="0.01" step="0.01" class="input" required />
+              <input
+                id="pay-amount"
+                v-model.number="paymentForm.amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                class="input"
+                required
+              />
             </div>
             <div>
               <label class="field-label" for="pay-date">Tarih</label>
@@ -261,7 +320,9 @@
           </div>
           <p v-if="storeError" class="form-error">{{ storeError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showPaymentModal = false">Vazgeç</button>
+            <button type="button" class="btn btn-secondary" @click="showPaymentModal = false">
+              Vazgeç
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="paymentSaving">Kaydet</button>
           </div>
         </form>
@@ -272,7 +333,7 @@
   <!-- ── KALICI YENİ FATURA PANELİ (erp-workspace-panels) ── -->
   <Teleport to="body">
     <div
-          v-if="invoiceStore.workspaceOpen && draftForm"
+      v-if="invoiceStore.workspaceOpen && draftForm"
       class="invoice-workspace-panel"
       :class="{ minimized: panelMinimized, maximized: panelMaximized }"
       ref="panelEl"
@@ -332,11 +393,22 @@
             </div>
             <div>
               <label class="field-label" for="f-number">Fatura No</label>
-              <input id="f-number" class="input" :value="draftForm.id ? currentNumber() : 'Otomatik'" disabled />
+              <input
+                id="f-number"
+                class="input"
+                :value="draftForm.id ? currentNumber() : 'Otomatik'"
+                disabled
+              />
             </div>
             <div>
               <label class="field-label" for="f-issue">Fatura Tarihi *</label>
-              <input id="f-issue" v-model="draftForm.issue_date" type="date" class="input" required />
+              <input
+                id="f-issue"
+                v-model="draftForm.issue_date"
+                type="date"
+                class="input"
+                required
+              />
             </div>
             <div>
               <label class="field-label" for="f-due">Vade Tarihi</label>
@@ -371,7 +443,14 @@
             </div>
             <div>
               <label class="field-label" for="f-rate">Kur</label>
-              <input id="f-rate" v-model.number="draftForm.exchange_rate" type="number" min="0.0001" step="0.0001" class="input" />
+              <input
+                id="f-rate"
+                v-model.number="draftForm.exchange_rate"
+                type="number"
+                min="0.0001"
+                step="0.0001"
+                class="input"
+              />
             </div>
           </div>
 
@@ -379,7 +458,9 @@
             <h3>Satırlar</h3>
             <div class="line-items-tools">
               <span class="muted small">Sütunları sürükleyerek genişletebilirsiniz</span>
-              <button type="button" class="btn btn-secondary btn-sm" @click="addLine">+ Satır Ekle</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="addLine">
+                + Satır Ekle
+              </button>
             </div>
           </div>
 
@@ -408,13 +489,35 @@
                     />
                   </td>
                   <td class="col-miktar">
-                    <input v-model.number="line.quantity" type="number" min="0.01" step="0.01" class="input num-input" @input="onLineChange" />
+                    <input
+                      v-model.number="line.quantity"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      class="input num-input"
+                      @input="onLineChange"
+                    />
                   </td>
                   <td class="col-birim">
-                    <input v-model.number="line.unit_price" type="number" min="0" step="0.01" class="input num-input" @input="onLineChange" />
+                    <input
+                      v-model.number="line.unit_price"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      class="input num-input"
+                      @input="onLineChange"
+                    />
                   </td>
                   <td class="col-iskonto">
-                    <input v-model.number="line.discount_percent" type="number" min="0" max="100" step="0.1" class="input num-input" @input="onLineChange" />
+                    <input
+                      v-model.number="line.discount_percent"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      class="input num-input"
+                      @input="onLineChange"
+                    />
                   </td>
                   <td class="col-kdv">
                     <FilterableSelect
@@ -425,23 +528,43 @@
                       @select="onLineChange"
                     />
                   </td>
-                  <td class="col-toplam"><span class="line-total">{{ formatCurrency(lineTotal(line)) }}</span></td>
+                  <td class="col-toplam">
+                    <span class="line-total">{{ formatCurrency(lineTotal(line)) }}</span>
+                  </td>
                   <td class="col-aksiyon">
-                    <button type="button" class="wp-btn danger" aria-label="Satırı sil" title="Satırı sil" @click="removeLine(index)">✕</button>
+                    <button
+                      type="button"
+                      class="wp-btn danger"
+                      aria-label="Satırı sil"
+                      title="Satırı sil"
+                      @click="removeLine(index)"
+                    >
+                      ✕
+                    </button>
                   </td>
                 </tr>
                 <tr v-if="!draftForm.lines.length">
-                  <td colspan="7" class="empty-cell">Satır eklemek için "+ Satır Ekle" kullanın.</td>
+                  <td colspan="7" class="empty-cell">
+                    Satır eklemek için "+ Satır Ekle" kullanın.
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <div class="totals">
-            <div class="totals-row"><span class="muted">Ara Toplam</span><span>{{ formatCurrency(subtotal) }}</span></div>
-            <div class="totals-row"><span class="muted">İskonto</span><span>−{{ formatCurrency(discountTotal) }}</span></div>
-            <div class="totals-row"><span class="muted">KDV</span><span>{{ formatCurrency(taxTotal) }}</span></div>
-            <div class="totals-row grand"><span>Genel Toplam</span><span>{{ formatCurrency(grandTotal) }}</span></div>
+            <div class="totals-row">
+              <span class="muted">Ara Toplam</span><span>{{ formatCurrency(subtotal) }}</span>
+            </div>
+            <div class="totals-row">
+              <span class="muted">İskonto</span><span>−{{ formatCurrency(discountTotal) }}</span>
+            </div>
+            <div class="totals-row">
+              <span class="muted">KDV</span><span>{{ formatCurrency(taxTotal) }}</span>
+            </div>
+            <div class="totals-row grand">
+              <span>Genel Toplam</span><span>{{ formatCurrency(grandTotal) }}</span>
+            </div>
           </div>
 
           <div>
@@ -451,7 +574,11 @@
 
           <div class="panel-actions">
             <button type="button" class="btn btn-secondary" @click="requestClose">Vazgeç</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving || draftForm.lines.length === 0">
+            <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="saving || draftForm.lines.length === 0"
+            >
               {{ saving ? 'Kaydediliyor…' : 'Faturayı Kaydet' }}
             </button>
           </div>
@@ -459,7 +586,9 @@
       </div>
 
       <footer v-show="!panelMinimized" class="wp-foot">
-        <span class="muted small">Fatura taslağı otomatik kaydediliyor — menülerde gezinirken korunur.</span>
+        <span class="muted small"
+          >Fatura taslağı otomatik kaydediliyor — menülerde gezinirken korunur.</span
+        >
       </footer>
     </div>
   </Teleport>
@@ -469,7 +598,9 @@
     <div class="modal-content">
       <div class="modal-head">
         <h2>Taslak kapatılsın mı?</h2>
-        <button class="modal-close" aria-label="Kapat" @click="showCloseConfirm = false">&times;</button>
+        <button class="modal-close" aria-label="Kapat" @click="showCloseConfirm = false">
+          &times;
+        </button>
       </div>
       <p>Kaydedilmemiş fatura taslağınız var. Kapatırsanız taslak silinir.</p>
       <div class="modal-actions">
@@ -608,9 +739,8 @@ function onResizeStart(e: MouseEvent) {
   if (!th) return;
   e.preventDefault();
   const startX = e.clientX;
-  const key = [...th.classList]
-    .find((c) => c.startsWith('col-'))
-    ?.replace('col-', '') as (typeof colKeys)[number] | undefined;
+  const key = [...th.classList].find((c) => c.startsWith('col-'))?.replace('col-', '') as
+    (typeof colKeys)[number] | undefined;
   if (!key || !(key in colW.value)) return;
   const startW = th.getBoundingClientRect().width;
   const onMove = (ev: MouseEvent) => {
@@ -701,7 +831,8 @@ const formatQty = (q: number | string) => {
   const n = Number(q);
   return Number.isInteger(n) ? String(n) : String(n.toFixed(2)).replace('.', ',');
 };
-const formatPct = (p: number | string) => Number(p).toFixed(2).replace('.', ',').replace(/0+$/, '').replace(/,$/, '') + '%';
+const formatPct = (p: number | string) =>
+  Number(p).toFixed(2).replace('.', ',').replace(/0+$/, '').replace(/,$/, '') + '%';
 
 function currentNumber(): string {
   return selectedInvoice.value?.number || '';
@@ -718,22 +849,25 @@ function lineTotal(line: InvoiceLine): string {
   const rate = taxRateFor(line.tax_rate_id);
   return String(base - disc + (base - disc) * (rate / 100));
 }
-const subtotal = computed(() =>
-  draftForm.value?.lines.reduce((s, l) => s + Number(l.quantity) * Number(l.unit_price), 0) || 0,
+const subtotal = computed(
+  () =>
+    draftForm.value?.lines.reduce((s, l) => s + Number(l.quantity) * Number(l.unit_price), 0) || 0,
 );
-const discountTotal = computed(() =>
-  draftForm.value?.lines.reduce(
-    (s, l) =>
-      s + (Number(l.quantity) * Number(l.unit_price) * (Number(l.discount_percent) || 0)) / 100,
-    0,
-  ) || 0,
+const discountTotal = computed(
+  () =>
+    draftForm.value?.lines.reduce(
+      (s, l) =>
+        s + (Number(l.quantity) * Number(l.unit_price) * (Number(l.discount_percent) || 0)) / 100,
+      0,
+    ) || 0,
 );
-const taxTotal = computed(() =>
-  draftForm.value?.lines.reduce((s, l) => {
-    const base = Number(l.quantity) * Number(l.unit_price);
-    const disc = (base * (Number(l.discount_percent) || 0)) / 100;
-    return s + (base - disc) * (taxRateFor(l.tax_rate_id) / 100);
-  }, 0) || 0,
+const taxTotal = computed(
+  () =>
+    draftForm.value?.lines.reduce((s, l) => {
+      const base = Number(l.quantity) * Number(l.unit_price);
+      const disc = (base * (Number(l.discount_percent) || 0)) / 100;
+      return s + (base - disc) * (taxRateFor(l.tax_rate_id) / 100);
+    }, 0) || 0,
 );
 const grandTotal = computed(() => subtotal.value - discountTotal.value + taxTotal.value);
 

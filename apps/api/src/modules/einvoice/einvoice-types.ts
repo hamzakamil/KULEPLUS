@@ -3,9 +3,11 @@
  * Kaynak: docs/api/permissions-catalog.md, docs/product/screens.md
  */
 
-export type InvoiceStatus = 'draft' | 'sent' | 'delivered' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
+export type InvoiceStatus =
+  'draft' | 'sent' | 'delivered' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
 
-export type DocumentType = 'invoice' | 'credit_note' | 'debit_note' | 'delivery_note' | 'original_evrak' | 'evrak_eni';
+export type DocumentType =
+  'invoice' | 'credit_note' | 'debit_note' | 'delivery_note' | 'original_evrak' | 'evrak_eni';
 
 export interface EInvoiceDocument {
   id: string;

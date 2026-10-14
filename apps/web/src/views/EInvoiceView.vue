@@ -24,7 +24,7 @@
     <template v-if="activeTab === 'outbox'">
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Gönderim Kutusu</h2>
+          <h2 style="font-size: 1.05rem">Gönderim Kutusu</h2>
           <button class="btn btn-primary" @click="showSend = true">Belge Gönder</button>
         </header>
         <div class="card-body">
@@ -72,7 +72,7 @@
     <template v-else>
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Gelen Kutusu</h2>
+          <h2 style="font-size: 1.05rem">Gelen Kutusu</h2>
           <button class="btn btn-primary" :disabled="store.loading" @click="sync">
             {{ store.loading ? 'Tazeleniyor…' : 'Sağlayıcıdan Çek' }}
           </button>
@@ -106,7 +106,7 @@
     <div v-if="showSend" class="modal-backdrop" @click.self="showSend = false">
       <div class="modal">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Belge Gönder</h2>
+          <h2 style="font-size: 1.05rem">Belge Gönder</h2>
           <button class="btn btn-sm" @click="showSend = false">Kapat</button>
         </header>
         <div class="card-body">
@@ -124,7 +124,11 @@
             <span>Kaynak ID</span>
             <input v-model="sendForm.sourceId" type="text" placeholder="Fatura/sipariş UUID" />
           </label>
-          <button class="btn btn-primary" :disabled="!sendForm.sourceId || store.loading" @click="send">
+          <button
+            class="btn btn-primary"
+            :disabled="!sendForm.sourceId || store.loading"
+            @click="send"
+          >
             Gönder
           </button>
         </div>

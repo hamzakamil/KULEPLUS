@@ -374,9 +374,9 @@ describe('SubscriptionService — iade (SPEC §8.7 ödeme durumları)', () => {
     const sqls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
     expect(sqls.some((s) => s.includes('INSERT INTO billing_refunds'))).toBe(true);
     expect(sqls.some((s) => s.includes('UPDATE billing_payments SET status = $2'))).toBe(true);
-    expect(
-      sqls.some((s) => s.includes("UPDATE commercial_orders SET status = 'refunded'")),
-    ).toBe(true);
+    expect(sqls.some((s) => s.includes("UPDATE commercial_orders SET status = 'refunded'"))).toBe(
+      true,
+    );
     expect(sqls.some((s) => s.includes('INSERT INTO audit_logs'))).toBe(true);
 
     const updateCall = sharedMockQuery.mock.calls.find((c) =>
@@ -403,12 +403,11 @@ describe('SubscriptionService — iade (SPEC §8.7 ödeme durumları)', () => {
     expect(result.paymentStatus).toBe('partially_refunded');
 
     const sqls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
-    expect(
-      sqls.some((s) => s.includes("UPDATE commercial_orders SET status = 'refunded'")),
-    ).toBe(false);
+    expect(sqls.some((s) => s.includes("UPDATE commercial_orders SET status = 'refunded'"))).toBe(
+      false,
+    );
   });
 });
-
 
 // ======================= Fatura/alacak eşleştirme (SPEC §8.6) =======================
 
@@ -472,4 +471,3 @@ describe('SubscriptionService — fatura/alacak eşleştirme (SPEC §8.6)', () =
     expect(sqls.some((s) => s.includes('INSERT INTO billing_allocations'))).toBe(true);
   });
 });
-

@@ -33,8 +33,12 @@ onUnmounted(() => {
 const company = computed(() => auth.company);
 
 // KPI'lar store'lardan gerçek veriyle türetilir.
-const customerCount = computed(() => contactStore.contacts.filter((c) => c.type === 'customer').length);
-const supplierCount = computed(() => contactStore.contacts.filter((c) => c.type === 'supplier').length);
+const customerCount = computed(
+  () => contactStore.contacts.filter((c) => c.type === 'customer').length,
+);
+const supplierCount = computed(
+  () => contactStore.contacts.filter((c) => c.type === 'supplier').length,
+);
 const productCount = computed(() => stockStore.stock.length);
 const invoiceCount = computed(() => invoiceStore.invoices.length);
 const loading = computed(() => contactStore.loading || stockStore.loading || invoiceStore.loading);
@@ -102,7 +106,9 @@ const onboardingSteps = computed(() => [
   },
 ]);
 const onboardingDoneCount = computed(() => onboardingSteps.value.filter((s) => s.done).length);
-const onboardingFinished = computed(() => onboardingDoneCount.value === onboardingSteps.value.length);
+const onboardingFinished = computed(
+  () => onboardingDoneCount.value === onboardingSteps.value.length,
+);
 
 /** Tam veri dışa aktarması (SPEC §23.2) — yönetici izni ister, 403'te sessiz kalır. */
 const exporting = ref(false);
@@ -218,7 +224,9 @@ async function onToggleEnabled(event: Event): Promise<void> {
 
 async function onIntervalChange(event: Event): Promise<void> {
   try {
-    await backup.updateSettings({ intervalMinutes: Number((event.target as HTMLSelectElement).value) });
+    await backup.updateSettings({
+      intervalMinutes: Number((event.target as HTMLSelectElement).value),
+    });
   } catch {
     // Hata store'da error olarak gösterilir.
   }
@@ -312,7 +320,9 @@ async function onRemove(job: BackupJob): Promise<void> {
       <section v-if="!onboardingFinished" class="section-block" aria-labelledby="kurulum">
         <div class="checklist-head">
           <h2 id="kurulum">Kurulum adımları</h2>
-          <span class="checklist-progress">{{ onboardingDoneCount }}/{{ onboardingSteps.length }} tamam</span>
+          <span class="checklist-progress"
+            >{{ onboardingDoneCount }}/{{ onboardingSteps.length }} tamam</span
+          >
         </div>
         <ol class="checklist">
           <li v-for="step in onboardingSteps" :key="step.key" :class="{ done: step.done }">
@@ -333,8 +343,8 @@ async function onRemove(job: BackupJob): Promise<void> {
           <div>
             <h2 id="veri-aktarim">Verilerimi dışa aktar</h2>
             <p class="backup-subtitle">
-              Cari, stok, fatura ve kasa/banka kayıtlarının tamamını tek ZIP arşivi olarak
-              indirin (CSV + manifest + README).
+              Cari, stok, fatura ve kasa/banka kayıtlarının tamamını tek ZIP arşivi olarak indirin
+              (CSV + manifest + README).
             </p>
           </div>
           <button class="btn btn-secondary" :disabled="exporting" @click="downloadFullExport">
@@ -361,7 +371,8 @@ async function onRemove(job: BackupJob): Promise<void> {
           <div>
             <h2 id="yedekleme">Yedekleme</h2>
             <p class="backup-subtitle">
-              Veritabanınız seçtiğiniz sıklıkta otomatik yedeklenir; yedekleri indirebilir veya silebilirsiniz.
+              Veritabanınız seçtiğiniz sıklıkta otomatik yedeklenir; yedekleri indirebilir veya
+              silebilirsiniz.
             </p>
           </div>
           <button
@@ -400,7 +411,10 @@ async function onRemove(job: BackupJob): Promise<void> {
             aria-valuemin="0"
             aria-valuemax="100"
           >
-            <div class="backup-progress-fill" :style="{ width: backup.progressPercent + '%' }"></div>
+            <div
+              class="backup-progress-fill"
+              :style="{ width: backup.progressPercent + '%' }"
+            ></div>
           </div>
           <div v-else-if="backup.hasRunning" class="backup-progress">
             <div class="backup-progress-fill running-pulse"></div>

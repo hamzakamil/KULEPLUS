@@ -4,8 +4,8 @@
       <div>
         <h1 class="page-title">Kural Ayarları</h1>
         <p class="page-sub">
-          Patron paneli trafik ışığı eşikleri. Kuralları açıp kapatabilir, parametreleri
-          işletmenize göre ayarlayabilirsiniz.
+          Patron paneli trafik ışığı eşikleri. Kuralları açıp kapatabilir, parametreleri işletmenize
+          göre ayarlayabilirsiniz.
         </p>
       </div>
     </header>
@@ -17,12 +17,20 @@
     <p v-else-if="!rules.length" class="state-msg">Kural bulunamadı.</p>
 
     <ul v-else class="rule-list">
-      <li v-for="rule in rules" :key="rule.key" class="rule-card" :class="{ disabled: !draftOf(rule).enabled }">
+      <li
+        v-for="rule in rules"
+        :key="rule.key"
+        class="rule-card"
+        :class="{ disabled: !draftOf(rule).enabled }"
+      >
         <div class="rule-head">
           <div class="rule-info">
             <div class="rule-title-row">
               <span class="rule-title">{{ rule.label }}</span>
-              <span class="badge" :class="draftOf(rule).enabled ? 'badge-success' : 'badge-neutral'">
+              <span
+                class="badge"
+                :class="draftOf(rule).enabled ? 'badge-success' : 'badge-neutral'"
+              >
                 {{ draftOf(rule).enabled ? 'Açık' : 'Kapalı' }}
               </span>
               <span class="badge badge-info">{{ rule.key }}</span>
@@ -31,7 +39,11 @@
             <RouterLink class="rule-link small" :to="rule.link">{{ rule.link }}</RouterLink>
           </div>
           <label class="switch">
-            <input type="checkbox" :checked="draftOf(rule).enabled" @change="toggle(rule, $event)" />
+            <input
+              type="checkbox"
+              :checked="draftOf(rule).enabled"
+              @change="toggle(rule, $event)"
+            />
             <span class="switch-label">Etkin</span>
           </label>
         </div>

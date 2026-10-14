@@ -98,7 +98,15 @@ export async function calculateRateDifference(
   const client = await pool.connect();
   try {
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-    return sharedCalculateRateDifference(client, tenantId, targetCurrency, fromDate, toDate, baseCurrency, source);
+    return sharedCalculateRateDifference(
+      client,
+      tenantId,
+      targetCurrency,
+      fromDate,
+      toDate,
+      baseCurrency,
+      source,
+    );
   } finally {
     client.release();
   }
@@ -109,7 +117,9 @@ export async function revalueForeignBalances(
   tenantId: string,
   _valuationDate: string,
   _userId: string,
-): Promise<{ entries: Array<{ currency: string; oldValue: number; newValue: number; diff: number }> }> {
+): Promise<{
+  entries: Array<{ currency: string; oldValue: number; newValue: number; diff: number }>;
+}> {
   const pool = getPool('app');
   const client = await pool.connect();
   try {
@@ -122,7 +132,8 @@ export async function revalueForeignBalances(
         WHERE tenant_id = current_tenant_id() AND currency <> 'TRY' AND status = 'active'`,
     );
 
-    const entries: Array<{ currency: string; oldValue: number; newValue: number; diff: number }> = [];
+    const entries: Array<{ currency: string; oldValue: number; newValue: number; diff: number }> =
+      [];
 
     for (const acc of accounts.rows) {
       const latestRate = await sharedGetLatestRate(client, tenantId, acc.currency, 'TRY', 'TCMB');

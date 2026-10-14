@@ -724,8 +724,12 @@ class ReportService {
         sales: { tax: calcWh, docCount: toNum(salesWh.rows[0]?.doc_count) },
         purchases: { tax: dedWh, docCount: toNum(purchaseWh.rows[0]?.doc_count) },
       },
-      salesByRate: salesRates.rows.map((r) => mapNumeric(r, ['tax_rate', 'tax', 'base', 'doc_count'])),
-      purchaseByRate: purchaseRates.rows.map((r) => mapNumeric(r, ['tax_rate', 'tax', 'base', 'doc_count'])),
+      salesByRate: salesRates.rows.map((r) =>
+        mapNumeric(r, ['tax_rate', 'tax', 'base', 'doc_count']),
+      ),
+      purchaseByRate: purchaseRates.rows.map((r) =>
+        mapNumeric(r, ['tax_rate', 'tax', 'base', 'doc_count']),
+      ),
     };
   }
 
@@ -1043,7 +1047,12 @@ class ReportService {
         inWindow(payable.rows).reduce((a, r) => a + toNum(r.balance), 0) +
         inWindow(expenses.rows).reduce((a, r) => a + toNum(r.balance), 0);
 
-      buckets.push({ label: `${iso(start)} → ${iso(stop)}`, inflow, outflow, net: inflow - outflow });
+      buckets.push({
+        label: `${iso(start)} → ${iso(stop)}`,
+        inflow,
+        outflow,
+        net: inflow - outflow,
+      });
     }
 
     return {

@@ -19,7 +19,13 @@
       </div>
       <div class="field">
         <label for="appt-start">Başlangıç</label>
-        <input id="appt-start" v-model="form.starts_at" type="datetime-local" class="input" required />
+        <input
+          id="appt-start"
+          v-model="form.starts_at"
+          type="datetime-local"
+          class="input"
+          required
+        />
       </div>
       <div class="field">
         <label for="appt-end">Bitiş</label>
@@ -39,7 +45,12 @@
     </form>
 
     <div class="toolbar" role="search">
-      <select v-model="filters.status" class="select" aria-label="Durum filtresi" @change="fetchAppointments">
+      <select
+        v-model="filters.status"
+        class="select"
+        aria-label="Durum filtresi"
+        @change="fetchAppointments"
+      >
         <option value="">Tüm Durumlar</option>
         <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
       </select>
@@ -76,7 +87,12 @@
                 class="select select-sm"
                 :value="appt.status"
                 aria-label="Randevu durumu"
-                @change="onStatusChange(appt.id, ($event.target as HTMLSelectElement).value as AppointmentStatus)"
+                @change="
+                  onStatusChange(
+                    appt.id,
+                    ($event.target as HTMLSelectElement).value as AppointmentStatus,
+                  )
+                "
               >
                 <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">
                   {{ s.label }}
@@ -85,7 +101,9 @@
             </td>
           </tr>
           <tr v-if="!appointments.length && !loading">
-            <td colspan="5" class="empty-cell">Henüz randevu yok. Yukarıdan yeni randevu ekleyin.</td>
+            <td colspan="5" class="empty-cell">
+              Henüz randevu yok. Yukarıdan yeni randevu ekleyin.
+            </td>
           </tr>
           <tr v-if="loading">
             <td colspan="5" class="empty-cell">Yükleniyor…</td>
@@ -95,7 +113,11 @@
     </div>
 
     <div v-if="pagination.pages > 1" class="pager">
-      <button class="btn btn-secondary" :disabled="pagination.page <= 1" @click="changePage(pagination.page - 1)">
+      <button
+        class="btn btn-secondary"
+        :disabled="pagination.page <= 1"
+        @click="changePage(pagination.page - 1)"
+      >
         ‹ Önceki
       </button>
       <span>Sayfa {{ pagination.page }} / {{ pagination.pages }}</span>

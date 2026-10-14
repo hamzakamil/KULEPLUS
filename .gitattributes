@@ -1,0 +1,7 @@
+# Kalıcı satır sonu normalizasyonu (Windows CRLF / CI LF tutarsızlığı çözümü)
+# Repo'da + working tree'de LF zorla — Prettier endOfLine:"lf" ile uyumlu.
+* text=auto eol=lf
+
+# Windows betikleri CRLF gerektirir
+*.bat text eol=crlf
+*.cmd text eol=crlf

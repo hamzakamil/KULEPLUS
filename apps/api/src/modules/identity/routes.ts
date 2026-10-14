@@ -50,9 +50,20 @@ function refreshCookieOptions(maxAgeMs: number | undefined) {
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const input = loginSchema.parse(req.body);
-    const result = await service.login(input.email, input.password, input.totpCode, undefined, undefined, input.rememberMe);
+    const result = await service.login(
+      input.email,
+      input.password,
+      input.totpCode,
+      undefined,
+      undefined,
+      input.rememberMe,
+    );
 
-    res.cookie('refreshToken', result.refreshToken, refreshCookieOptions(result.refreshCookieMaxAgeMs));
+    res.cookie(
+      'refreshToken',
+      result.refreshToken,
+      refreshCookieOptions(result.refreshCookieMaxAgeMs),
+    );
 
     res.json({
       accessToken: result.accessToken,
@@ -73,7 +84,11 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
 
     const result = await service.refresh(refreshToken);
 
-    res.cookie('refreshToken', result.refreshToken, refreshCookieOptions(result.refreshCookieMaxAgeMs));
+    res.cookie(
+      'refreshToken',
+      result.refreshToken,
+      refreshCookieOptions(result.refreshCookieMaxAgeMs),
+    );
 
     res.json({ accessToken: result.accessToken });
   } catch (error) {

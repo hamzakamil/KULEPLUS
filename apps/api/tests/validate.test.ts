@@ -69,7 +69,11 @@ describe('validate middleware', () => {
   it('Zod olmayan beklenmeyen hata olduğu gibi yeniden fırlatılır', () => {
     const next = vi.fn() as unknown as NextFunction;
     const boom = new Error('beklenmeyen');
-    const throwingSchema = { parse: () => { throw boom; } } as unknown as z.ZodType;
+    const throwingSchema = {
+      parse: () => {
+        throw boom;
+      },
+    } as unknown as z.ZodType;
 
     // validate senkrondur; olduğu gibi fırlatır → test onu yakalar
     expect(() => validate(throwingSchema)(makeReq({}), res, next)).toThrow(boom);

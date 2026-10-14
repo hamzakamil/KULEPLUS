@@ -116,7 +116,10 @@ export class AuthorizationService {
       );
 
       // Davet e-postası — outbox'a transaction içinde (SPEC §19.1); envanter: core.invitation.
-      const names = await client.query<{ tenant_name: string | null; inviter_email: string | null }>(
+      const names = await client.query<{
+        tenant_name: string | null;
+        inviter_email: string | null;
+      }>(
         `SELECT t.name AS tenant_name, u.email AS inviter_email
          FROM tenants t
          LEFT JOIN users u ON u.id = $2

@@ -409,4 +409,3 @@ export function getBackupService(): BackupService {
   if (!serviceInstance) serviceInstance = new BackupService();
   return serviceInstance;
 }
-

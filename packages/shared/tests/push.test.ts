@@ -26,18 +26,24 @@ describe('isWithinQuietHours', () => {
   });
 
   it('"HH:MM:SS" biçimini kabul eder', () => {
-    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00:00', quietHoursEnd: '08:00:00' })).toBe(
-      true,
-    );
+    expect(
+      isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00:00', quietHoursEnd: '08:00:00' }),
+    ).toBe(true);
   });
 
   it('eksik/boş/geçersiz değerlerde sessiz saat uygulanmaz', () => {
-    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: null, quietHoursEnd: null })).toBe(false);
-    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00', quietHoursEnd: null })).toBe(false);
-    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: 'bad', quietHoursEnd: '08:00' })).toBe(false);
-    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00', quietHoursEnd: '22:00' })).toBe(
+    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: null, quietHoursEnd: null })).toBe(
       false,
     );
+    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00', quietHoursEnd: null })).toBe(
+      false,
+    );
+    expect(isWithinQuietHours(at(23, 0), { quietHoursStart: 'bad', quietHoursEnd: '08:00' })).toBe(
+      false,
+    );
+    expect(
+      isWithinQuietHours(at(23, 0), { quietHoursStart: '22:00', quietHoursEnd: '22:00' }),
+    ).toBe(false);
   });
 });
 

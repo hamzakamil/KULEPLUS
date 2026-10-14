@@ -10,7 +10,9 @@
             Bu kodları GÜVENLİ bir yere kaydedin. Cihazınız kaybolursa girişiniz için gereklidir.
           </p>
           <div class="backup-code-grid">
-            <code v-for="(code, idx) in backupCodes" :key="code" class="backup-code">{{ code }}</code>
+            <code v-for="(code, idx) in backupCodes" :key="code" class="backup-code">{{
+              code
+            }}</code>
           </div>
           <button @click="finishSetup" class="btn btn-primary">Kodları kaydettim, devam et</button>
         </div>
@@ -29,7 +31,10 @@
               class="input"
               placeholder="TOTP secret kodunu buraya girin"
             />
-            <button @click="copyToClipboard(totpSecret)" class="btn btn-secondary btn-sm twofa-copy">
+            <button
+              @click="copyToClipboard(totpSecret)"
+              class="btn btn-secondary btn-sm twofa-copy"
+            >
               Kopyala
             </button>
           </div>
@@ -40,7 +45,9 @@
           </div>
 
           <div class="field">
-            <label for="totp-code-input" class="field-label">Uygulamada oluşan 6 haneli kodu girin</label>
+            <label for="totp-code-input" class="field-label"
+              >Uygulamada oluşan 6 haneli kodu girin</label
+            >
             <input
               id="totp-code-input"
               v-model="enteredCode"

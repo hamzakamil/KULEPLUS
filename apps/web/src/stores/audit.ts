@@ -13,7 +13,8 @@ import { api } from '@/lib/api';
 
 /** API hata sözleşmesi: `{ error: { code, message } }` (SPEC §22.1). */
 function errorMessage(err: unknown, fallback: string): string {
-  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response?.data;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
   return data?.error?.message || data?.message || fallback;
 }
 

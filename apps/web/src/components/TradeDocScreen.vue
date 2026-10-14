@@ -22,7 +22,9 @@
       </div>
       <div v-if="priced" class="trade-kpi">
         <span class="trade-kpi-label">Ortalama Tutar</span>
-        <span class="trade-kpi-value">{{ formatMoney(rows.length ? pageTotal / rows.length : 0) }}</span>
+        <span class="trade-kpi-value">{{
+          formatMoney(rows.length ? pageTotal / rows.length : 0)
+        }}</span>
       </div>
       <div class="trade-kpi" :class="{ warn: openCount > 0 }">
         <span class="trade-kpi-label">Açık (Bekleyen)</span>
@@ -35,7 +37,9 @@
     <!-- ── Liste ── -->
     <section class="trade-panel" :aria-label="title + ' listesi'">
       <div class="trade-panel-head">
-        <h2>{{ listTitle }} <span class="trade-count">{{ pagination.total || rows.length }}</span></h2>
+        <h2>
+          {{ listTitle }} <span class="trade-count">{{ pagination.total || rows.length }}</span>
+        </h2>
       </div>
       <div class="trade-filters" role="search">
         <input
@@ -87,7 +91,11 @@
                 {{ row[extraDate.key] ? formatDate(String(row[extraDate.key])) : '—' }}
               </td>
               <td v-if="priced" class="num strong">{{ formatMoney(row.total) }}</td>
-              <td><span class="trade-badge" :class="statusTone(row.status)">{{ statusLabel(row.status) }}</span></td>
+              <td>
+                <span class="trade-badge" :class="statusTone(row.status)">{{
+                  statusLabel(row.status)
+                }}</span>
+              </td>
               <td class="num actions">
                 <button class="trade-link" @click.stop="edit(row)">Düzenle</button>
                 <button class="trade-link danger" @click.stop="remove(row.id)">Sil</button>
@@ -106,11 +114,19 @@
       </div>
 
       <div v-if="pagination.pages > 1" class="trade-pager">
-        <button class="btn btn-secondary btn-sm" :disabled="pagination.page <= 1" @click="page(pagination.page - 1)">
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="pagination.page <= 1"
+          @click="page(pagination.page - 1)"
+        >
           ‹ Önceki
         </button>
         <span>Sayfa {{ pagination.page }} / {{ pagination.pages }}</span>
-        <button class="btn btn-secondary btn-sm" :disabled="pagination.page >= pagination.pages" @click="page(pagination.page + 1)">
+        <button
+          class="btn btn-secondary btn-sm"
+          :disabled="pagination.page >= pagination.pages"
+          @click="page(pagination.page + 1)"
+        >
           Sonraki ›
         </button>
       </div>
@@ -120,7 +136,9 @@
     <section v-if="detail" class="trade-detail" :aria-label="title + ' detayı'">
       <div class="trade-detail-head">
         <div>
-          <span class="trade-badge" :class="statusTone(detail.status)">{{ statusLabel(detail.status) }}</span>
+          <span class="trade-badge" :class="statusTone(detail.status)">{{
+            statusLabel(detail.status)
+          }}</span>
           <h2>{{ detail.number }}</h2>
           <p v-if="detail.contact_name" class="trade-detail-sub">{{ detail.contact_name }}</p>
         </div>
@@ -239,7 +257,15 @@
             >
               {{ panelMinimized ? '▲' : '▼' }}
             </button>
-            <button type="button" class="trade-dock-btn" aria-label="Paneli kapat" title="Kapat" @click="requestClose">✕</button>
+            <button
+              type="button"
+              class="trade-dock-btn"
+              aria-label="Paneli kapat"
+              title="Kapat"
+              @click="requestClose"
+            >
+              ✕
+            </button>
           </div>
         </header>
 
@@ -248,18 +274,33 @@
             <div class="trade-form-grid">
               <div>
                 <label :for="`f-contact-${docType}`">Cari</label>
-                <select :id="`f-contact-${docType}`" v-model="form.contact_id" class="trade-select field-full">
+                <select
+                  :id="`f-contact-${docType}`"
+                  v-model="form.contact_id"
+                  class="trade-select field-full"
+                >
                   <option value="">Seçiniz…</option>
                   <option v-for="c in contacts" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
               </div>
               <div>
                 <label :for="`f-issue-${docType}`">Belge Tarihi *</label>
-                <input :id="`f-issue-${docType}`" v-model="form.issue_date" type="date" class="trade-input" required />
+                <input
+                  :id="`f-issue-${docType}`"
+                  v-model="form.issue_date"
+                  type="date"
+                  class="trade-input"
+                  required
+                />
               </div>
               <div v-if="extraDate">
                 <label :for="`f-extra-${docType}`">{{ extraDate.label }}</label>
-                <input :id="`f-extra-${docType}`" v-model="form[extraDate.key]" type="date" class="trade-input" />
+                <input
+                  :id="`f-extra-${docType}`"
+                  v-model="form[extraDate.key]"
+                  type="date"
+                  class="trade-input"
+                />
               </div>
               <div>
                 <label :for="`f-cur-${docType}`">Para Birimi</label>
@@ -286,7 +327,9 @@
 
             <div class="trade-line-head">
               <h3>Satırlar</h3>
-              <button type="button" class="btn btn-secondary btn-sm" @click="addLine">+ Satır Ekle</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="addLine">
+                + Satır Ekle
+              </button>
             </div>
 
             <div class="trade-lines-editor">
@@ -307,48 +350,101 @@
                 <tbody>
                   <tr v-for="(line, i) in form.lines" :key="i">
                     <td>
-                      <input v-model="line.description" class="trade-input" placeholder="Açıklama" @input="markDirty" />
+                      <input
+                        v-model="line.description"
+                        class="trade-input"
+                        placeholder="Açıklama"
+                        @input="markDirty"
+                      />
                     </td>
                     <td class="trade-num">
-                      <input v-model.number="line.quantity" type="number" min="0.01" step="0.01" class="trade-input trade-num" @input="markDirty" />
+                      <input
+                        v-model.number="line.quantity"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        class="trade-input trade-num"
+                        @input="markDirty"
+                      />
                     </td>
                     <template v-if="priced">
                       <td class="trade-num">
-                        <input v-model.number="line.unit_price" type="number" min="0" step="0.01" class="trade-input trade-num" @input="markDirty" />
+                        <input
+                          v-model.number="line.unit_price"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          class="trade-input trade-num"
+                          @input="markDirty"
+                        />
                       </td>
                       <td class="trade-num">
-                        <input v-model.number="line.discount_percent" type="number" min="0" max="100" step="0.1" class="trade-input trade-num" @input="markDirty" />
+                        <input
+                          v-model.number="line.discount_percent"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          class="trade-input trade-num"
+                          @input="markDirty"
+                        />
                       </td>
                       <td>
                         <select v-model="line.tax_rate_id" class="trade-select" @change="markDirty">
                           <option value="">%0</option>
-                          <option v-for="t in taxRates" :key="t.id" :value="t.id">%{{ t.rate }}</option>
+                          <option v-for="t in taxRates" :key="t.id" :value="t.id">
+                            %{{ t.rate }}
+                          </option>
                         </select>
                       </td>
-                      <td class="trade-num"><span class="trade-line-total">{{ formatMoney(lineTotal(line)) }}</span></td>
+                      <td class="trade-num">
+                        <span class="trade-line-total">{{ formatMoney(lineTotal(line)) }}</span>
+                      </td>
                     </template>
                     <td>
-                      <button type="button" class="trade-dock-btn" aria-label="Satırı sil" title="Satırı sil" @click="removeLine(i)">✕</button>
+                      <button
+                        type="button"
+                        class="trade-dock-btn"
+                        aria-label="Satırı sil"
+                        title="Satırı sil"
+                        @click="removeLine(i)"
+                      >
+                        ✕
+                      </button>
                     </td>
                   </tr>
                   <tr v-if="!form.lines.length">
-                    <td :colspan="priced ? 7 : 3" class="empty-cell">Satır eklemek için "+ Satır Ekle" kullanın.</td>
+                    <td :colspan="priced ? 7 : 3" class="empty-cell">
+                      Satır eklemek için "+ Satır Ekle" kullanın.
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div v-if="priced" class="trade-totals">
-              <div class="trade-total-row"><span class="muted">Ara Toplam</span><span>{{ formatMoney(subtotal) }}</span></div>
-              <div class="trade-total-row"><span class="muted">İskonto</span><span>−{{ formatMoney(discountTotal) }}</span></div>
-              <div class="trade-total-row"><span class="muted">KDV</span><span>{{ formatMoney(taxTotal) }}</span></div>
-              <div class="trade-total-row grand"><span>Genel Toplam</span><span>{{ formatMoney(grandTotal) }}</span></div>
+              <div class="trade-total-row">
+                <span class="muted">Ara Toplam</span><span>{{ formatMoney(subtotal) }}</span>
+              </div>
+              <div class="trade-total-row">
+                <span class="muted">İskonto</span><span>−{{ formatMoney(discountTotal) }}</span>
+              </div>
+              <div class="trade-total-row">
+                <span class="muted">KDV</span><span>{{ formatMoney(taxTotal) }}</span>
+              </div>
+              <div class="trade-total-row grand">
+                <span>Genel Toplam</span><span>{{ formatMoney(grandTotal) }}</span>
+              </div>
             </div>
 
             <p v-if="formError" class="trade-form-error">{{ formError }}</p>
             <div class="trade-dock-actions">
               <button type="button" class="btn btn-secondary" @click="requestClose">Vazgeç</button>
-              <button type="submit" class="btn btn-primary" :disabled="store.loading || !form.lines.length">
+              <button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="store.loading || !form.lines.length"
+              >
                 {{ store.loading ? 'Kaydediliyor…' : editingId ? 'Güncelle' : 'Kaydet' }}
               </button>
             </div>
@@ -580,7 +676,8 @@ const subtotal = computed(() =>
 );
 const discountTotal = computed(() =>
   (form.value?.lines ?? []).reduce(
-    (s, l) => s + (Number(l.quantity) * Number(l.unit_price) * (Number(l.discount_percent) || 0)) / 100,
+    (s, l) =>
+      s + (Number(l.quantity) * Number(l.unit_price) * (Number(l.discount_percent) || 0)) / 100,
     0,
   ),
 );
@@ -593,9 +690,7 @@ const taxTotal = computed(() =>
 );
 const grandTotal = computed(() => subtotal.value - discountTotal.value + taxTotal.value);
 
-const pageTotal = computed(() =>
-  rows.value.reduce((s, r) => s + Number(r.total ?? 0), 0),
-);
+const pageTotal = computed(() => rows.value.reduce((s, r) => s + Number(r.total ?? 0), 0));
 const openCount = computed(() => rows.value.filter((r) => r.status === 'draft').length);
 
 // ── Durum ──
@@ -608,7 +703,11 @@ const nextStatuses = (current: string) => {
 
 // ── Liste işlemleri ──
 const applyFilters = () => {
-  store.value.setFilters({ page: 1, search: search.value.trim() || undefined, status: statusFilter.value || undefined });
+  store.value.setFilters({
+    page: 1,
+    search: search.value.trim() || undefined,
+    status: statusFilter.value || undefined,
+  });
   fetchList();
 };
 const page = (p: number) => {
@@ -684,7 +783,11 @@ const edit = (row: TradeRow) => {
     notes: String(row.notes ?? ''),
     lines,
     ...(props.extraDate
-      ? { [props.extraDate.key]: row[props.extraDate.key] ? String(row[props.extraDate.key]).slice(0, 10) : '' }
+      ? {
+          [props.extraDate.key]: row[props.extraDate.key]
+            ? String(row[props.extraDate.key]).slice(0, 10)
+            : '',
+        }
       : {}),
     ...(props.linked ? { [props.linked.key]: String(row[props.linked.key] ?? '') } : {}),
   };
@@ -752,9 +855,12 @@ const save = async () => {
   const payload = buildPayload();
   try {
     if (editingId.value) {
-      if (props.docType === 'quote') await quoteStore.updateQuote(editingId.value, payload as never);
-      else if (props.docType === 'order') await orderStore.updateOrder(editingId.value, payload as never);
-      else if (props.docType === 'purchase') await purchaseStore.updateOrder(editingId.value, payload as never);
+      if (props.docType === 'quote')
+        await quoteStore.updateQuote(editingId.value, payload as never);
+      else if (props.docType === 'order')
+        await orderStore.updateOrder(editingId.value, payload as never);
+      else if (props.docType === 'purchase')
+        await purchaseStore.updateOrder(editingId.value, payload as never);
       else await deliveryStore.updateDelivery(editingId.value, payload as never);
     } else {
       const created = (await (props.docType === 'quote'
@@ -806,7 +912,12 @@ const formatQty = (q: unknown) => {
   const n = Number(q ?? 0);
   return Number.isInteger(n) ? String(n) : String(n.toFixed(2)).replace('.', ',');
 };
-const formatPct = (p: unknown) => `${Number(p ?? 0).toFixed(2).replace('.', ',').replace(/0+$/, '').replace(/,$/, '')}%`;
+const formatPct = (p: unknown) =>
+  `${Number(p ?? 0)
+    .toFixed(2)
+    .replace('.', ',')
+    .replace(/0+$/, '')
+    .replace(/,$/, '')}%`;
 
 onMounted(async () => {
   await Promise.all([
@@ -819,10 +930,18 @@ onMounted(async () => {
   // Bağlı belge seçenekleri (tekliften sipariş, siparişten irsaliye)
   if (props.linked?.source === 'orders') {
     await orderStore.fetchOrders();
-    linkedOptions.value = orderStore.orders.map((o) => ({ id: o.id, number: o.number, contact_name: o.contact_name }));
+    linkedOptions.value = orderStore.orders.map((o) => ({
+      id: o.id,
+      number: o.number,
+      contact_name: o.contact_name,
+    }));
   } else if (props.linked?.source === 'quotes') {
     await quoteStore.fetchQuotes();
-    linkedOptions.value = quoteStore.quotes.map((q) => ({ id: q.id, number: q.number, contact_name: q.contact_name }));
+    linkedOptions.value = quoteStore.quotes.map((q) => ({
+      id: q.id,
+      number: q.number,
+      contact_name: q.contact_name,
+    }));
   }
 
   await fetchList();

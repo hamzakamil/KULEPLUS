@@ -231,7 +231,13 @@ describe('CashBankMovementService - Unit Tests', () => {
 
       await expect(
         cashBankMovementService.withdrawal(
-          { accountId: 'a1', transactionDate: '2026-10-01', amount: 500, currency: 'TRY', exchangeRate: 1 } as never,
+          {
+            accountId: 'a1',
+            transactionDate: '2026-10-01',
+            amount: 500,
+            currency: 'TRY',
+            exchangeRate: 1,
+          } as never,
           'user-1',
         ),
       ).rejects.toThrow(AppError);

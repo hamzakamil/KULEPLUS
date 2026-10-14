@@ -44,8 +44,7 @@ api.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError) => {
     const original = error.config as
-      | (InternalAxiosRequestConfig & { _retry?: boolean })
-      | undefined;
+      (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
     const url = original?.url || '';
     // Auth uçlarındaki (login/2fa/refresh) 401'ler form hatasıdır, dokunma
     const isAuthEndpoint = url.includes('/auth/');

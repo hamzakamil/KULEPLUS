@@ -89,7 +89,8 @@ export async function upsertRates(
          RETURNING (xmax = 0) AS inserted`,
         [newId(), r.effectiveDate, base, r.code, rateValue, source, options?.userId ?? null],
       );
-      if (res.rows[0].inserted) inserted++; else updated++;
+      if (res.rows[0].inserted) inserted++;
+      else updated++;
     }
 
     await client.query('COMMIT');

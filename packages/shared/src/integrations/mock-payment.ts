@@ -92,7 +92,11 @@ export class MockPaymentProvider implements PaymentProvider {
       return null;
     }
     const status: PaymentStatus =
-      type === 'payment.succeeded' ? 'succeeded' : type === 'refund.succeeded' ? 'refunded' : 'failed';
+      type === 'payment.succeeded'
+        ? 'succeeded'
+        : type === 'refund.succeeded'
+          ? 'refunded'
+          : 'failed';
     this.byRef.set(payload.providerRef, status);
     return { type, providerRef: payload.providerRef, amount: payload.amount, raw: payload };
   }

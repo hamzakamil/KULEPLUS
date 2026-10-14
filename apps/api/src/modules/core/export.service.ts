@@ -35,7 +35,11 @@ export interface Dataset {
 
 /** Dışa aktarılacak veri kümeleri — yalnızca okuma, deterministik sıralı. */
 export const EXPORT_DATASETS: Dataset[] = [
-  { file: 'cari.csv', label: 'Cari kartlar', sql: `SELECT * FROM contacts WHERE tenant_id = $1 ORDER BY code` },
+  {
+    file: 'cari.csv',
+    label: 'Cari kartlar',
+    sql: `SELECT * FROM contacts WHERE tenant_id = $1 ORDER BY code`,
+  },
   {
     file: 'cari_adres.csv',
     label: 'Cari adresleri',
@@ -56,14 +60,26 @@ export const EXPORT_DATASETS: Dataset[] = [
     label: 'Cari hareket defteri',
     sql: `SELECT * FROM party_ledger_entries WHERE tenant_id = $1 ORDER BY posted_at, id`,
   },
-  { file: 'urunler.csv', label: 'Ürünler', sql: `SELECT * FROM products WHERE tenant_id = $1 ORDER BY code` },
+  {
+    file: 'urunler.csv',
+    label: 'Ürünler',
+    sql: `SELECT * FROM products WHERE tenant_id = $1 ORDER BY code`,
+  },
   {
     file: 'urun_barkodlari.csv',
     label: 'Ürün barkodları',
     sql: `SELECT b.* FROM product_barcodes b JOIN products p ON p.id = b.product_id WHERE p.tenant_id = $1 ORDER BY b.product_id`,
   },
-  { file: 'birimler.csv', label: 'Birimler', sql: `SELECT * FROM units WHERE tenant_id = $1 ORDER BY code` },
-  { file: 'depolar.csv', label: 'Depolar', sql: `SELECT * FROM warehouses WHERE tenant_id = $1 ORDER BY code` },
+  {
+    file: 'birimler.csv',
+    label: 'Birimler',
+    sql: `SELECT * FROM units WHERE tenant_id = $1 ORDER BY code`,
+  },
+  {
+    file: 'depolar.csv',
+    label: 'Depolar',
+    sql: `SELECT * FROM warehouses WHERE tenant_id = $1 ORDER BY code`,
+  },
   {
     file: 'stok_hareketleri.csv',
     label: 'Stok hareketleri',
@@ -171,8 +187,16 @@ export const EXPORT_DATASETS: Dataset[] = [
           FROM tenant_users tu JOIN users u ON u.id = tu.user_id
           WHERE tu.tenant_id = $1 ORDER BY tu.is_owner DESC, u.email`,
   },
-  { file: 'roller.csv', label: 'Roller', sql: `SELECT * FROM roles WHERE tenant_id = $1 ORDER BY name` },
-  { file: 'departmanlar.csv', label: 'Departmanlar', sql: `SELECT * FROM departments WHERE tenant_id = $1 ORDER BY name` },
+  {
+    file: 'roller.csv',
+    label: 'Roller',
+    sql: `SELECT * FROM roles WHERE tenant_id = $1 ORDER BY name`,
+  },
+  {
+    file: 'departmanlar.csv',
+    label: 'Departmanlar',
+    sql: `SELECT * FROM departments WHERE tenant_id = $1 ORDER BY name`,
+  },
 ];
 
 export interface FullExportResult {
@@ -202,7 +226,9 @@ export class DataExportService {
       // Tek veri kümesi patlarsa bütün dışa aktarma çökmesin: boş sayılır.
       let rows: Record<string, unknown>[];
       try {
-        const result = await this.poolInstance.query<Record<string, unknown>>(dataset.sql, [tenantId]);
+        const result = await this.poolInstance.query<Record<string, unknown>>(dataset.sql, [
+          tenantId,
+        ]);
         rows = result.rows;
       } catch {
         rows = [];
@@ -211,7 +237,10 @@ export class DataExportService {
       const headers = rows.length > 0 ? Object.keys(rows[0]!) : [];
       const body =
         headers.length > 0
-          ? toCsv(headers, rows.map((r) => headers.map((h) => r[h])))
+          ? toCsv(
+              headers,
+              rows.map((r) => headers.map((h) => r[h])),
+            )
           : toCsv(['bilgi'], [['veri yok']]);
 
       entries.push({ name: `data/${dataset.file}`, data: body });

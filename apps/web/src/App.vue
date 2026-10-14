@@ -18,7 +18,11 @@ const companies = useCompanyStore();
 const companyMenuOpen = ref(false);
 const currentCompany = computed(() => companies.companies.find((c) => c.id === auth.company?.id));
 const currentCompanyName = computed(
-  () => currentCompany.value?.trade_name || currentCompany.value?.name || auth.company?.name || 'Şirket',
+  () =>
+    currentCompany.value?.trade_name ||
+    currentCompany.value?.name ||
+    auth.company?.name ||
+    'Şirket',
 );
 
 async function loadShell() {
@@ -151,7 +155,10 @@ const navGroups: {
       { to: '/audit', label: 'Denetim Kayıtları' },
     ],
   },
-  { label: 'Ayarlar', items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }] },
+  {
+    label: 'Ayarlar',
+    items: [{ to: '/settings/expense-categories', label: 'Gider Kategorileri' }],
+  },
 ];
 
 /**
@@ -215,7 +222,11 @@ function toggleGroup(groupLabel: string) {
             <RouterLink
               v-for="item in group.items"
               :key="item.to"
-              :to="isLocked(item.module) && lockedTarget(item.module) ? lockedTarget(item.module)! : item.to"
+              :to="
+                isLocked(item.module) && lockedTarget(item.module)
+                  ? lockedTarget(item.module)!
+                  : item.to
+              "
               class="nav-link"
               :class="{ 'is-locked': isLocked(item.module) }"
             >
@@ -242,7 +253,9 @@ function toggleGroup(groupLabel: string) {
           </button>
           <ul v-if="companyMenuOpen" class="company-list" role="listbox" aria-label="Şirketler">
             <li v-if="companies.loading" class="company-empty">Yükleniyor…</li>
-            <li v-else-if="companies.companies.length === 0" class="company-empty">Başka şirket yok</li>
+            <li v-else-if="companies.companies.length === 0" class="company-empty">
+              Başka şirket yok
+            </li>
             <li
               v-for="c in companies.companies"
               :key="c.id"

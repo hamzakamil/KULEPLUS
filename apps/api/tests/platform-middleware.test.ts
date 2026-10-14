@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { NextFunction, Response } from 'express';
-import { requirePlatformUser, requirePlatformOwner, requirePlatformRole } from '../src/middleware/platform';
+import {
+  requirePlatformUser,
+  requirePlatformOwner,
+  requirePlatformRole,
+} from '../src/middleware/platform';
 import type { PlatformRequest } from '../src/middleware/platform';
 import { type AppError } from '@kuleplus/shared';
 
@@ -25,7 +29,10 @@ vi.mock('../src/modules/platform/service', () => ({
 
 const res = {} as Response;
 
-function makeReq(userSub?: string, platformUser?: PlatformRequest['platformUser']): PlatformRequest {
+function makeReq(
+  userSub?: string,
+  platformUser?: PlatformRequest['platformUser'],
+): PlatformRequest {
   return {
     user: userSub ? { sub: userSub, email: 'a@b.com' } : undefined,
     platformUser,
@@ -58,14 +65,24 @@ describe('platform yetkilendirme middleware (SPEC §5.1, ADR-0003)', () => {
     });
 
     it('üyelik active değil → FORBIDDEN', async () => {
-      getPlatformUserByUserIdMock.mockResolvedValue({ id: 'pu-1', user_id: 'u-1', is_platform_owner: false, status: 'suspended' });
+      getPlatformUserByUserIdMock.mockResolvedValue({
+        id: 'pu-1',
+        user_id: 'u-1',
+        is_platform_owner: false,
+        status: 'suspended',
+      });
       const next = vi.fn() as unknown as NextFunction;
       await requirePlatformUser()(makeReq('user-1'), res, next);
       expect(nextError(next).code).toBe('FORBIDDEN');
     });
 
     it('aktif platform kullanıcısı → req.platformUser kurulur, roller yüklenir', async () => {
-      getPlatformUserByUserIdMock.mockResolvedValue({ id: 'pu-1', user_id: 'u-1', is_platform_owner: false, status: 'active' });
+      getPlatformUserByUserIdMock.mockResolvedValue({
+        id: 'pu-1',
+        user_id: 'u-1',
+        is_platform_owner: false,
+        status: 'active',
+      });
       getPlatformRolesMock.mockResolvedValue(['platform_support']);
       const req = makeReq('user-1');
       const next = vi.fn() as unknown as NextFunction;
@@ -120,14 +137,24 @@ describe('platform yetkilendirme middleware (SPEC §5.1, ADR-0003)', () => {
     });
 
     it('rolü taşımıyor → FORBIDDEN', async () => {
-      const req = makeReq('user-1', { id: 'pu-1', userId: 'u-1', isOwner: false, roles: ['platform_billing'] });
+      const req = makeReq('user-1', {
+        id: 'pu-1',
+        userId: 'u-1',
+        isOwner: false,
+        roles: ['platform_billing'],
+      });
       const next = vi.fn() as unknown as NextFunction;
       await requirePlatformRole('platform_support')(req, res, next);
       expect(nextError(next).code).toBe('FORBIDDEN');
     });
 
     it('gerekli role sahip → next() hatasız', async () => {
-      const req = makeReq('user-1', { id: 'pu-1', userId: 'u-1', isOwner: false, roles: ['platform_support'] });
+      const req = makeReq('user-1', {
+        id: 'pu-1',
+        userId: 'u-1',
+        isOwner: false,
+        roles: ['platform_support'],
+      });
       const next = vi.fn() as unknown as NextFunction;
       await requirePlatformRole('platform_support')(req, res, next);
       expect(next).toHaveBeenCalledWith();

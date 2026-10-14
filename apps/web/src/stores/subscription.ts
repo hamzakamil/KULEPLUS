@@ -11,19 +11,15 @@ import { api } from '@/lib/api';
 
 /** API hata sözleşmesi: `{ error: { code, message } }` (SPEC §22.1). */
 function errorMessage(err: unknown, fallback: string): string {
-  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response?.data;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
   return data?.error?.message || data?.message || fallback;
 }
 
 const BASE = '/v1/subscription';
 
 export type SubscriptionStatus =
-  | 'pending_activation'
-  | 'active'
-  | 'past_due'
-  | 'suspended'
-  | 'cancelled'
-  | 'expired';
+  'pending_activation' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'expired';
 
 export type OrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 

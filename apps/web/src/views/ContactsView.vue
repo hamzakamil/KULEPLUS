@@ -13,7 +13,9 @@
         <button type="button" class="btn btn-ghost" :disabled="exporting" @click="exportCsv">
           {{ exporting ? 'Aktarılıyor…' : 'Dışa Aktar' }}
         </button>
-        <RouterLink :to="{ name: 'contact-create' }" class="btn btn-primary">+ Yeni Cari</RouterLink>
+        <RouterLink :to="{ name: 'contact-create' }" class="btn btn-primary"
+          >+ Yeni Cari</RouterLink
+        >
       </div>
     </header>
 
@@ -35,7 +37,9 @@
       <div class="kpi">
         <span class="kpi-label">Toplam Cari</span>
         <strong class="kpi-value">{{ stats?.total ?? 0 }}</strong>
-        <span class="kpi-sub">{{ stats?.active ?? 0 }} aktif · {{ stats?.inactive ?? 0 }} pasif</span>
+        <span class="kpi-sub"
+          >{{ stats?.active ?? 0 }} aktif · {{ stats?.inactive ?? 0 }} pasif</span
+        >
       </div>
       <div class="kpi">
         <span class="kpi-label">Müşteri / Tedarikçi</span>
@@ -58,7 +62,9 @@
       <div class="kpi" :class="netTone">
         <span class="kpi-label">Net Bakiye</span>
         <strong class="kpi-value">{{ money(stats?.netBalance ?? 0) }}</strong>
-        <span class="kpi-sub">{{ (stats?.netBalance ?? 0) >= 0 ? 'Alacaklıyız' : 'Borçluyuz' }}</span>
+        <span class="kpi-sub">{{
+          (stats?.netBalance ?? 0) >= 0 ? 'Alacaklıyız' : 'Borçluyuz'
+        }}</span>
       </div>
       <div class="kpi" :class="{ danger: (stats?.overdueAmount ?? 0) > 0 }">
         <span class="kpi-label">Vadesi Geçen</span>
@@ -257,11 +263,7 @@
             >
               Düzenle
             </button>
-            <button
-              type="button"
-              class="btn btn-danger btn-sm"
-              @click="askDelete(displayContact)"
-            >
+            <button type="button" class="btn btn-danger btn-sm" @click="askDelete(displayContact)">
               Sil
             </button>
           </div>
@@ -358,7 +360,9 @@
                   <td class="nowrap">{{ shortDate(row.posted_at) }}</td>
                   <td class="mono small">{{ row.document_number || '—' }}</td>
                   <td class="desc">{{ row.description || row.document_type || '—' }}</td>
-                  <td class="num debit">{{ row.type === 'receivable' ? money(row.amount) : '' }}</td>
+                  <td class="num debit">
+                    {{ row.type === 'receivable' ? money(row.amount) : '' }}
+                  </td>
                   <td class="num credit">{{ row.type === 'payable' ? money(row.amount) : '' }}</td>
                   <td class="num strong">{{ money(row.balance) }}</td>
                 </tr>
@@ -644,10 +648,18 @@
           />
           <p v-if="importError" class="form-error">{{ importError }}</p>
           <div v-if="importReport" class="import-summary">
-            <span>Toplam: <b>{{ importReport.summary.total }}</b></span>
-            <span class="ok">Geçerli: <b>{{ importReport.summary.valid }}</b></span>
-            <span class="warn">Mükerrer: <b>{{ importReport.summary.duplicates }}</b></span>
-            <span class="err">Hatalı: <b>{{ importReport.summary.invalid }}</b></span>
+            <span
+              >Toplam: <b>{{ importReport.summary.total }}</b></span
+            >
+            <span class="ok"
+              >Geçerli: <b>{{ importReport.summary.valid }}</b></span
+            >
+            <span class="warn"
+              >Mükerrer: <b>{{ importReport.summary.duplicates }}</b></span
+            >
+            <span class="err"
+              >Hatalı: <b>{{ importReport.summary.invalid }}</b></span
+            >
           </div>
           <footer class="modal-footer">
             <button type="button" class="btn btn-ghost" @click="showImport = false">Kapat</button>
@@ -674,10 +686,20 @@
 
     <!-- ══ HIZLI GÖREV (context-aware quick action) ══ -->
     <div v-if="quickTaskOpen" class="modal-overlay" @click.self="quickTaskOpen = false">
-      <div class="modal modal-md" role="dialog" aria-modal="true" aria-labelledby="quick-task-title">
+      <div
+        class="modal modal-md"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="quick-task-title"
+      >
         <header class="modal-header">
           <h3 id="quick-task-title">Yeni Görev</h3>
-          <button type="button" class="modal-close" @click="quickTaskOpen = false" aria-label="Kapat">
+          <button
+            type="button"
+            class="modal-close"
+            @click="quickTaskOpen = false"
+            aria-label="Kapat"
+          >
             &times;
           </button>
         </header>
@@ -718,7 +740,9 @@
           </div>
           <p v-if="quickError" class="form-error">{{ quickError }}</p>
           <footer class="modal-footer">
-            <button type="button" class="btn btn-ghost" @click="quickTaskOpen = false">İptal</button>
+            <button type="button" class="btn btn-ghost" @click="quickTaskOpen = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="quickSaving">
               {{ quickSaving ? 'Kaydediliyor…' : 'Görevi Oluştur' }}
             </button>
@@ -737,7 +761,12 @@
       >
         <header class="modal-header">
           <h3 id="quick-appt-title">Yeni Randevu</h3>
-          <button type="button" class="modal-close" @click="quickApptOpen = false" aria-label="Kapat">
+          <button
+            type="button"
+            class="modal-close"
+            @click="quickApptOpen = false"
+            aria-label="Kapat"
+          >
             &times;
           </button>
         </header>
@@ -780,7 +809,9 @@
           </div>
           <p v-if="quickError" class="form-error">{{ quickError }}</p>
           <footer class="modal-footer">
-            <button type="button" class="btn btn-ghost" @click="quickApptOpen = false">İptal</button>
+            <button type="button" class="btn btn-ghost" @click="quickApptOpen = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="quickSaving">
               {{ quickSaving ? 'Kaydediliyor…' : 'Randevu Oluştur' }}
             </button>

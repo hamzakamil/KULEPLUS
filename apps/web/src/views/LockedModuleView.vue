@@ -27,7 +27,12 @@ const PREVIEWS: Record<string, ModulePreview> = {
   trade: {
     title: 'Ticaret',
     summary: 'Tekliften siparişe, irsaliyeden faturaya kadar satış ve satın alma akışı.',
-    features: ['Satış teklifi ve siparişi', 'Satın alma siparişi', 'İrsaliye', 'Satış/alış faturası'],
+    features: [
+      'Satış teklifi ve siparişi',
+      'Satın alma siparişi',
+      'İrsaliye',
+      'Satış/alış faturası',
+    ],
     sampleColumns: ['Belge', 'Cari', 'Tarih', 'Tutar'],
     sampleRows: [
       ['SF-2026-0001', 'Yıldız Gıda A.Ş.', '12.10.2026', '24.500,00 ₺'],
@@ -47,7 +52,12 @@ const PREVIEWS: Record<string, ModulePreview> = {
   einvoice: {
     title: 'e-Dönüşüm',
     summary: 'GİB altyapısıyla e-fatura gönderimi, gelen kutusu ve arşiv.',
-    features: ['e-Fatura gönderme', 'Gelen kutusu senkronizasyonu', 'XML/PDF arşiv', 'İptal ve durum takibi'],
+    features: [
+      'e-Fatura gönderme',
+      'Gelen kutusu senkronizasyonu',
+      'XML/PDF arşiv',
+      'İptal ve durum takibi',
+    ],
     sampleColumns: ['Belge', 'Cari', 'Yön', 'Durum'],
     sampleRows: [
       ['SF-2026-0007', 'Yıldız Gıda A.Ş.', 'Giden', 'Kabul edildi'],
@@ -134,7 +144,9 @@ const contactUrl = computed(() => `${SITE_URL}/iletisim`);
         <table v-if="preview.sampleColumns.length" class="sample">
           <thead>
             <tr>
-              <th v-for="column in preview.sampleColumns" :key="column" scope="col">{{ column }}</th>
+              <th v-for="column in preview.sampleColumns" :key="column" scope="col">
+                {{ column }}
+              </th>
             </tr>
           </thead>
           <tbody>

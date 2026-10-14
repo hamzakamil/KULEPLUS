@@ -52,15 +52,18 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({ rows: [invoice], rowCount: 1 });
       }
-      if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+      if (s.includes('FROM accounting_accounts'))
+        return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
       if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
       if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ total: '1' }] });
-      if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+      if (s.includes('FROM accounting_accounts'))
+        return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
       if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-      if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '5' }] });
+      if (s.includes('COALESCE(MAX(entry_no)'))
+        return Promise.resolve({ rows: [{ next_no: '5' }] });
       return Promise.resolve({ rows: [] });
     });
   }
@@ -75,7 +78,9 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     expect(res.totals?.totalDebit).toBe(1200);
     expect(res.totals?.totalCredit).toBe(1200);
 
-    const inserted = clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries'));
+    const inserted = clientQuery.mock.calls.some((c) =>
+      String(c[0]).includes('INSERT INTO journal_entries'),
+    );
     const updated = clientQuery.mock.calls.some((c) => String(c[0]).includes('UPDATE invoices'));
     expect(inserted).toBe(true);
     expect(updated).toBe(true);
@@ -86,7 +91,10 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
-        return Promise.resolve({ rows: [{ ...salesInvoice, posting_status: 'posted' }], rowCount: 1 });
+        return Promise.resolve({
+          rows: [{ ...salesInvoice, posting_status: 'posted' }],
+          rowCount: 1,
+        });
       }
       if (s.includes('FROM journal_entries')) {
         return Promise.resolve({ rows: [{ id: 'je-1', entry_no: 3 }] });
@@ -97,7 +105,9 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     const res = (await service.postInvoice('inv-1', 'user-1')) as PostResult;
     expect(res.alreadyPosted).toBe(true);
     expect(res.entryId).toBe('je-1');
-    expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries'))).toBe(false);
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries')),
+    ).toBe(false);
   });
 
   it('desteklenmeyen belge türü → VALIDATION_ERROR', async () => {
@@ -111,7 +121,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
-      if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) return Promise.resolve({ rows: [], rowCount: 0 });
+      if (s.includes('FROM invoices') && s.includes('FOR UPDATE'))
+        return Promise.resolve({ rows: [], rowCount: 0 });
       return Promise.resolve({ rows: [] });
     });
     await expect(service.postInvoice('yok', 'user-1')).rejects.toThrow('Fatura bulunamadı');
@@ -121,7 +132,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     function routePayment(invoiceType: 'sales' | 'purchase') {
       clientQuery.mockImplementation((sql: string) => {
         const s = String(sql);
-        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim()))
+          return Promise.resolve({ rows: [] });
         if (s.includes('FROM invoices')) {
           return Promise.resolve({
             rows: [
@@ -139,11 +151,13 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
         }
         if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
           return Promise.resolve({ rows: [{ total: '1' }] });
-        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ id: 'acc-1' }] });
         if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
         if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
         if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '9' }] });
+        if (s.includes('COALESCE(MAX(entry_no)'))
+          return Promise.resolve({ rows: [{ next_no: '9' }] });
         return Promise.resolve({ rows: [] });
       });
     }
@@ -167,7 +181,11 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
 
     it('tediye (alış) → entry_type tediye', async () => {
       routePayment('purchase');
-      await service.addPayment('inv-1', { amount: 300, payment_method: 'bank_transfer' } as never, 'user-1');
+      await service.addPayment(
+        'inv-1',
+        { amount: 300, payment_method: 'bank_transfer' } as never,
+        'user-1',
+      );
 
       const entryCall = clientQuery.mock.calls.find((c) =>
         String(c[0]).includes('INSERT INTO journal_entries'),
@@ -186,10 +204,12 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
       if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
       if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ total: '0' }] });
-      if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+      if (s.includes('FROM accounting_accounts'))
+        return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
       if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-      if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '1' }] });
+      if (s.includes('COALESCE(MAX(entry_no)'))
+        return Promise.resolve({ rows: [{ next_no: '1' }] });
       return Promise.resolve({ rows: [] });
     });
 

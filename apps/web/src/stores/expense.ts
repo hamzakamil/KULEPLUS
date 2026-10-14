@@ -109,12 +109,7 @@ export const useExpenseStore = defineStore('expense', () => {
     expense_date_to: undefined as string | undefined,
     q: undefined as string | undefined,
     sortBy: 'expense_date' as
-      | 'date'
-      | 'invoice_number'
-      | 'expense_date'
-      | 'amount'
-      | 'status'
-      | 'createdAt',
+      'date' | 'invoice_number' | 'expense_date' | 'amount' | 'status' | 'createdAt',
     sortOrder: 'desc' as 'asc' | 'desc',
   });
 

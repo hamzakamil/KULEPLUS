@@ -51,9 +51,9 @@ test.describe('Backup Dashboard Panel', () => {
       .poll(
         async () =>
           (await page.locator('span:text("Yedekleniyor…")').count()) > 0 ||
-          (await page.locator('.data-table tbody tr').first()).textContent().then((t) =>
-            (t ?? '').includes('Başarılı'),
-          ),
+          (await page.locator('.data-table tbody tr').first())
+            .textContent()
+            .then((t) => (t ?? '').includes('Başarılı')),
         { timeout: 15000 },
       )
       .toBe(true);
@@ -62,10 +62,9 @@ test.describe('Backup Dashboard Panel', () => {
     // (Not: retention budaması eski satırları silebilir — bu yüzden sayıya değil
     // en yeni satırın durumuna bakıyoruz.)
     await expect
-      .poll(
-        async () => (await page.locator('.data-table tbody tr').first().textContent()) ?? '',
-        { timeout: 40000 },
-      )
+      .poll(async () => (await page.locator('.data-table tbody tr').first().textContent()) ?? '', {
+        timeout: 40000,
+      })
       .toContain('Başarılı');
 
     // Dosya üretilmişse "İndir" butonu etkin olmalı

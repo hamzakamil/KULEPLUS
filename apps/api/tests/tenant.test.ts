@@ -61,7 +61,9 @@ describe('tenantContext middleware (SPEC §7.1)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     membershipQuery.mockReset();
-    vi.mocked(getPool).mockReturnValue({ query: membershipQuery } as unknown as ReturnType<typeof getPool>);
+    vi.mocked(getPool).mockReturnValue({ query: membershipQuery } as unknown as ReturnType<
+      typeof getPool
+    >);
     vi.mocked(beginTenantScope).mockResolvedValue({
       scope: { client: {} as never, tenantId: 'tenant-1' },
       finish,

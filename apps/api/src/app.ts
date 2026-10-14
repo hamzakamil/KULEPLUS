@@ -134,7 +134,11 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
     });
     app.get('/_test/pg-invalid-uuid', (_req, _res, next) => {
       // pg uuid `22P02` simülasyonu — örn. `/entries` `/:id`'ye düşerse
-      next(Object.assign(new Error('invalid input syntax for type uuid: "movements"'), { code: '22P02' }));
+      next(
+        Object.assign(new Error('invalid input syntax for type uuid: "movements"'), {
+          code: '22P02',
+        }),
+      );
     });
   }
 

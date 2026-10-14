@@ -149,7 +149,9 @@ const categoriesByGroup = computed(() => expenseStore.categoriesByGroup);
 
 // ── Combobox (filtreli seçim) seçenekleri ──
 const categoryOptions = computed(() =>
-  categoriesByGroup.value.flatMap((grp) => grp.items.map((cat) => ({ value: cat.id, label: cat.name }))),
+  categoriesByGroup.value.flatMap((grp) =>
+    grp.items.map((cat) => ({ value: cat.id, label: cat.name })),
+  ),
 );
 const CURRENCY_OPTIONS = [
   { value: 'TRY', label: 'TRY' },

@@ -44,7 +44,10 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
 
   describe('scheduleDunning (writeDunning)', () => {
     it('aboneliği past_due yapar, 3 deneme (1/3/7 gün) açar, ek süre raporlar', async () => {
-      const service = new SubscriptionService({ pool: mockPool as never, paymentProvider: syncProvider });
+      const service = new SubscriptionService({
+        pool: mockPool as never,
+        paymentProvider: syncProvider,
+      });
 
       const result = await service.scheduleDunning({
         orderId: 'order-1',
@@ -75,7 +78,10 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
 
   describe('claimDueDunning', () => {
     it('vadesi gelmiş ilk bekleyen denemeyi kilitleyip processing yapar', async () => {
-      const service = new SubscriptionService({ pool: mockPool as never, paymentProvider: syncProvider });
+      const service = new SubscriptionService({
+        pool: mockPool as never,
+        paymentProvider: syncProvider,
+      });
       const dueRow = {
         id: 'd1',
         subscription_id: 'sub-1',
@@ -104,7 +110,10 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
     });
 
     it('bekleyen deneme yoksa null döner (işlenecek bir şey yok)', async () => {
-      const service = new SubscriptionService({ pool: mockPool as never, paymentProvider: syncProvider });
+      const service = new SubscriptionService({
+        pool: mockPool as never,
+        paymentProvider: syncProvider,
+      });
       const claimed = await (
         service as unknown as { claimDueDunning(t: string): Promise<null> }
       ).claimDueDunning('t1');
@@ -114,7 +123,10 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
 
   describe('processDueDunning', () => {
     it('başarılı yeniden tahsilat → deneme succeeded, kalanlar skipped, abonelik active, sipariş paid', async () => {
-      const service = new SubscriptionService({ pool: mockPool as never, paymentProvider: syncProvider });
+      const service = new SubscriptionService({
+        pool: mockPool as never,
+        paymentProvider: syncProvider,
+      });
       const dueRow = {
         id: 'd1',
         subscription_id: 'sub-1',
@@ -144,7 +156,10 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
     });
 
     it('işlenecek deneme yoksa sıfır sayım döner', async () => {
-      const service = new SubscriptionService({ pool: mockPool as never, paymentProvider: syncProvider });
+      const service = new SubscriptionService({
+        pool: mockPool as never,
+        paymentProvider: syncProvider,
+      });
       const result = await service.processDueDunning('t1');
       expect(result).toEqual({ processed: 0, succeeded: 0, suspended: 0 });
     });

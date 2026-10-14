@@ -6,7 +6,9 @@
         <p class="page-sub">En sık kullandığınız gider türünden hızlıca başlayın.</p>
       </div>
       <div class="page-actions">
-        <RouterLink to="/settings/expense-categories" class="btn btn-secondary">⚙ Kategoriler</RouterLink>
+        <RouterLink to="/settings/expense-categories" class="btn btn-secondary"
+          >⚙ Kategoriler</RouterLink
+        >
         <RouterLink to="/expenses/new" class="btn btn-primary">+ Yeni Gider</RouterLink>
       </div>
     </header>
@@ -213,7 +215,9 @@ const filters = computed({
 // ── Combobox (filtreli seçim) seçenekleri ──
 const categoryFilterOptions = computed(() => [
   { value: '', label: 'Tüm Kategoriler' },
-  ...categoriesByGroup.value.flatMap((grp) => grp.items.map((cat) => ({ value: cat.id, label: cat.name }))),
+  ...categoriesByGroup.value.flatMap((grp) =>
+    grp.items.map((cat) => ({ value: cat.id, label: cat.name })),
+  ),
 ]);
 const STATUS_FILTER_OPTIONS = [
   { value: '', label: 'Tüm Durumlar' },

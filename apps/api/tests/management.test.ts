@@ -76,12 +76,21 @@ describe('ApprovalService (Faz 7)', () => {
       const svc = new ApprovalService({ pool });
 
       const result = await svc.createApprovalRequest(
-        { request_type: 'payment_over_limit', title: 'Ödeme limiti talebi', payload: {}, amount: 50000, currency: 'try', assigned_to: 'user-approver' },
+        {
+          request_type: 'payment_over_limit',
+          title: 'Ödeme limiti talebi',
+          payload: {},
+          amount: 50000,
+          currency: 'try',
+          assigned_to: 'user-approver',
+        },
         'user-requester',
         'tenant-1',
       );
 
-      const insert = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO approval_requests'));
+      const insert = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO approval_requests'),
+      );
       expect(insert).toBeTruthy();
       expect(String(insert?.[0])).toContain("'pending'");
       const params = insert?.[1] as unknown[];
@@ -93,26 +102,37 @@ describe('ApprovalService (Faz 7)', () => {
     it('atanan kişi farklıysa bildirim + activity üretilir', async () => {
       const { pool, clientQuery } = makeMockPool(
         base((sql) => {
-          if (sql.includes('FROM approval_requests WHERE id =')) return Promise.resolve({ rows: [pendingRow] });
+          if (sql.includes('FROM approval_requests WHERE id ='))
+            return Promise.resolve({ rows: [pendingRow] });
           return Promise.resolve({ rows: [] });
         }),
       );
       const svc = new ApprovalService({ pool });
 
       await svc.createApprovalRequest(
-        { request_type: 'payment_over_limit', title: 'X', payload: {}, assigned_to: 'user-approver' },
+        {
+          request_type: 'payment_over_limit',
+          title: 'X',
+          payload: {},
+          assigned_to: 'user-approver',
+        },
         'user-requester',
         'tenant-1',
       );
 
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications'))).toBe(true);
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities'))).toBe(true);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications')),
+      ).toBe(true);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities')),
+      ).toBe(true);
     });
 
     it('atanan kişi yoksa/kendisi ise bildirim üretilmez', async () => {
       const { pool, clientQuery } = makeMockPool(
         base((sql) => {
-          if (sql.includes('FROM approval_requests WHERE id =')) return Promise.resolve({ rows: [pendingRow] });
+          if (sql.includes('FROM approval_requests WHERE id ='))
+            return Promise.resolve({ rows: [pendingRow] });
           return Promise.resolve({ rows: [] });
         }),
       );
@@ -124,7 +144,9 @@ describe('ApprovalService (Faz 7)', () => {
         'tenant-1',
       );
 
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications'))).toBe(false);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications')),
+      ).toBe(false);
     });
   });
 
@@ -136,7 +158,9 @@ describe('ApprovalService (Faz 7)', () => {
       await expect(
         svc.decideApprovalRequest('yok', { decision: 'approved' }, 'user-approver', 'tenant-1'),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('UPDATE approval_requests'))).toBe(false);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('UPDATE approval_requests')),
+      ).toBe(false);
     });
 
     it('pending olmayan talep → VALIDATION_ERROR (karar değiştirilemez)', async () => {
@@ -153,7 +177,9 @@ describe('ApprovalService (Faz 7)', () => {
       await expect(
         svc.decideApprovalRequest('appr-1', { decision: 'rejected' }, 'user-approver', 'tenant-1'),
       ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('UPDATE approval_requests'))).toBe(false);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('UPDATE approval_requests')),
+      ).toBe(false);
     });
 
     it('geçerli karar → pending-guard UPDATE + talep edene bildirim + activity', async () => {
@@ -163,7 +189,9 @@ describe('ApprovalService (Faz 7)', () => {
             const reads = clientQuery.mock.calls.filter((c) =>
               String(c[0]).includes('FROM approval_requests WHERE id ='),
             ).length;
-            return Promise.resolve({ rows: [{ ...pendingRow, status: reads > 1 ? 'approved' : 'pending' }] });
+            return Promise.resolve({
+              rows: [{ ...pendingRow, status: reads > 1 ? 'approved' : 'pending' }],
+            });
           }
           return Promise.resolve({ rows: [] });
         }),
@@ -177,13 +205,19 @@ describe('ApprovalService (Faz 7)', () => {
         'tenant-1',
       );
 
-      const update = clientQuery.mock.calls.find((c) => String(c[0]).includes('UPDATE approval_requests'));
+      const update = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('UPDATE approval_requests'),
+      );
       expect(update).toBeTruthy();
       // Yarış durumunda ikinci kararın yazılmaması için WHERE status='pending' koruması
       expect(String(update?.[0])).toContain("status = 'pending'");
       expect((update?.[1] as unknown[])[1]).toBe('approved');
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications'))).toBe(true);
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities'))).toBe(true);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications')),
+      ).toBe(true);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities')),
+      ).toBe(true);
       expect(result?.status).toBe('approved');
     });
 
@@ -191,16 +225,26 @@ describe('ApprovalService (Faz 7)', () => {
       const selfRow = { ...pendingRow, requested_by: 'user-approver' };
       const { pool, clientQuery } = makeMockPool(
         base((sql) => {
-          if (sql.includes('FROM approval_requests WHERE id =')) return Promise.resolve({ rows: [selfRow] });
+          if (sql.includes('FROM approval_requests WHERE id ='))
+            return Promise.resolve({ rows: [selfRow] });
           return Promise.resolve({ rows: [] });
         }),
       );
       const svc = new ApprovalService({ pool });
 
-      await svc.decideApprovalRequest('appr-1', { decision: 'approved' }, 'user-approver', 'tenant-1');
+      await svc.decideApprovalRequest(
+        'appr-1',
+        { decision: 'approved' },
+        'user-approver',
+        'tenant-1',
+      );
 
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications'))).toBe(false);
-      expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities'))).toBe(true);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO notifications')),
+      ).toBe(false);
+      expect(
+        clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO activities')),
+      ).toBe(true);
     });
   });
 
@@ -224,7 +268,8 @@ describe('ApprovalService (Faz 7)', () => {
     it('BEGIN + set_config(tenantId) kurulur, COMMIT kapatır', async () => {
       const { pool, clientQuery } = makeMockPool(
         base((sql) => {
-          if (sql.includes('FROM approval_requests WHERE id =')) return Promise.resolve({ rows: [pendingRow] });
+          if (sql.includes('FROM approval_requests WHERE id ='))
+            return Promise.resolve({ rows: [pendingRow] });
           return Promise.resolve({ rows: [] });
         }),
       );

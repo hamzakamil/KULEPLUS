@@ -126,7 +126,9 @@ export const journalEntryListQuerySchema = z.object({
   period_id: z.string().uuid().optional(),
   source_type: z.string().optional(),
   source_id: z.string().uuid().optional(),
-  sortBy: z.enum(['entry_no', 'entry_date', 'entry_type', 'status', 'createdAt']).default('entry_no'),
+  sortBy: z
+    .enum(['entry_no', 'entry_date', 'entry_type', 'status', 'createdAt'])
+    .default('entry_no'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 
@@ -192,5 +194,3 @@ export type CreatePostingRuleInput = z.infer<typeof createPostingRuleSchema>;
 export type UpdatePostingRuleInput = z.infer<typeof updatePostingRuleSchema>;
 export type CreateAccountMappingInput = z.infer<typeof createAccountMappingSchema>;
 export type UpdateAccountMappingInput = z.infer<typeof updateAccountMappingSchema>;
-
-

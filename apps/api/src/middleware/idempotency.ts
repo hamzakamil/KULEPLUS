@@ -19,7 +19,9 @@ export function idempotency() {
       const header = req.headers['idempotency-key'];
       const key = Array.isArray(header) ? header[0] : header;
       if (!key || key.length < 8 || key.length > 200) {
-        next(new AppError('VALIDATION_ERROR', 'Idempotency-Key başlığı zorunludur (8-200 karakter).'));
+        next(
+          new AppError('VALIDATION_ERROR', 'Idempotency-Key başlığı zorunludur (8-200 karakter).'),
+        );
         return;
       }
 

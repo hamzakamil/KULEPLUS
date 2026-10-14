@@ -18,11 +18,24 @@
       <form class="new-grid" @submit.prevent="createNew">
         <label>
           <span>Ad *</span>
-          <input v-model="form.name" type="text" class="input" placeholder="ör. Aidat" required maxlength="80" />
+          <input
+            v-model="form.name"
+            type="text"
+            class="input"
+            placeholder="ör. Aidat"
+            required
+            maxlength="80"
+          />
         </label>
         <label>
           <span>Kod (boşsa otomatik)</span>
-          <input v-model="form.code" type="text" class="input mono" placeholder="AIDAT" maxlength="30" />
+          <input
+            v-model="form.code"
+            type="text"
+            class="input mono"
+            placeholder="AIDAT"
+            maxlength="30"
+          />
         </label>
         <label>
           <span>Grup</span>
@@ -37,10 +50,20 @@
         </label>
         <label class="full">
           <span>Açıklama</span>
-          <input v-model="form.description" type="text" class="input" maxlength="200" placeholder="Kısa açıklama" />
+          <input
+            v-model="form.description"
+            type="text"
+            class="input"
+            maxlength="200"
+            placeholder="Kısa açıklama"
+          />
         </label>
         <div class="full actions">
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="creating || !form.name.trim()">
+          <button
+            type="submit"
+            class="btn btn-primary btn-sm"
+            :disabled="creating || !form.name.trim()"
+          >
             {{ creating ? 'Ekleniyor…' : '＋ Kategori Ekle' }}
           </button>
         </div>
@@ -70,7 +93,11 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="cat in grp.items" :key="cat.id" :class="{ inactive: cat.status !== 'active' }">
+            <tr
+              v-for="cat in grp.items"
+              :key="cat.id"
+              :class="{ inactive: cat.status !== 'active' }"
+            >
               <td class="strong">
                 <input
                   v-model="drafts[cat.id].name"
@@ -82,7 +109,11 @@
               </td>
               <td class="mono muted">{{ cat.code }}</td>
               <td>
-                <select v-model="drafts[cat.id].grup" class="select select-sm" :aria-label="`${cat.name} grubu`">
+                <select
+                  v-model="drafts[cat.id].grup"
+                  class="select select-sm"
+                  :aria-label="`${cat.name} grubu`"
+                >
                   <option :value="null">Grupsuz</option>
                   <option v-for="g in groups" :key="g.key" :value="g.key">{{ g.label }}</option>
                 </select>
@@ -101,19 +132,29 @@
                   type="button"
                   class="star"
                   :class="{ on: drafts[cat.id].is_favorite }"
-                  :title="drafts[cat.id].is_favorite ? 'Öne çıkarmayı kaldır' : 'Hızlı girişte öne çıkar'"
+                  :title="
+                    drafts[cat.id].is_favorite ? 'Öne çıkarmayı kaldır' : 'Hızlı girişte öne çıkar'
+                  "
                   @click="drafts[cat.id].is_favorite = !drafts[cat.id].is_favorite"
                 >
                   ★
                 </button>
               </td>
               <td>
-                <span class="badge" :class="cat.status === 'active' ? 'badge-success' : 'badge-neutral'">
+                <span
+                  class="badge"
+                  :class="cat.status === 'active' ? 'badge-success' : 'badge-neutral'"
+                >
                   {{ cat.status === 'active' ? 'Aktif' : 'Pasif' }}
                 </span>
               </td>
               <td class="num actions">
-                <button type="button" class="link" :disabled="savingId === cat.id" @click="saveRow(cat.id)">
+                <button
+                  type="button"
+                  class="link"
+                  :disabled="savingId === cat.id"
+                  @click="saveRow(cat.id)"
+                >
                   {{ savingId === cat.id ? '…' : 'Kaydet' }}
                 </button>
                 <button
@@ -127,7 +168,9 @@
                 <button v-else type="button" class="link" @click="setStatus(cat.id, 'active')">
                   Aktifleştir
                 </button>
-                <button type="button" class="link danger" @click="removeRow(cat.id, cat.name)">Sil</button>
+                <button type="button" class="link danger" @click="removeRow(cat.id, cat.name)">
+                  Sil
+                </button>
               </td>
             </tr>
           </tbody>
@@ -149,10 +192,18 @@ const groups = EXPENSE_GROUPS;
 const creating = ref(false);
 const savingId = ref<string | null>(null);
 
-const form = ref({ name: '', code: '', grup: null as string | null, is_favorite: false, description: '' });
+const form = ref({
+  name: '',
+  code: '',
+  grup: null as string | null,
+  is_favorite: false,
+  description: '',
+});
 
 /** Satır taslakları — inputlar doğrudan store'u kirletmesin diye kopya üzerinde düzenlenir. */
-const drafts = reactive<Record<string, { name: string; grup: string | null; description: string; is_favorite: boolean }>>({});
+const drafts = reactive<
+  Record<string, { name: string; grup: string | null; description: string; is_favorite: boolean }>
+>({});
 
 const syncDrafts = (list: ExpenseCategory[]) => {
   for (const c of list) {
@@ -234,7 +285,8 @@ const setStatus = async (id: string, status: 'active' | 'inactive') => {
 };
 
 const removeRow = async (id: string, name: string) => {
-  if (!window.confirm(`"${name}" kategorisi silinsin mi? Kullanılan kategoriler silinemez.`)) return;
+  if (!window.confirm(`"${name}" kategorisi silinsin mi? Kullanılan kategoriler silinemez.`))
+    return;
   try {
     await store.deleteCategory(id);
   } catch {

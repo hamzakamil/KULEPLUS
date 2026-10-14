@@ -45,7 +45,8 @@ export default defineConfig({
         importScripts: ['/push-sw.js'],
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/v1/') && url.protocol === 'https:',
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/api/v1/') && url.protocol === 'https:',
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-read-only',

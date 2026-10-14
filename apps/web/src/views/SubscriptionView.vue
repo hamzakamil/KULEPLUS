@@ -14,8 +14,12 @@
       <!-- Mevcut abonelik -->
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Mevcut Abonelik</h2>
-          <span v-if="store.latestSubscription" class="badge" :class="statusClass(store.latestSubscription.status)">
+          <h2 style="font-size: 1.05rem">Mevcut Abonelik</h2>
+          <span
+            v-if="store.latestSubscription"
+            class="badge"
+            :class="statusClass(store.latestSubscription.status)"
+          >
             {{ statusLabel(store.latestSubscription.status) }}
           </span>
         </header>
@@ -43,7 +47,7 @@
       <!-- Son fatura özeti -->
       <section v-if="store.latestInvoice" class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Son Fatura</h2>
+          <h2 style="font-size: 1.05rem">Son Fatura</h2>
           <span class="badge" :class="invoiceClass(store.latestInvoice.status)">
             {{ invoiceLabel(store.latestInvoice.status) }}
           </span>
@@ -54,7 +58,7 @@
             Ara toplam {{ fmtMoney(store.latestInvoice.subtotal, store.latestInvoice.currency) }} ·
             KDV {{ fmtMoney(store.latestInvoice.vat_total, store.latestInvoice.currency) }}
           </div>
-          <div style="font-size:1.15rem; font-weight:600">
+          <div style="font-size: 1.15rem; font-weight: 600">
             {{ fmtMoney(store.latestInvoice.total, store.latestInvoice.currency) }}
           </div>
         </div>
@@ -63,7 +67,7 @@
       <!-- Fatura geçmişi -->
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Fatura Geçmişi</h2>
+          <h2 style="font-size: 1.05rem">Fatura Geçmişi</h2>
           <span class="muted small">{{ store.invoices.length }} kayıt</span>
         </header>
         <div class="card-body">
@@ -96,7 +100,7 @@
       <!-- Ödeme geçmişi -->
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Ödeme Geçmişi</h2>
+          <h2 style="font-size: 1.05rem">Ödeme Geçmişi</h2>
           <span class="muted small">{{ store.payments.length }} kayıt</span>
         </header>
         <div class="card-body">
@@ -129,7 +133,7 @@
       <!-- Sipariş geçmişi -->
       <section class="card">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Sipariş Geçmişi</h2>
+          <h2 style="font-size: 1.05rem">Sipariş Geçmişi</h2>
           <span class="muted small">{{ store.orders.length }} kayıt</span>
         </header>
         <div class="card-body">
@@ -162,7 +166,6 @@
   </div>
 </template>
 
-
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { useSubscriptionStore } from '@/stores/subscription';
@@ -170,8 +173,7 @@ import { useSubscriptionStore } from '@/stores/subscription';
 const store = useSubscriptionStore();
 onMounted(() => store.fetchAll());
 
-const fmtDate = (v: string | null): string =>
-  v ? new Date(v).toLocaleDateString('tr-TR') : '—';
+const fmtDate = (v: string | null): string => (v ? new Date(v).toLocaleDateString('tr-TR') : '—');
 
 /** NUMERIC string → yerelleştirilmiş para (float yok, sözleşme §22.1). */
 const fmtMoney = (amount: string | null | undefined, currency: string): string => {
@@ -258,4 +260,3 @@ const PAYMENT_LABEL: Record<string, string> = {
 const paymentClass = (s: string): string => PAYMENT_CLASS[s] ?? 'badge-neutral';
 const paymentLabel = (s: string): string => PAYMENT_LABEL[s] ?? s;
 </script>
-

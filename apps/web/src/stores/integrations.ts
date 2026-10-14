@@ -62,10 +62,16 @@ export const useIntegrationsStore = defineStore('integrations', () => {
     }
   }
 
-  async function createIntegration(provider: string, displayName: string): Promise<Integration | null> {
+  async function createIntegration(
+    provider: string,
+    displayName: string,
+  ): Promise<Integration | null> {
     error.value = null;
     try {
-      const { data } = await api.post<Integration>(`${BASE}`, { provider, display_name: displayName });
+      const { data } = await api.post<Integration>(`${BASE}`, {
+        provider,
+        display_name: displayName,
+      });
       integrations.value = [data, ...integrations.value];
       return data;
     } catch (err) {

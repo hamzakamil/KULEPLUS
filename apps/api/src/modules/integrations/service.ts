@@ -87,7 +87,15 @@ export class IntegrationService {
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (integration_id, external_event_id) DO NOTHING
        RETURNING *`,
-      [id, input.tenantId, input.integrationId, input.externalEventId, input.eventType, JSON.stringify(input.payload), input.signature ?? null],
+      [
+        id,
+        input.tenantId,
+        input.integrationId,
+        input.externalEventId,
+        input.eventType,
+        JSON.stringify(input.payload),
+        input.signature ?? null,
+      ],
     );
     if (rows.length === 0) {
       const existing = await this.pool.query<WebhookEventRecord>(
@@ -115,7 +123,11 @@ export class IntegrationService {
     return rows[0] ?? null;
   }
 
-  async createIntegration(tenantId: string, provider: string, displayName: string): Promise<IntegrationRecord> {
+  async createIntegration(
+    tenantId: string,
+    provider: string,
+    displayName: string,
+  ): Promise<IntegrationRecord> {
     const id = newId();
     const { rows } = await this.pool.query<IntegrationRecord>(
       `INSERT INTO integrations (id, tenant_id, provider, display_name)
@@ -167,7 +179,11 @@ export class IntegrationService {
     return rows[0]!;
   }
 
-  async listWebhookEvents(tenantId: string, integrationId: string, limit = 100): Promise<WebhookEventRecord[]> {
+  async listWebhookEvents(
+    tenantId: string,
+    integrationId: string,
+    limit = 100,
+  ): Promise<WebhookEventRecord[]> {
     const { rows } = await this.pool.query<WebhookEventRecord>(
       `SELECT * FROM webhook_events
        WHERE tenant_id = $1 AND integration_id = $2
@@ -185,7 +201,11 @@ export class IntegrationService {
     );
   }
 
-  async getPendingEvents(tenantId: string, integrationId: string, limit = 50): Promise<WebhookEventRecord[]> {
+  async getPendingEvents(
+    tenantId: string,
+    integrationId: string,
+    limit = 50,
+  ): Promise<WebhookEventRecord[]> {
     const { rows } = await this.pool.query<WebhookEventRecord>(
       `SELECT * FROM webhook_events
        WHERE tenant_id = $1 AND integration_id = $2 AND processed_at IS NULL

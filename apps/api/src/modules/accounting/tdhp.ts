@@ -317,7 +317,3 @@ export const TDHP_ACCOUNTS: readonly TdhpRow[] = [
   ['797', 'FİNANSMAN GİDERLERİ', 'detail'],
   ['798', 'GİDER ÇEŞİTLERİ YANSITMA HESABI', 'detail'],
 ];
-
-
-
-

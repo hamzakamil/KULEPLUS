@@ -171,7 +171,6 @@ describe('AccountingService - Unit Tests', () => {
     });
   });
 
-
   describe('Hesap / Fis guard’lari', () => {
     it('TDHP hesabi silinemez', async () => {
       mockQuery.mockImplementation((sql: string) => {
@@ -287,7 +286,13 @@ describe('AccountingService - Unit Tests', () => {
         if (String(sql).includes('FROM accounting_accounts aa')) {
           return Promise.resolve({
             rows: [
-              { code: '600', name: 'YURTİÇİ SATIŞLAR', type: 'detail', debit: '0', credit: '10000' },
+              {
+                code: '600',
+                name: 'YURTİÇİ SATIŞLAR',
+                type: 'detail',
+                debit: '0',
+                credit: '10000',
+              },
               { code: '621', name: 'SMM', type: 'detail', debit: '4000', credit: '0' },
               { code: '632', name: 'GENEL YÖNETİM', type: 'detail', debit: '1000', credit: '0' },
             ],
@@ -296,7 +301,10 @@ describe('AccountingService - Unit Tests', () => {
         return Promise.resolve({ rows: [] });
       });
 
-      const result = await accountingService.incomeStatement({ from: '2026-01-01', to: '2026-12-31' });
+      const result = await accountingService.incomeStatement({
+        from: '2026-01-01',
+        to: '2026-12-31',
+      });
       expect(result.brutSatislar).toBe(10000);
       expect(result.satislarinMaliyeti).toBe(4000);
       expect(result.brutKar).toBe(6000);

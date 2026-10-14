@@ -135,10 +135,7 @@ export const useBackupStore = defineStore('backup', () => {
     running.value = true;
     error.value = null;
     try {
-      const res = await api.post<{ job: BackupJob; alreadyRunning: boolean }>(
-        '/v1/backups',
-        {},
-      );
+      const res = await api.post<{ job: BackupJob; alreadyRunning: boolean }>('/v1/backups', {});
       hasRunning.value = true;
       items.value = [res.data.job, ...items.value.filter((i) => i.id !== res.data.job.id)];
       if (!res.data.alreadyRunning) notice.value = 'Yedekleme başlatıldı.';

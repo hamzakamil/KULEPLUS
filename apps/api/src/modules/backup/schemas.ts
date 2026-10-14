@@ -24,4 +24,3 @@ export const backupParamsSchema = z.object({
 
 export type UpdateBackupSettingsInput = z.infer<typeof updateBackupSettingsSchema>;
 export type BackupParams = z.infer<typeof backupParamsSchema>;
-

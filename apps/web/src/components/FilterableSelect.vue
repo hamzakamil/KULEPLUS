@@ -44,7 +44,9 @@ const emit = defineEmits<{
 }>();
 
 function toOption(o: RawOption): FilterOption {
-  return typeof o === 'string' ? { value: o, label: o } : { value: o.value, label: o.label ?? o.value };
+  return typeof o === 'string'
+    ? { value: o, label: o }
+    : { value: o.value, label: o.label ?? o.value };
 }
 
 const options = computed<FilterOption[]>(() => props.options.map(toOption));

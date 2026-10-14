@@ -3,7 +3,9 @@
     <header class="page-header">
       <div>
         <h1 class="page-title">Yeni Cari Kartı</h1>
-        <p class="page-sub">Müşteri veya tedarikçi kartı oluşturun. İsim alanları büyük harfle kaydedilir.</p>
+        <p class="page-sub">
+          Müşteri veya tedarikçi kartı oluşturun. İsim alanları büyük harfle kaydedilir.
+        </p>
       </div>
       <RouterLink to="/contacts" class="btn btn-secondary">← Cari Hesaplar</RouterLink>
     </header>
@@ -63,11 +65,23 @@
           </div>
           <div class="form-field-full">
             <label for="ca-trade" class="field-label">Ticari Unvan</label>
-            <input id="ca-trade" v-model="form.trade_name" type="text" class="input uppercase" @blur="uppercase('trade_name')" />
+            <input
+              id="ca-trade"
+              v-model="form.trade_name"
+              type="text"
+              class="input uppercase"
+              @blur="uppercase('trade_name')"
+            />
           </div>
           <div>
             <label for="ca-taxno" class="field-label">Vergi No / TCKN</label>
-            <input id="ca-taxno" v-model="form.tax_number" type="text" class="input" inputmode="numeric" />
+            <input
+              id="ca-taxno"
+              v-model="form.tax_number"
+              type="text"
+              class="input"
+              inputmode="numeric"
+            />
           </div>
           <div>
             <label for="ca-taxoffice" class="field-label">Vergi Dairesi</label>
@@ -78,7 +92,9 @@
               placeholder="Vergi dairesi yazıp seçin"
               no-options-message="Bulunamadı"
             />
-            <span class="field-hint">İl seçerseniz yalnızca o ilin vergi daireleri listelenir.</span>
+            <span class="field-hint"
+              >İl seçerseniz yalnızca o ilin vergi daireleri listelenir.</span
+            >
           </div>
           <div>
             <label for="ca-currency" class="field-label">Para Birimi</label>
@@ -91,7 +107,15 @@
           </div>
           <div>
             <label for="ca-risk" class="field-label">Risk Limiti (₺)</label>
-            <input id="ca-risk" v-model="form.risk_limit" type="number" min="0" step="0.01" class="input" placeholder="0,00" />
+            <input
+              id="ca-risk"
+              v-model="form.risk_limit"
+              type="number"
+              min="0"
+              step="0.01"
+              class="input"
+              placeholder="0,00"
+            />
           </div>
           <div class="form-field-full">
             <label class="checkbox">
@@ -116,7 +140,13 @@
           </div>
           <div>
             <label for="ca-phone" class="field-label">Telefon</label>
-            <input id="ca-phone" v-model="form.phone.number" type="tel" class="input" placeholder="05XX XXX XX XX" />
+            <input
+              id="ca-phone"
+              v-model="form.phone.number"
+              type="tel"
+              class="input"
+              placeholder="05XX XXX XX XX"
+            />
           </div>
           <div>
             <label for="ca-email-type" class="field-label">E-posta Tipi</label>
@@ -129,7 +159,13 @@
           </div>
           <div>
             <label for="ca-email" class="field-label">E-posta</label>
-            <input id="ca-email" v-model="form.email.address" type="email" class="input" placeholder="ornek@firma.com" />
+            <input
+              id="ca-email"
+              v-model="form.email.address"
+              type="email"
+              class="input"
+              placeholder="ornek@firma.com"
+            />
           </div>
           <div class="form-field-full">
             <label for="ca-addr-type" class="field-label">Adres Tipi</label>
@@ -142,15 +178,33 @@
           </div>
           <div class="form-field-full">
             <label for="ca-neighborhood" class="field-label">Mahalle / Cadde</label>
-            <input id="ca-neighborhood" v-model="form.address.neighborhood" type="text" class="input uppercase" @blur="uppercase('address.neighborhood')" />
+            <input
+              id="ca-neighborhood"
+              v-model="form.address.neighborhood"
+              type="text"
+              class="input uppercase"
+              @blur="uppercase('address.neighborhood')"
+            />
           </div>
           <div>
             <label for="ca-street" class="field-label">Sokak</label>
-            <input id="ca-street" v-model="form.address.street" type="text" class="input uppercase" @blur="uppercase('address.street')" />
+            <input
+              id="ca-street"
+              v-model="form.address.street"
+              type="text"
+              class="input uppercase"
+              @blur="uppercase('address.street')"
+            />
           </div>
           <div>
             <label for="ca-building" class="field-label">Bina</label>
-            <input id="ca-building" v-model="form.address.building" type="text" class="input uppercase" @blur="uppercase('address.building')" />
+            <input
+              id="ca-building"
+              v-model="form.address.building"
+              type="text"
+              class="input uppercase"
+              @blur="uppercase('address.building')"
+            />
           </div>
           <div>
             <label for="ca-apartment" class="field-label">Daire</label>
@@ -177,7 +231,13 @@
           </div>
           <div>
             <label for="ca-zip" class="field-label">Posta Kodu</label>
-            <input id="ca-zip" v-model="form.address.zip_code" type="text" class="input" inputmode="numeric" />
+            <input
+              id="ca-zip"
+              v-model="form.address.zip_code"
+              type="text"
+              class="input"
+              inputmode="numeric"
+            />
           </div>
         </div>
       </section>
@@ -232,9 +292,16 @@ const form = ref({
 });
 
 /** İl / ilçe / vergi dairesi seçenekleri — açık veri kaynağı (81 il, 973 ilçe, 1042 v.d.). */
-const provinceOptions = TR_PROVINCES.map((p) => ({ value: p.name, label: `${p.name} (${p.plate})` }));
-const districtOptions = computed(() => districtsOf(form.value.address.province).map((d) => ({ value: d, label: d })));
-const taxOfficeOptions = computed(() => taxOfficesOf(form.value.address.province).map((t) => ({ value: t, label: t })));
+const provinceOptions = TR_PROVINCES.map((p) => ({
+  value: p.name,
+  label: `${p.name} (${p.plate})`,
+}));
+const districtOptions = computed(() =>
+  districtsOf(form.value.address.province).map((d) => ({ value: d, label: d })),
+);
+const taxOfficeOptions = computed(() =>
+  taxOfficesOf(form.value.address.province).map((t) => ({ value: t, label: t })),
+);
 
 const CONTACT_TYPE_OPTIONS = [
   { value: 'customer', label: 'Müşteri' },
@@ -356,7 +423,13 @@ const handleSubmit = async () => {
         risk_limit: form.value.risk_limit ? Number(form.value.risk_limit) : null,
       },
       phones: form.value.phone.number.trim()
-        ? [{ type: form.value.phone.type, number: form.value.phone.number.trim(), is_primary: true }]
+        ? [
+            {
+              type: form.value.phone.type,
+              number: form.value.phone.number.trim(),
+              is_primary: true,
+            },
+          ]
         : [],
       emails: email ? [{ type: form.value.email.type, email, is_primary: true }] : [],
       addresses: hasAddress()
@@ -364,7 +437,8 @@ const handleSubmit = async () => {
             {
               type: form.value.address.type,
               is_primary: true,
-              neighborhood: form.value.address.neighborhood.trim().toLocaleUpperCase('tr-TR') || undefined,
+              neighborhood:
+                form.value.address.neighborhood.trim().toLocaleUpperCase('tr-TR') || undefined,
               street: form.value.address.street.trim().toLocaleUpperCase('tr-TR') || undefined,
               building: form.value.address.building.trim().toLocaleUpperCase('tr-TR') || undefined,
               apartment: form.value.address.apartment.trim() || undefined,
@@ -517,5 +591,4 @@ onMounted(async () => {
     grid-column: 1;
   }
 }
-
 </style>

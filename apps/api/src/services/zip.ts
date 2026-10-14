@@ -43,9 +43,12 @@ function toBuffer(data: Buffer | string): Buffer {
 
 /** MS-DOS tarih/saat packed değeri (ZIP alan biçimi). */
 function dosDateTime(date: Date): { time: number; date: number } {
-  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (Math.floor(date.getSeconds() / 2));
+  const time =
+    (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
   const d =
-    ((Math.max(1980, date.getFullYear()) - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+    ((Math.max(1980, date.getFullYear()) - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
   return { time, date: d };
 }
 

@@ -42,7 +42,9 @@
     <!-- ── Özet kartları ── -->
     <section class="kpi-grid" aria-label="Özet">
       <div class="kpi">
-        <span class="kpi-label">{{ activeLedger === 'cash' ? 'Kasa Sayısı' : 'Banka Hesabı' }}</span>
+        <span class="kpi-label">{{
+          activeLedger === 'cash' ? 'Kasa Sayısı' : 'Banka Hesabı'
+        }}</span>
         <span class="kpi-value">{{ activeAccounts.length }}</span>
       </div>
       <div class="kpi">
@@ -81,9 +83,15 @@
             :placeholder="activeLedger === 'cash' ? 'Kasa ara…' : 'Hesap ara…'"
             aria-label="Hesap ara"
           />
-          <button class="btn btn-secondary btn-sm" @click="openMovement('deposit')">Para Yatır</button>
-          <button class="btn btn-secondary btn-sm" @click="openMovement('withdrawal')">Para Çek</button>
-          <button class="btn btn-secondary btn-sm" @click="openMovement('transfer')">Transfer</button>
+          <button class="btn btn-secondary btn-sm" @click="openMovement('deposit')">
+            Para Yatır
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="openMovement('withdrawal')">
+            Para Çek
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="openMovement('transfer')">
+            Transfer
+          </button>
         </div>
       </div>
 
@@ -110,7 +118,10 @@
                 {{ formatMoney(acc.balance) }}
               </td>
               <td>
-                <span class="badge" :class="acc.status === 'active' ? 'badge-success' : 'badge-neutral'">
+                <span
+                  class="badge"
+                  :class="acc.status === 'active' ? 'badge-success' : 'badge-neutral'"
+                >
                   {{ acc.status === 'active' ? 'Aktif' : 'Pasif' }}
                 </span>
               </td>
@@ -122,7 +133,13 @@
             </tr>
             <tr v-if="!filteredAccounts.length">
               <td colspan="7" class="empty-cell">
-                {{ search ? 'Aramaya uygun hesap yok.' : activeLedger === 'cash' ? 'Henüz kasa yok. "+ Yeni Kasa" ile başlayın.' : 'Henüz banka hesabı yok. "+ Yeni Banka Hesabı" ile başlayın.' }}
+                {{
+                  search
+                    ? 'Aramaya uygun hesap yok.'
+                    : activeLedger === 'cash'
+                      ? 'Henüz kasa yok. "+ Yeni Kasa" ile başlayın.'
+                      : 'Henüz banka hesabı yok. "+ Yeni Banka Hesabı" ile başlayın.'
+                }}
               </td>
             </tr>
           </tbody>
@@ -156,7 +173,11 @@
           placeholder="Tüm banka hesapları"
           @select="reloadBankModule"
         />
-        <button class="btn btn-primary btn-sm" :disabled="!selectedBankAccountId" @click="openBankModuleForm()">
+        <button
+          class="btn btn-primary btn-sm"
+          :disabled="!selectedBankAccountId"
+          @click="openBankModuleForm()"
+        >
           + {{ bankModuleLabel }}
         </button>
       </div>
@@ -181,14 +202,25 @@
             <tr v-for="l in store.bankLoans" :key="l.id">
               <td>{{ l.bankAccountName || '—' }}</td>
               <td class="mono muted">{{ l.loanNumber || '—' }}</td>
-              <td><span class="badge badge-info">{{ loanTypeLabel(l.loanType) }}</span></td>
+              <td>
+                <span class="badge badge-info">{{ loanTypeLabel(l.loanType) }}</span>
+              </td>
               <td class="num">{{ formatMoney(l.principal) }}</td>
               <td class="num">{{ l.interestRate }}</td>
               <td class="num">{{ l.paidInstallments }} / {{ l.totalInstallments }}</td>
               <td class="num strong">{{ formatMoney(l.remainingBalance) }}</td>
               <td>
-                <span class="badge" :class="l.status === 'active' ? 'badge-warning' : 'badge-success'">
-                  {{ l.status === 'active' ? 'Aktif' : l.status === 'overdue' ? 'Gecikmiş' : 'Kapandı' }}
+                <span
+                  class="badge"
+                  :class="l.status === 'active' ? 'badge-warning' : 'badge-success'"
+                >
+                  {{
+                    l.status === 'active'
+                      ? 'Aktif'
+                      : l.status === 'overdue'
+                        ? 'Gecikmiş'
+                        : 'Kapandı'
+                  }}
                 </span>
               </td>
               <td class="num actions">
@@ -223,11 +255,15 @@
               <td>{{ c.bankAccountName || '—' }}</td>
               <td class="strong">
                 {{ c.cardLabel }}
-                <span v-if="c.cardNumberLast4" class="mono muted">•••• {{ c.cardNumberLast4 }}</span>
+                <span v-if="c.cardNumberLast4" class="mono muted"
+                  >•••• {{ c.cardNumberLast4 }}</span
+                >
               </td>
               <td class="muted">{{ c.cardNetwork || '—' }}</td>
               <td class="num">{{ formatMoney(c.creditLimit) }}</td>
-              <td class="num" :class="{ neg: Number(c.currentDebt) > 0 }">{{ formatMoney(c.currentDebt) }}</td>
+              <td class="num" :class="{ neg: Number(c.currentDebt) > 0 }">
+                {{ formatMoney(c.currentDebt) }}
+              </td>
               <td class="num strong">{{ formatMoney(c.availableLimit) }}</td>
               <td class="muted">{{ c.dueDay ? c.dueDay + '. gün' : '—' }}</td>
               <td class="num actions">
@@ -264,7 +300,10 @@
               <td class="mono muted">{{ p.merchantNumber || '—' }}</td>
               <td class="num">{{ p.commissionRate }}</td>
               <td>
-                <span class="badge" :class="p.installmentSupported ? 'badge-success' : 'badge-neutral'">
+                <span
+                  class="badge"
+                  :class="p.installmentSupported ? 'badge-success' : 'badge-neutral'"
+                >
                   {{ p.installmentSupported ? 'Destekli' : 'Yok' }}
                 </span>
               </td>
@@ -330,7 +369,13 @@
       <div class="modal-content">
         <div class="modal-head">
           <h2>
-            {{ editingAccount ? 'Hesabı Düzenle' : activeLedger === 'cash' ? 'Yeni Kasa' : 'Yeni Banka Hesabı' }}
+            {{
+              editingAccount
+                ? 'Hesabı Düzenle'
+                : activeLedger === 'cash'
+                  ? 'Yeni Kasa'
+                  : 'Yeni Banka Hesabı'
+            }}
           </h2>
           <button class="modal-close" aria-label="Kapat" @click="showAccountForm = false">×</button>
         </div>
@@ -354,7 +399,13 @@
           </div>
           <div>
             <label class="field-label" for="acc-open">Açılış Bakiyesi</label>
-            <input id="acc-open" v-model.number="accountForm.openingBalance" type="number" step="0.01" class="input" />
+            <input
+              id="acc-open"
+              v-model.number="accountForm.openingBalance"
+              type="number"
+              step="0.01"
+              class="input"
+            />
           </div>
           <div class="form-field-full">
             <label class="field-label" for="acc-desc">Açıklama</label>
@@ -362,7 +413,9 @@
           </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showAccountForm = false">İptal</button>
+            <button type="button" class="btn btn-secondary" @click="showAccountForm = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">
               {{ store.loading ? 'Kaydediliyor…' : 'Kaydet' }}
             </button>
@@ -376,7 +429,9 @@
       <div class="modal-content">
         <div class="modal-head">
           <h2>{{ movementTitle }}</h2>
-          <button class="modal-close" aria-label="Kapat" @click="showMovementForm = false">×</button>
+          <button class="modal-close" aria-label="Kapat" @click="showMovementForm = false">
+            ×
+          </button>
         </div>
         <form class="form-grid" @submit.prevent="saveMovement">
           <div>
@@ -401,11 +456,25 @@
           </div>
           <div>
             <label class="field-label" for="mov-date">Tarih *</label>
-            <input id="mov-date" v-model="movementForm.transactionDate" type="date" class="input" required />
+            <input
+              id="mov-date"
+              v-model="movementForm.transactionDate"
+              type="date"
+              class="input"
+              required
+            />
           </div>
           <div>
             <label class="field-label" for="mov-amount">Tutar *</label>
-            <input id="mov-amount" v-model.number="movementForm.amount" type="number" step="0.01" min="0.01" class="input" required />
+            <input
+              id="mov-amount"
+              v-model.number="movementForm.amount"
+              type="number"
+              step="0.01"
+              min="0.01"
+              class="input"
+              required
+            />
           </div>
           <div>
             <label class="field-label" for="mov-ref">Referans</label>
@@ -417,7 +486,9 @@
           </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showMovementForm = false">İptal</button>
+            <button type="button" class="btn btn-secondary" @click="showMovementForm = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">
               {{ store.loading ? 'Kaydediliyor…' : 'Kaydet' }}
             </button>
@@ -438,7 +509,11 @@
         </div>
 
         <!-- Kredi formu -->
-        <form v-if="activeBankModule === 'loans'" class="form-grid" @submit.prevent="saveBankModule">
+        <form
+          v-if="activeBankModule === 'loans'"
+          class="form-grid"
+          @submit.prevent="saveBankModule"
+        >
           <div>
             <label class="field-label" for="ln-type">Kredi Türü</label>
             <FilterableSelect
@@ -454,19 +529,44 @@
           </div>
           <div>
             <label class="field-label" for="ln-principal">Anapara *</label>
-            <input id="ln-principal" v-model.number="loanForm.principal" type="number" step="0.01" class="input" required />
+            <input
+              id="ln-principal"
+              v-model.number="loanForm.principal"
+              type="number"
+              step="0.01"
+              class="input"
+              required
+            />
           </div>
           <div>
             <label class="field-label" for="ln-rate">Faiz Oranı (%)</label>
-            <input id="ln-rate" v-model.number="loanForm.interestRate" type="number" step="0.01" class="input" />
+            <input
+              id="ln-rate"
+              v-model.number="loanForm.interestRate"
+              type="number"
+              step="0.01"
+              class="input"
+            />
           </div>
           <div>
             <label class="field-label" for="ln-count">Taksit Sayısı</label>
-            <input id="ln-count" v-model.number="loanForm.totalInstallments" type="number" min="1" class="input" />
+            <input
+              id="ln-count"
+              v-model.number="loanForm.totalInstallments"
+              type="number"
+              min="1"
+              class="input"
+            />
           </div>
           <div>
             <label class="field-label" for="ln-inst">Taksit Tutarı</label>
-            <input id="ln-inst" v-model.number="loanForm.installmentAmount" type="number" step="0.01" class="input" />
+            <input
+              id="ln-inst"
+              v-model.number="loanForm.installmentAmount"
+              type="number"
+              step="0.01"
+              class="input"
+            />
           </div>
           <div>
             <label class="field-label" for="ln-start">Başlangıç *</label>
@@ -482,20 +582,32 @@
           </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">İptal</button>
+            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
           </div>
         </form>
 
         <!-- Kredi kartı formu -->
-        <form v-else-if="activeBankModule === 'cards'" class="form-grid" @submit.prevent="saveBankModule">
+        <form
+          v-else-if="activeBankModule === 'cards'"
+          class="form-grid"
+          @submit.prevent="saveBankModule"
+        >
           <div>
             <label class="field-label" for="cc-label">Kart Adı *</label>
             <input id="cc-label" v-model="cardForm.cardLabel" class="input" required />
           </div>
           <div>
             <label class="field-label" for="cc-last4">Son 4 Hane</label>
-            <input id="cc-last4" v-model="cardForm.cardNumberLast4" class="input" maxlength="4" inputmode="numeric" />
+            <input
+              id="cc-last4"
+              v-model="cardForm.cardNumberLast4"
+              class="input"
+              maxlength="4"
+              inputmode="numeric"
+            />
           </div>
           <div>
             <label class="field-label" for="cc-net">Kart Network</label>
@@ -508,23 +620,52 @@
           </div>
           <div>
             <label class="field-label" for="cc-limit">Kredi Limiti *</label>
-            <input id="cc-limit" v-model.number="cardForm.creditLimit" type="number" step="0.01" class="input" required />
+            <input
+              id="cc-limit"
+              v-model.number="cardForm.creditLimit"
+              type="number"
+              step="0.01"
+              class="input"
+              required
+            />
           </div>
           <div>
             <label class="field-label" for="cc-debt">Güncel Borç</label>
-            <input id="cc-debt" v-model.number="cardForm.currentDebt" type="number" step="0.01" class="input" />
+            <input
+              id="cc-debt"
+              v-model.number="cardForm.currentDebt"
+              type="number"
+              step="0.01"
+              class="input"
+            />
           </div>
           <div>
             <label class="field-label" for="cc-state">Hesap Kesim Günü</label>
-            <input id="cc-state" v-model.number="cardForm.statementDay" type="number" min="1" max="31" class="input" />
+            <input
+              id="cc-state"
+              v-model.number="cardForm.statementDay"
+              type="number"
+              min="1"
+              max="31"
+              class="input"
+            />
           </div>
           <div>
             <label class="field-label" for="cc-due">Son Ödeme Günü</label>
-            <input id="cc-due" v-model.number="cardForm.dueDay" type="number" min="1" max="31" class="input" />
+            <input
+              id="cc-due"
+              v-model.number="cardForm.dueDay"
+              type="number"
+              min="1"
+              max="31"
+              class="input"
+            />
           </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">İptal</button>
+            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
           </div>
         </form>
@@ -545,7 +686,13 @@
           </div>
           <div>
             <label class="field-label" for="pos-comm">Komisyon Oranı (%)</label>
-            <input id="pos-comm" v-model.number="posForm.commissionRate" type="number" step="0.01" class="input" />
+            <input
+              id="pos-comm"
+              v-model.number="posForm.commissionRate"
+              type="number"
+              step="0.01"
+              class="input"
+            />
           </div>
           <label class="check form-field-full">
             <input v-model="posForm.installmentSupported" type="checkbox" />
@@ -553,7 +700,9 @@
           </label>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">İptal</button>
+            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
+              İptal
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
           </div>
         </form>
@@ -627,8 +776,7 @@ const filteredAccounts = computed(() => {
   if (!q) return activeAccounts.value;
   return activeAccounts.value.filter(
     (a) =>
-      a.accountName.toLowerCase().includes(q) ||
-      (a.accountNumber ?? '').toLowerCase().includes(q),
+      a.accountName.toLowerCase().includes(q) || (a.accountNumber ?? '').toLowerCase().includes(q),
   );
 });
 
@@ -649,8 +797,7 @@ const selectedBankName = computed(
   () => bankAccounts.value.find((b) => b.id === selectedBankAccountId.value)?.accountName ?? 'Tümü',
 );
 const bankModuleLabel = computed(
-  () =>
-    ({ loans: 'Kredi Ekle', cards: 'Kart Ekle', pos: 'POS Ekle' })[activeBankModule.value],
+  () => ({ loans: 'Kredi Ekle', cards: 'Kart Ekle', pos: 'POS Ekle' })[activeBankModule.value],
 );
 
 // ── Hesap formu ──
@@ -877,7 +1024,15 @@ const openBankModuleForm = (row?: BankLoan | CreditCard | PosAccount) => {
           statementDay: c.statementDay ?? undefined,
           dueDay: c.dueDay ?? undefined,
         }
-      : { cardLabel: '', cardNumberLast4: '', cardNetwork: '', creditLimit: 0, currentDebt: 0, statementDay: undefined, dueDay: undefined };
+      : {
+          cardLabel: '',
+          cardNumberLast4: '',
+          cardNetwork: '',
+          creditLimit: 0,
+          currentDebt: 0,
+          statementDay: undefined,
+          dueDay: undefined,
+        };
   } else {
     const p = row as PosAccount | undefined;
     posForm.value = p
@@ -888,7 +1043,13 @@ const openBankModuleForm = (row?: BankLoan | CreditCard | PosAccount) => {
           commissionRate: p.commissionRate,
           installmentSupported: p.installmentSupported,
         }
-      : { posLabel: '', terminalId: '', merchantNumber: '', commissionRate: 0, installmentSupported: true };
+      : {
+          posLabel: '',
+          terminalId: '',
+          merchantNumber: '',
+          commissionRate: 0,
+          installmentSupported: true,
+        };
   }
   showBankForm.value = true;
 };

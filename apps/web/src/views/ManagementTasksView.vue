@@ -3,7 +3,9 @@
     <header class="page-header">
       <div>
         <h1 class="page-title">Görevler</h1>
-        <p class="page-sub">Kayıt sistemini günlük aksiyona dönüştürün — ata, önceliklendir, tamamla.</p>
+        <p class="page-sub">
+          Kayıt sistemini günlük aksiyona dönüştürün — ata, önceliklendir, tamamla.
+        </p>
       </div>
       <div class="page-actions">
         <button type="button" class="btn btn-primary" @click="showForm = !showForm">
@@ -31,7 +33,13 @@
       </div>
       <div class="field field-wide">
         <label for="task-desc">Açıklama</label>
-        <textarea id="task-desc" v-model="form.description" class="input" rows="2" maxlength="5000" />
+        <textarea
+          id="task-desc"
+          v-model="form.description"
+          class="input"
+          rows="2"
+          maxlength="5000"
+        />
       </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" :disabled="saving">Kaydet</button>
@@ -39,7 +47,12 @@
     </form>
 
     <div class="toolbar" role="search">
-      <select v-model="filters.status" class="select" aria-label="Durum filtresi" @change="fetchTasks">
+      <select
+        v-model="filters.status"
+        class="select"
+        aria-label="Durum filtresi"
+        @change="fetchTasks"
+      >
         <option value="">Tüm Durumlar</option>
         <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
       </select>
@@ -116,7 +129,11 @@
     </div>
 
     <div v-if="pagination.pages > 1" class="pager">
-      <button class="btn btn-secondary" :disabled="pagination.page <= 1" @click="changePage(pagination.page - 1)">
+      <button
+        class="btn btn-secondary"
+        :disabled="pagination.page <= 1"
+        @click="changePage(pagination.page - 1)"
+      >
         ‹ Önceki
       </button>
       <span>Sayfa {{ pagination.page }} / {{ pagination.pages }}</span>

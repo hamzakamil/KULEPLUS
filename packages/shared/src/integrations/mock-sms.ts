@@ -1,8 +1,4 @@
-import {
-  type SmsMessage,
-  type SmsProvider,
-  type SmsSendResult,
-} from './sms.js';
+import { type SmsMessage, type SmsProvider, type SmsSendResult } from './sms.js';
 
 /**
  * Mock SMS sağlayıcısı — Faz 0 (ROADMAP: "Mock sağlayıcılar: e-posta, SMS, ödeme, e-Dönüşüm").
@@ -27,11 +23,19 @@ export class MockSmsProvider implements SmsProvider {
     if (this.failNext) {
       this.failNext = false;
       this.failed.push(message);
-      return { providerRef: `MOCK-SMS-FAIL-${Date.now()}`, status: 'failed', detail: 'Simüle edilmiş hata' };
+      return {
+        providerRef: `MOCK-SMS-FAIL-${Date.now()}`,
+        status: 'failed',
+        detail: 'Simüle edilmiş hata',
+      };
     }
     if (this.credits <= 0) {
       this.failed.push(message);
-      return { providerRef: `MOCK-SMS-NOCREDIT-${Date.now()}`, status: 'failed', detail: 'Kredi yetersiz' };
+      return {
+        providerRef: `MOCK-SMS-NOCREDIT-${Date.now()}`,
+        status: 'failed',
+        detail: 'Kredi yetersiz',
+      };
     }
 
     this.credits -= 1;

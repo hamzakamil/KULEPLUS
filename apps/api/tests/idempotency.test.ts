@@ -19,7 +19,9 @@ function appWithTenant() {
   // AppError → JSON (gerçek uygulamadaki merkezi hata middleware'inin minik taklidi)
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const status = (err as { httpStatus?: number }).httpStatus ?? 500;
-    res.status(status).json({ error: { code: (err as { code?: string }).code ?? 'INTERNAL_ERROR' } });
+    res
+      .status(status)
+      .json({ error: { code: (err as { code?: string }).code ?? 'INTERNAL_ERROR' } });
   });
   return app;
 }
@@ -56,7 +58,10 @@ describe('idempotency middleware (SPEC §22.2)', () => {
   });
 
   it('çok kısa key → 400', async () => {
-    const res = await request(appWithTenant()).post('/x').set('Idempotency-Key', 'abc').send({ a: 1 });
+    const res = await request(appWithTenant())
+      .post('/x')
+      .set('Idempotency-Key', 'abc')
+      .send({ a: 1 });
     expect(res.status).toBe(400);
   });
 });

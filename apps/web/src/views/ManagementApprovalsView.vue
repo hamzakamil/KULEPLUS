@@ -5,7 +5,9 @@
         <h1 class="page-title">Onay Kutusu</h1>
         <p class="page-sub">
           Ödeme limiti, fatura iptali ve fiş onayı taleplerini tek yerden karara bağlayın.
-          <span v-if="pendingCount > 0" class="badge badge-warning">{{ pendingCount }} bekliyor</span>
+          <span v-if="pendingCount > 0" class="badge badge-warning"
+            >{{ pendingCount }} bekliyor</span
+          >
         </p>
       </div>
       <div class="page-actions">
@@ -28,11 +30,24 @@
       </div>
       <div class="field">
         <label for="ap-amount">Tutar</label>
-        <input id="ap-amount" v-model="form.amount" type="number" min="0" step="0.01" class="input" />
+        <input
+          id="ap-amount"
+          v-model="form.amount"
+          type="number"
+          min="0"
+          step="0.01"
+          class="input"
+        />
       </div>
       <div class="field">
         <label for="ap-currency">Para Birimi</label>
-        <input id="ap-currency" v-model="form.currency" class="input" maxlength="3" placeholder="TRY" />
+        <input
+          id="ap-currency"
+          v-model="form.currency"
+          class="input"
+          maxlength="3"
+          placeholder="TRY"
+        />
       </div>
       <div class="field field-wide">
         <label for="ap-summary">Açıklama</label>
@@ -48,7 +63,12 @@
         <option value="">Tüm Durumlar</option>
         <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
       </select>
-      <select v-model="filters.request_type" class="select" aria-label="Tür filtresi" @change="reload">
+      <select
+        v-model="filters.request_type"
+        class="select"
+        aria-label="Tür filtresi"
+        @change="reload"
+      >
         <option value="">Tüm Türler</option>
         <option v-for="t in TYPE_OPTIONS" :key="t.value" :value="t.value">{{ t.label }}</option>
       </select>
@@ -75,9 +95,13 @@
               <span v-if="a.summary" class="muted small block">{{ a.summary }}</span>
               <span v-if="a.decisionNote" class="muted small block">Not: {{ a.decisionNote }}</span>
             </td>
-            <td><span class="badge badge-info">{{ typeLabel(a.requestType) }}</span></td>
+            <td>
+              <span class="badge badge-info">{{ typeLabel(a.requestType) }}</span>
+            </td>
             <td class="num nowrap">{{ formatMoney(a.amount, a.currency) }}</td>
-            <td><span class="badge" :class="statusBadge(a.status)">{{ statusLabel(a.status) }}</span></td>
+            <td>
+              <span class="badge" :class="statusBadge(a.status)">{{ statusLabel(a.status) }}</span>
+            </td>
             <td class="nowrap">{{ formatDateTime(a.createdAt) }}</td>
             <td class="num actions">
               <template v-if="a.status === 'pending'">
@@ -99,7 +123,11 @@
     </div>
 
     <div v-if="pagination.pages > 1" class="pager">
-      <button class="btn btn-secondary" :disabled="pagination.page <= 1" @click="changePage(pagination.page - 1)">
+      <button
+        class="btn btn-secondary"
+        :disabled="pagination.page <= 1"
+        @click="changePage(pagination.page - 1)"
+      >
         ‹ Önceki
       </button>
       <span>Sayfa {{ pagination.page }} / {{ pagination.pages }}</span>
@@ -116,7 +144,14 @@
       <div class="modal modal-md" role="dialog" aria-modal="true">
         <div class="modal-header">
           <h2>{{ decision === 'approved' ? 'Talebi Onayla' : 'Talebi Reddet' }}</h2>
-          <button type="button" class="modal-close" aria-label="Kapat" @click="decisionTarget = null">×</button>
+          <button
+            type="button"
+            class="modal-close"
+            aria-label="Kapat"
+            @click="decisionTarget = null"
+          >
+            ×
+          </button>
         </div>
         <div class="modal-body">
           <p class="strong">{{ decisionTarget.title }}</p>
@@ -133,7 +168,9 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="decisionTarget = null">Vazgeç</button>
+          <button type="button" class="btn btn-secondary" @click="decisionTarget = null">
+            Vazgeç
+          </button>
           <button type="button" class="btn btn-primary" :disabled="saving" @click="confirmDecision">
             {{ decision === 'approved' ? 'Onayla' : 'Reddet' }}
           </button>
@@ -233,7 +270,11 @@ async function confirmDecision() {
   if (!decisionTarget.value) return;
   saving.value = true;
   try {
-    await store.decideApproval(decisionTarget.value.id, decision.value, decisionNote.value || undefined);
+    await store.decideApproval(
+      decisionTarget.value.id,
+      decision.value,
+      decisionNote.value || undefined,
+    );
     decisionTarget.value = null;
   } catch {
     /* hata store'da tutulur */

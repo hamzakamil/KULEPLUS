@@ -26,11 +26,8 @@ import type { TenantRequest } from './tenant.js';
  */
 const grantCache = new WeakMap<Request, Promise<{ isOwner: boolean; codes: Set<string> }>>();
 
-async function loadGrants(
-  req: Request,
-): Promise<{ isOwner: boolean; codes: Set<string> }> {
-  const tenantId =
-    (req as TenantRequest).tenantId ?? (req as AuthenticatedRequest).user?.tenantId;
+async function loadGrants(req: Request): Promise<{ isOwner: boolean; codes: Set<string> }> {
+  const tenantId = (req as TenantRequest).tenantId ?? (req as AuthenticatedRequest).user?.tenantId;
   const userId = (req as AuthenticatedRequest).user?.sub;
   if (!tenantId || !userId) {
     throw new AppError('UNAUTHENTICATED', 'Tenant context yok');

@@ -419,18 +419,16 @@ export const useContactStore = defineStore('contacts', () => {
   };
 
   /** Bakiye dahil cari listesi — listede anlık bakiye için (ön muhasebe standardı). */
-  const fetchContactsWithBalances = async (
-    params?: {
-      q?: string;
-      type?: 'customer' | 'supplier';
-      is_active?: boolean;
-      page?: number;
-      limit?: number;
-      sort?: string;
-      order?: 'asc' | 'desc';
-      only_with_balance?: boolean;
-    },
-  ): Promise<{ data: ContactWithBalance[]; pagination: Pagination }> => {
+  const fetchContactsWithBalances = async (params?: {
+    q?: string;
+    type?: 'customer' | 'supplier';
+    is_active?: boolean;
+    page?: number;
+    limit?: number;
+    sort?: string;
+    order?: 'asc' | 'desc';
+    only_with_balance?: boolean;
+  }): Promise<{ data: ContactWithBalance[]; pagination: Pagination }> => {
     loading.value = true;
     error.value = null;
     try {

@@ -15,8 +15,7 @@
         <div>
           <h2 class="push-title">Web Push (bu cihaz)</h2>
           <p class="muted small">
-            Bu tarayıcıda anlık bildirim alın. Kapalıysa yalnızca uygulama içi bildirimler
-            görünür.
+            Bu tarayıcıda anlık bildirim alın. Kapalıysa yalnızca uygulama içi bildirimler görünür.
           </p>
         </div>
         <span class="badge" :class="pushBadgeClass">{{ pushStatusLabel }}</span>

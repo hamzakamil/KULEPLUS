@@ -469,10 +469,9 @@ export class ChequeService {
         );
       }
       // Durum geçmişi ve portföy kaydı ON DELETE CASCADE ile temizlenir.
-      await client.query(
-        'DELETE FROM cheques WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
+      await client.query('DELETE FROM cheques WHERE id = $1 AND tenant_id = current_tenant_id()', [
+        id,
+      ]);
       return { success: true };
     });
   }
@@ -810,7 +809,15 @@ class AccountingJournalPort implements JournalPort {
          (id, tenant_id, entry_no, entry_date, entry_type, status, description,
           source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
        VALUES ($1, current_tenant_id(), $2, $3, 'mahsup', 'posted', $4, 'cheque', $5, $6, $6, $7, now(), $7, $7)`,
-      [entryId, entryNo, ctx.transactionDate, ctx.description, ctx.chequeId, ctx.amount, ctx.userId],
+      [
+        entryId,
+        entryNo,
+        ctx.transactionDate,
+        ctx.description,
+        ctx.chequeId,
+        ctx.amount,
+        ctx.userId,
+      ],
     );
 
     const lines: Array<{ accountId: string; debit: number; credit: number }> = [

@@ -12,18 +12,30 @@
     <!-- Filtreler -->
     <section class="card">
       <header class="card-head">
-        <h2 style="font-size:1.05rem">Filtreler</h2>
-        <button class="btn btn-primary" :disabled="store.loading" @click="applyFilters">Listele</button>
+        <h2 style="font-size: 1.05rem">Filtreler</h2>
+        <button class="btn btn-primary" :disabled="store.loading" @click="applyFilters">
+          Listele
+        </button>
       </header>
       <div class="card-body">
         <div class="filters">
           <label class="field">
             <span>İşlem (action)</span>
-            <input v-model="filters.action" type="text" placeholder="ör. invoice.create" @keyup.enter="applyFilters" />
+            <input
+              v-model="filters.action"
+              type="text"
+              placeholder="ör. invoice.create"
+              @keyup.enter="applyFilters"
+            />
           </label>
           <label class="field">
             <span>Varlık Tipi</span>
-            <input v-model="filters.entityType" type="text" placeholder="ör. invoice" @keyup.enter="applyFilters" />
+            <input
+              v-model="filters.entityType"
+              type="text"
+              placeholder="ör. invoice"
+              @keyup.enter="applyFilters"
+            />
           </label>
           <label class="field">
             <span>Başlangıç</span>
@@ -40,7 +52,7 @@
     <!-- Kayıtlar -->
     <section class="card">
       <header class="card-head">
-        <h2 style="font-size:1.05rem">Kayıtlar</h2>
+        <h2 style="font-size: 1.05rem">Kayıtlar</h2>
         <span class="muted small">{{ store.total }} kayıt</span>
       </header>
       <div class="card-body">
@@ -59,7 +71,9 @@
           <tbody>
             <tr v-for="log in store.logs" :key="log.id">
               <td>{{ fmtDateTime(log.created_at) }}</td>
-              <td><span class="badge badge-info">{{ log.action }}</span></td>
+              <td>
+                <span class="badge badge-info">{{ log.action }}</span>
+              </td>
               <td>
                 <template v-if="log.entity_type">
                   {{ log.entity_type }}
@@ -79,9 +93,17 @@
 
         <!-- Sayfalama -->
         <div v-if="store.total > store.limit" class="pagination">
-          <button class="btn btn-sm" :disabled="store.page <= 1" @click="goTo(store.page - 1)">‹ Önceki</button>
+          <button class="btn btn-sm" :disabled="store.page <= 1" @click="goTo(store.page - 1)">
+            ‹ Önceki
+          </button>
           <span class="muted small">Sayfa {{ store.page }} / {{ totalPages }}</span>
-          <button class="btn btn-sm" :disabled="store.page >= totalPages" @click="goTo(store.page + 1)">Sonraki ›</button>
+          <button
+            class="btn btn-sm"
+            :disabled="store.page >= totalPages"
+            @click="goTo(store.page + 1)"
+          >
+            Sonraki ›
+          </button>
         </div>
       </div>
     </section>
@@ -90,7 +112,7 @@
     <div v-if="store.current" class="modal-backdrop" @click.self="store.clearCurrent()">
       <div class="modal">
         <header class="card-head">
-          <h2 style="font-size:1.05rem">Denetim Detayı</h2>
+          <h2 style="font-size: 1.05rem">Denetim Detayı</h2>
           <button class="btn btn-sm" @click="store.clearCurrent()">Kapat</button>
         </header>
         <div class="card-body">
@@ -108,9 +130,9 @@
             <dt>User-Agent</dt>
             <dd class="small">{{ store.current.user_agent ?? '—' }}</dd>
           </dl>
-          <h3 style="font-size:0.95rem; margin: 12px 0 4px">Önceki Değerler</h3>
+          <h3 style="font-size: 0.95rem; margin: 12px 0 4px">Önceki Değerler</h3>
           <pre class="json-block">{{ pretty(store.current.old_values) }}</pre>
-          <h3 style="font-size:0.95rem; margin: 12px 0 4px">Sonraki Değerler</h3>
+          <h3 style="font-size: 0.95rem; margin: 12px 0 4px">Sonraki Değerler</h3>
           <pre class="json-block">{{ pretty(store.current.new_values) }}</pre>
         </div>
       </div>

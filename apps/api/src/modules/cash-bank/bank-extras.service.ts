@@ -110,7 +110,11 @@ export async function listBankLoans(tenantId?: string, bankAccountId?: string) {
   });
 }
 
-export async function createBankLoan(input: CreateBankLoanInput, userId: string, tenantId?: string) {
+export async function createBankLoan(
+  input: CreateBankLoanInput,
+  userId: string,
+  tenantId?: string,
+) {
   return withTenant(tenantId, async (client) => {
     const id = newId();
     const result = await client.query(
@@ -139,7 +143,11 @@ export async function createBankLoan(input: CreateBankLoanInput, userId: string,
 
 export async function updateBankLoan(
   id: string,
-  input: Partial<CreateBankLoanInput> & { status?: string; paidInstallments?: number; remainingBalance?: number },
+  input: Partial<CreateBankLoanInput> & {
+    status?: string;
+    paidInstallments?: number;
+    remainingBalance?: number;
+  },
   userId: string,
   tenantId?: string,
 ) {

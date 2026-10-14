@@ -49,4 +49,5 @@ export interface InboxInvoice {
   payload: string;
 }
 
-export type InvoiceStatus = 'draft' | 'sent' | 'delivered' | 'accepted' | 'rejected' | 'cancelled' | 'expired';
+export type InvoiceStatus =
+  'draft' | 'sent' | 'delivered' | 'accepted' | 'rejected' | 'cancelled' | 'expired';

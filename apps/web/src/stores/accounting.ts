@@ -5,7 +5,8 @@ import { api } from '@/lib/api';
 
 /** API hata sözleşmesi: `{ error: { code, message } }` (SPEC §22.1). */
 function errorMessage(err: unknown, fallback: string): string {
-  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response?.data;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
   return data?.error?.message || data?.message || fallback;
 }
 
@@ -138,17 +139,23 @@ export const useAccountingStore = defineStore('accounting', () => {
   };
 
   const trialBalance = async (from?: string, to?: string): Promise<TrialBalance> => {
-    const response = await api.get('/v1/accounting/reports/trial-balance', { params: { from, to } });
+    const response = await api.get('/v1/accounting/reports/trial-balance', {
+      params: { from, to },
+    });
     return response.data;
   };
 
   const balanceSheet = async (asOf?: string): Promise<BalanceSheet> => {
-    const response = await api.get('/v1/accounting/reports/balance-sheet', { params: { as_of: asOf } });
+    const response = await api.get('/v1/accounting/reports/balance-sheet', {
+      params: { as_of: asOf },
+    });
     return response.data;
   };
 
   const incomeStatement = async (from?: string, to?: string): Promise<IncomeStatement> => {
-    const response = await api.get('/v1/accounting/reports/income-statement', { params: { from, to } });
+    const response = await api.get('/v1/accounting/reports/income-statement', {
+      params: { from, to },
+    });
     return response.data;
   };
 

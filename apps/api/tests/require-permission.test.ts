@@ -58,7 +58,9 @@ describe('requirePermission middleware (SPEC §6.3)', () => {
 
     expect(next).toHaveBeenCalledWith();
     // Owner tespitinden sonra izin sorgusu ÇALIŞMAZ (erken geçiş).
-    const permCall = mockQuery.mock.calls.find((c) => String(c[0]).includes('SELECT DISTINCT p.code'));
+    const permCall = mockQuery.mock.calls.find((c) =>
+      String(c[0]).includes('SELECT DISTINCT p.code'),
+    );
     expect(permCall).toBeUndefined();
   });
 
@@ -75,7 +77,10 @@ describe('requirePermission middleware (SPEC §6.3)', () => {
   });
 
   it('tüm gerekli izinlere sahipse → next() hatasız', async () => {
-    setupPool({ isOwner: false, codes: ['integrations.integration.read', 'integrations.integration.manage'] });
+    setupPool({
+      isOwner: false,
+      codes: ['integrations.integration.read', 'integrations.integration.manage'],
+    });
     const next = vi.fn() as unknown as NextFunction;
 
     await requirePermission('integrations.integration.read', 'integrations.integration.manage')(
@@ -125,7 +130,9 @@ describe('requirePermission middleware (SPEC §6.3)', () => {
     expect(next).toHaveBeenCalledTimes(2);
     expect(next).toHaveBeenNthCalledWith(1);
     expect(next).toHaveBeenNthCalledWith(2);
-    const ownerCalls = mockQuery.mock.calls.filter((c) => String(c[0]).includes('SELECT is_owner FROM tenant_users'));
+    const ownerCalls = mockQuery.mock.calls.filter((c) =>
+      String(c[0]).includes('SELECT is_owner FROM tenant_users'),
+    );
     expect(ownerCalls).toHaveLength(1);
   });
 

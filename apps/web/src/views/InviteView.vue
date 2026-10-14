@@ -51,8 +51,8 @@ async function accept() {
     <section class="panel" :aria-busy="busy">
       <h1>Daveti kabul edin</h1>
       <p class="lede">
-        Size gönderilen davet ile ekibe katılmak için bir şifre belirleyin. Davet bağlantısı
-        7 gün geçerlidir.
+        Size gönderilen davet ile ekibe katılmak için bir şifre belirleyin. Davet bağlantısı 7 gün
+        geçerlidir.
       </p>
 
       <form v-if="!done" class="form" @submit.prevent="accept">

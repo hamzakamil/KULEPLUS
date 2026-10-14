@@ -69,5 +69,14 @@ export const useEntitlementStore = defineStore('entitlement', () => {
     loaded.value = false;
   }
 
-  return { entitlements, loaded, loading, error, activeModules, hasModule, fetchEntitlements, reset };
+  return {
+    entitlements,
+    loaded,
+    loading,
+    error,
+    activeModules,
+    hasModule,
+    fetchEntitlements,
+    reset,
+  };
 });

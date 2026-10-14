@@ -30,7 +30,9 @@
       >
         <div class="notification-main">
           <div class="notification-head">
-            <span class="badge" :class="statusBadge(n.status)">{{ typeLabel(n.notificationType) }}</span>
+            <span class="badge" :class="statusBadge(n.status)">{{
+              typeLabel(n.notificationType)
+            }}</span>
             <span class="muted small">{{ formatDateTime(n.createdAt) }}</span>
           </div>
           <p class="notification-title">{{ n.title }}</p>
@@ -48,7 +50,11 @@
     </ul>
 
     <div v-if="pagination.pages > 1" class="pager">
-      <button class="btn btn-secondary" :disabled="pagination.page <= 1" @click="changePage(pagination.page - 1)">
+      <button
+        class="btn btn-secondary"
+        :disabled="pagination.page <= 1"
+        @click="changePage(pagination.page - 1)"
+      >
         ‹ Önceki
       </button>
       <span>Sayfa {{ pagination.page }} / {{ pagination.pages }}</span>

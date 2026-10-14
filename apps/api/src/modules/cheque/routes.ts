@@ -16,11 +16,7 @@ import {
   portfolioListQuerySchema,
   transactionListQuerySchema,
 } from './schemas';
-import type {
-  ChequeListQuery,
-  PortfolioListQuery,
-  TransactionListQuery,
-} from './schemas';
+import type { ChequeListQuery, PortfolioListQuery, TransactionListQuery } from './schemas';
 import { ChequeService } from './service';
 
 const router = Router();
@@ -102,14 +98,18 @@ router.patch(
   },
 );
 
-router.delete('/:id', canDelete, async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.deleteCheque(req.params.id, (req as TenantRequest).tenantId);
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.delete(
+  '/:id',
+  canDelete,
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.deleteCheque(req.params.id, (req as TenantRequest).tenantId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // ============ Yaşam Döngüsü Aksiyonları ============
 

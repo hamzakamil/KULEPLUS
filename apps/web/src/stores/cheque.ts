@@ -4,7 +4,8 @@ import type { AxiosError } from 'axios';
 import { api } from '@/lib/api';
 
 function errorMessage(err: unknown, fallback: string): string {
-  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response?.data;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
   return data?.error?.message || data?.message || fallback;
 }
 
@@ -77,14 +78,24 @@ export const useChequeStore = defineStore('cheque', () => {
 
   const endorseCheque = async (
     id: string,
-    input: { to_holder: ChequeHolder; party_name: string; transaction_date: string; description?: string },
+    input: {
+      to_holder: ChequeHolder;
+      party_name: string;
+      transaction_date: string;
+      description?: string;
+    },
   ) => {
     await api.post(`/v1/cheques/${id}/endorse`, input);
   };
 
   const collectCheque = async (
     id: string,
-    input: { cash_bank_account_id: string; transaction_date: string; amount?: number; description?: string },
+    input: {
+      cash_bank_account_id: string;
+      transaction_date: string;
+      amount?: number;
+      description?: string;
+    },
   ) => {
     await api.post(`/v1/cheques/${id}/collect`, input);
   };

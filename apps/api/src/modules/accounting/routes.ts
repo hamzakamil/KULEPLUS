@@ -311,15 +311,18 @@ router.get(
   },
 );
 
-router.get('/entries/:entryId/lines/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await getLineById(req.params.id, (req as TenantRequest).tenantId);
-    if (!result) throw new AppError('NOT_FOUND', 'Yevmiye satiri bulunamadi');
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get(
+  '/entries/:entryId/lines/:id',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await getLineById(req.params.id, (req as TenantRequest).tenantId);
+      if (!result) throw new AppError('NOT_FOUND', 'Yevmiye satiri bulunamadi');
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.post(
   '/entries/:entryId/lines',
@@ -356,14 +359,17 @@ router.patch(
   },
 );
 
-router.delete('/entries/:entryId/lines/:id', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await deleteLine(req.params.id, (req as TenantRequest).tenantId);
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.delete(
+  '/entries/:entryId/lines/:id',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await deleteLine(req.params.id, (req as TenantRequest).tenantId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 // ============ Malî Dönemler ============
 
 router.get(

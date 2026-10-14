@@ -38,7 +38,10 @@ function live(
 // ============ Canlı Raporlar (istek anında hesaplanır) ============
 
 /** Tüm modüllerin özeti — rapor ekranının ana kartları. */
-router.get('/overview', live((q) => reportService.overview(q)));
+router.get(
+  '/overview',
+  live((q) => reportService.overview(q)),
+);
 
 /** Modül bazında son değişiklik zamanları — istemci otomatik yenileme için. */
 router.get('/freshness', async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -49,9 +52,18 @@ router.get('/freshness', async (_req: AuthenticatedRequest, res: Response, next:
   }
 });
 
-router.get('/sales', live((q) => reportService.salesReport(q)));
-router.get('/purchases', live((q) => reportService.purchaseReport(q)));
-router.get('/expenses', live((q) => reportService.expenseReport(q)));
+router.get(
+  '/sales',
+  live((q) => reportService.salesReport(q)),
+);
+router.get(
+  '/purchases',
+  live((q) => reportService.purchaseReport(q)),
+);
+router.get(
+  '/expenses',
+  live((q) => reportService.expenseReport(q)),
+);
 router.get('/stock', async (_req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   try {
     res.json(await reportService.stockReport());
@@ -59,20 +71,44 @@ router.get('/stock', async (_req: AuthenticatedRequest, res: Response, next: Nex
     next(error);
   }
 });
-router.get('/cash-bank', live((q) => reportService.cashBankReport(q)));
-router.get('/profit-loss', live((q) => reportService.profitLoss(q)));
-router.get('/tax-summary', live((q) => reportService.taxSummary(q)));
-router.get('/aged-receivable', live((q) => reportService.agedReport({ ...q, type: 'receivable' })));
-router.get('/aged-payable', live((q) => reportService.agedReport({ ...q, type: 'payable' })));
+router.get(
+  '/cash-bank',
+  live((q) => reportService.cashBankReport(q)),
+);
+router.get(
+  '/profit-loss',
+  live((q) => reportService.profitLoss(q)),
+);
+router.get(
+  '/tax-summary',
+  live((q) => reportService.taxSummary(q)),
+);
+router.get(
+  '/aged-receivable',
+  live((q) => reportService.agedReport({ ...q, type: 'receivable' })),
+);
+router.get(
+  '/aged-payable',
+  live((q) => reportService.agedReport({ ...q, type: 'payable' })),
+);
 
 // Faz 6.4 — KDV hazırlık raporu (hesaplanan/indirilecek/devreden, tevkifat)
-router.get('/vat', live((q) => reportService.vatReport(q)));
+router.get(
+  '/vat',
+  live((q) => reportService.vatReport(q)),
+);
 
 // Faz 6.4 — belge/defter mutabakatı
-router.get('/ledger-reconciliation', live((q) => reportService.ledgerReconciliation(q)));
+router.get(
+  '/ledger-reconciliation',
+  live((q) => reportService.ledgerReconciliation(q)),
+);
 
 // Faz 6.5 — Ba-Bs raporu (eşik parametrik, varsayılan 5000)
-router.get('/babs', live((q) => reportService.babsReport({ ...q, threshold: Number(q.threshold) || 5000 })));
+router.get(
+  '/babs',
+  live((q) => reportService.babsReport({ ...q, threshold: Number(q.threshold) || 5000 })),
+);
 
 // Faz 6.5 — cari mutabakat mektubu verisi
 router.get(

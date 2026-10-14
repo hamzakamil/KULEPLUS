@@ -19,7 +19,7 @@
         <header class="card-head">
           <div>
             <strong>{{ it.display_name }}</strong>
-            <span class="muted small" style="margin-left:8px">{{ it.provider }}</span>
+            <span class="muted small" style="margin-left: 8px">{{ it.provider }}</span>
           </div>
           <span class="badge" :class="it.is_active ? 'badge-success' : 'badge-neutral'">
             {{ it.is_active ? 'Aktif' : 'Pasif' }}
@@ -27,7 +27,9 @@
         </header>
         <p class="muted small">{{ it.id }}</p>
         <footer class="card-foot">
-          <button class="btn btn-secondary btn-sm" @click="viewEvents(it.id)">Webhook olayları</button>
+          <button class="btn btn-secondary btn-sm" @click="viewEvents(it.id)">
+            Webhook olayları
+          </button>
           <button
             v-if="it.is_active"
             class="btn btn-secondary btn-sm"
@@ -42,7 +44,7 @@
     <!-- create modal -->
     <div v-if="openCreate" class="modal-backdrop">
       <form class="modal card" @submit.prevent="create">
-        <h2 class="page-title" style="font-size:1.1rem">Yeni entegrasyon</h2>
+        <h2 class="page-title" style="font-size: 1.1rem">Yeni entegrasyon</h2>
         <label class="field">
           <span class="field-label">Sağlayıcı</span>
           <input class="input" v-model="draft.provider" required placeholder="manual, stripe, …" />

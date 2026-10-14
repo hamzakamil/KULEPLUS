@@ -58,11 +58,13 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({ rows: [invoice], rowCount: 1 });
       }
-      if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+      if (s.includes('FROM accounting_accounts'))
+        return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
       if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
       if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-      if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '1' }] });
+      if (s.includes('COALESCE(MAX(entry_no)'))
+        return Promise.resolve({ rows: [{ next_no: '1' }] });
       return Promise.resolve({ rows: [] });
     });
   }
@@ -89,7 +91,9 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
     const res = await service.postInvoice('inv-g21', 'user-1');
     expect(res.entryId).toBeTruthy();
     expect(res.entryNo).toBe(1);
-    expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries'))).toBe(true);
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries')),
+    ).toBe(true);
   });
 
   it('G-3.1 idempotent: zaten posted ise mevcut fiş döner, yeni fiş üretmez', async () => {
@@ -97,7 +101,10 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
-        return Promise.resolve({ rows: [{ ...singleLineInvoice, posting_status: 'posted' }], rowCount: 1 });
+        return Promise.resolve({
+          rows: [{ ...singleLineInvoice, posting_status: 'posted' }],
+          rowCount: 1,
+        });
       }
       if (s.includes('FROM journal_entries')) {
         return Promise.resolve({ rows: [{ id: 'je-1', entry_no: 1 }] });
@@ -108,7 +115,9 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
     const res = await service.postInvoice('inv-g21', 'user-1');
     expect(res.alreadyPosted).toBe(true);
     expect(res.entryId).toBe('je-1');
-    expect(clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries'))).toBe(false);
+    expect(
+      clientQuery.mock.calls.some((c) => String(c[0]).includes('INSERT INTO journal_entries')),
+    ).toBe(false);
   });
 });
 
@@ -119,7 +128,8 @@ describe('Golden — CANLI: Negatif stok politikası (SMMM Ek B)', () => {
    * (`stock/service.ts`) aynı kuralı uygular; burada politika kararı doğrulanır.
    */
   it('G-4.3 negatif stok → block politikası hareketi engeller', () => {
-    const wouldGoNegative = (currentQty: number, outgoingQty: number) => currentQty - outgoingQty < 0;
+    const wouldGoNegative = (currentQty: number, outgoingQty: number) =>
+      currentQty - outgoingQty < 0;
     const shouldBlock = (policy: 'block' | 'warn' | 'allow') => policy === 'block';
 
     // 10 adet var, 4 çıkıyor → engellenmez

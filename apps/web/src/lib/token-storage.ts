@@ -11,9 +11,7 @@ export function isRemembered(): boolean {
 }
 
 export function getAccessToken(): string | null {
-  return (
-    localStorage.getItem(ACCESS_TOKEN_KEY) ?? sessionStorage.getItem(ACCESS_TOKEN_KEY)
-  );
+  return localStorage.getItem(ACCESS_TOKEN_KEY) ?? sessionStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
 export function getCompanyId(): string | null {
