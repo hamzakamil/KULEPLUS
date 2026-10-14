@@ -86,4 +86,11 @@ describe('API — health ve hata sözleşmesi (SPEC §22.1)', () => {
     expect(res.body.error.code).toBe('INTERNAL_ERROR');
     expect(JSON.stringify(res.body)).not.toContain('stack');
   });
+
+  it('pg 22P02 (uuid sözdizimi) → 404 NOT_FOUND, ayrıntı loga gider', async () => {
+    const res = await request(app).get('/_test/pg-invalid-uuid');
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
+    expect(JSON.stringify(res.body)).not.toContain('22P02');
+  });
 });

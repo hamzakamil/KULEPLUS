@@ -132,6 +132,10 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
     app.get('/_test/boom', (_req, _res, next) => {
       next(new Error('bilinmeyen hata — ayrıntı loga gider'));
     });
+    app.get('/_test/pg-invalid-uuid', (_req, _res, next) => {
+      // pg uuid `22P02` simülasyonu — örn. `/entries` `/:id`'ye düşerse
+      next(Object.assign(new Error('invalid input syntax for type uuid: "movements"'), { code: '22P02' }));
+    });
   }
 
   // ---- 404: sözleşme dışı istekler de hata formatında döner ----
@@ -140,7 +144,16 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   });
 
   // ---- Merkezi hata middleware'i (SPEC §22.1) ----
+  // pg `22P02` (uuid/enum sayısal sözdizimi): ör. tanımsız statik yol `/:id`'ye düşerse
+  // (`/entries` → `id="entries"`). Böyle bir id ile kayıt var olamayacağı için 404'tür.
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const pgCode = (err as { code?: string } | null)?.code;
+    if (pgCode === '22P02') {
+      const notFound = new AppError('NOT_FOUND', 'Kayıt bulunamadı');
+      req.log?.warn({ code: notFound.code, pgCode }, 'pg 22P02 → 404');
+      res.status(notFound.httpStatus).json(notFound.toJSON());
+      return;
+    }
     if (err instanceof AppError) {
       req.log?.warn({ code: err.code }, err.message);
       res.status(err.httpStatus).json(err.toJSON());
