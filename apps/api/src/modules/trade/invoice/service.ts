@@ -417,35 +417,13 @@ export class InvoiceService {
 
   async updateInvoice(id: string, data: UpdateInvoiceInput, userId?: string) {
     const pool = this.getPoolInstance();
-    const fields: string[] = [];
-    const values: unknown[] = [id];
-    let paramIndex = 2;
-
-    for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined) {
-        const column = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-        fields.push(`${column} = $${paramIndex}`);
-        values.push(value);
-        paramIndex++;
-      }
-    }
-
-    if (fields.length === 0) return this.getInvoice(id);
-
-    fields.push('updated_at = now()');
-    const query = `
-      UPDATE invoices 
-      SET ${fields.join(', ')}
-      WHERE id = $1 AND tenant_id = current_tenant_id()
-      RETURNING *
-    `;
-
-    // ADR-0016: güncelleme denetim izi — önceki durum + değişiklik tek transaction'da.
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      // Çoklu para birimi (SPEC §9.2) — düzenlemede kur verilmediyse otomatik çöz:
+      // Çoklu para birimi (SPEC §9.2) — düzenlemede kur verilmediyse otomatik çöz.
+      // NOT: Bu adım alan döngüsünden ÖNCE yapılmalıdır; aksi halde çözülen kur/rate_date
+      // UPDATE deyimine hiç yazılmaz (null kalır, base_total yanlış olur).
       // - currency dövize geçtiyse ve exchange_rate verilmediyse kur çekilir.
       // - currency TRY'ye döndüyse kur 1'e sabitlenir, rate_date temizlenir (base_total tutarlı kalır).
       if (data.currency) {
@@ -453,13 +431,40 @@ export class InvoiceService {
         if (normalized !== 'TRY' && data.exchange_rate === undefined) {
           const resolved = await this.resolveInvoiceRate(client, normalized, undefined, data.rate_date);
           data.exchange_rate = resolved.exchangeRate;
-          data.rate_date = resolved.rateDate ?? undefined;
+          if (resolved.rateDate) data.rate_date = resolved.rateDate;
         } else if (normalized === 'TRY' && data.exchange_rate === undefined) {
           data.exchange_rate = 1;
           (data as { rate_date?: string | null }).rate_date = null;
         }
       }
 
+      const fields: string[] = [];
+      const values: unknown[] = [id];
+      let paramIndex = 2;
+
+      for (const [key, value] of Object.entries(data)) {
+        if (value !== undefined) {
+          const column = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+          fields.push(`${column} = $${paramIndex}`);
+          values.push(value);
+          paramIndex++;
+        }
+      }
+
+      if (fields.length === 0) {
+        await client.query('ROLLBACK');
+        return this.getInvoice(id);
+      }
+
+      fields.push('updated_at = now()');
+      const query = `
+        UPDATE invoices 
+        SET ${fields.join(', ')}
+        WHERE id = $1 AND tenant_id = current_tenant_id()
+        RETURNING *
+      `;
+
+      // ADR-0016: güncelleme denetim izi — önceki durum + değişiklik tek transaction'da.
       const prev = await client.query(
         `SELECT status, total, balance FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [id],
@@ -634,7 +639,7 @@ export class InvoiceService {
       await client.query('BEGIN');
 
       const invoiceResult = await client.query(
-        `SELECT id, number, type, total, paid_amount, balance FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        `SELECT id, number, type, total, paid_amount, balance, currency, exchange_rate FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [invoiceId],
       );
       if (invoiceResult.rowCount === 0) {
@@ -642,6 +647,10 @@ export class InvoiceService {
       }
 
       const invoice = invoiceResult.rows[0];
+      // Çoklu para birimi (SPEC §9.2): tahsilat belge para biriminde kaydedilir (paid_amount/balance,
+      // invoices.total ile aynı birimde kalır), otomatik fiş ise fatura kuruyla TRY karşılığa (base) çevrilir.
+      const baseRate = Number(invoice.exchange_rate ?? 1);
+      const baseAmount = Number(data.amount) * baseRate;
       const newPaidAmount = Number(invoice.paid_amount) + data.amount;
       const newBalance = Number(invoice.total) - newPaidAmount;
 
@@ -705,18 +714,18 @@ export class InvoiceService {
               isInflow ? 'tahsil' : 'tediye',
               description,
               paymentId,
-              data.amount,
+              baseAmount,
               userId,
             ],
           );
           const lines = isInflow
             ? [
-                { accountId: cashBank, debit: data.amount, credit: 0 },
-                { accountId: control, debit: 0, credit: data.amount },
+                { accountId: cashBank, debit: baseAmount, credit: 0 },
+                { accountId: control, debit: 0, credit: baseAmount },
               ]
             : [
-                { accountId: control, debit: data.amount, credit: 0 },
-                { accountId: cashBank, debit: 0, credit: data.amount },
+                { accountId: control, debit: baseAmount, credit: 0 },
+                { accountId: cashBank, debit: 0, credit: baseAmount },
               ];
           let lineNo = 1;
           for (const l of lines) {
@@ -741,6 +750,8 @@ export class InvoiceService {
           invoice_id: invoiceId,
           invoice_number: invoice.number,
           amount: data.amount,
+          exchange_rate: baseRate,
+          base_amount: baseAmount,
           payment_method: data.payment_method,
           new_status: newStatus,
           journal_entry_id: journalEntryId,

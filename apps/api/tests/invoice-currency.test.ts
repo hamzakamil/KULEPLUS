@@ -184,5 +184,112 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       expect(inserted).toBe(true);
     });
   });
+
+  describe('updateInvoice — dövize geçişte otomatik kur / TRY dönüşünde kur 1', () => {
+    it('dövize geçiş + kur verilmedi → çözülen kur ve rate_date UPDATE e yazılmalı', async () => {
+      routeCreate();
+      await service.updateInvoice('inv-1', { currency: 'USD', rate_date: '2026-10-01' }, 'user-1');
+
+      const upCall = clientQuery.mock.calls.find((c) => {
+        const t = String(c[0]).trim().toUpperCase();
+        return t.startsWith('UPDATE INVOICES ');
+      });
+      expect(upCall).toBeTruthy();
+      // values içinde çözülen kur ve rate_date olmalı (sıra Object.entries sırasına bağlı, deterministik değil)
+      expect(upCall![1]).toContain('USD');
+      expect(upCall![1]).toContain(33.5); // çözülen kur
+      expect(upCall![1]).toContain('2026-10-01'); // çözülen kur tarihi
+      expect(String(upCall![0])).toContain('exchange_rate');
+      expect(String(upCall![0])).toContain('rate_date');
+    });
+
+    it('dövize geçiş + kullanıcı kuru verildi → kullanıcı kuru korunur, otomatik çözülmez', async () => {
+      routeCreate();
+      await service.updateInvoice('inv-1', { currency: 'EUR', exchange_rate: 40.25 }, 'user-1');
+
+      const exchangeCalls = clientQuery.mock.calls.filter((c) =>
+        String(c[0]).includes('FROM exchange_rates'),
+      );
+      expect(exchangeCalls).toHaveLength(0); // resolveInvoiceRate tetiklenmemeli
+
+      const upCall = clientQuery.mock.calls.find((c) => {
+        const t = String(c[0]).trim().toUpperCase();
+        return t.startsWith('UPDATE INVOICES ');
+      });
+      expect(upCall![1]).toStrictEqual(['inv-1', 'EUR', 40.25]);
+    });
+
+    it('TRYye dönüş → kur 1 e sabitlenir, rate_date null olarak yazılır', async () => {
+      routeCreate();
+      await service.updateInvoice('inv-1', { currency: 'TRY' }, 'user-1');
+
+      const upCall = clientQuery.mock.calls.find((c) => {
+        const t = String(c[0]).trim().toUpperCase();
+        return t.startsWith('UPDATE INVOICES ');
+      });
+      expect(upCall![1]).toStrictEqual(['inv-1', 'TRY', 1, null]);
+    });
+  });
+
+  describe('addPayment — dövizli faturada tahsilat fişi TRY karşılıkla dengelenir', () => {
+    function routePayment() {
+      clientQuery.mockImplementation((sql: string) => {
+        const s = String(sql);
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+        if (s.includes('FROM invoices')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'inv-1',
+                number: 'FAT-2026-000000001',
+                type: 'sales',
+                total: '1200',
+                paid_amount: '0',
+                balance: '1200',
+                currency: 'USD',
+                exchange_rate: '32.5',
+              },
+            ],
+            rowCount: 1,
+          });
+        }
+        if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ total: '1' }] });
+        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
+        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '9' }] });
+        return Promise.resolve({ rows: [] });
+      });
+    }
+
+    it('400 USD tahsilat → fiş 13000 TRY (400 × 32.5) ile dengeli, ödeme belge PB sinde kayıtlı', async () => {
+      routePayment();
+      await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
+
+      const payCall = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO invoice_payments'));
+      expect(payCall![1][2]).toBe(400); // invoice_payments.amount = belge para birimi (USD)
+
+      const entryCall = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO journal_entries'));
+      expect(entryCall![1]).toBeTruthy();
+      expect(entryCall![1][6]).toBe(13000); // total_debit = total_credit (aynı $7 placeholder) = TRY karşılık
+      expect(entryCall![1][7]).toBe('user-1'); // posted_by
+
+      const lineCalls = clientQuery.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO journal_lines'));
+      expect(lineCalls).toHaveLength(2);
+      expect(lineCalls[0][1][5]).toBe(13000); // debit kasa
+      expect(lineCalls[0][1][6]).toBe(0);
+      expect(lineCalls[1][1][5]).toBe(0);
+      expect(lineCalls[1][1][6]).toBe(13000); // credit 120 (Alıcılar)
+
+      const updateCall = clientQuery.mock.calls.find((c) => {
+        const t = String(c[0]).trim().toUpperCase();
+        return t.startsWith('UPDATE INVOICES ');
+      });
+      expect(updateCall![1][0]).toBe(400); // paid_amount belge PB sinde (total ile aynı birim)
+      expect(updateCall![1][1]).toBe(800); // balance 1200 - 400
+    });
+  });
 });
 
