@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { ContactService } from './service.js';
 import { ContactImportService } from './import.service.js';
-import { authenticate } from '../../middleware/auth.js';
+import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
 import { tenantContext } from '../../middleware/tenant.js';
 import { requireEntitlement } from '../../middleware/require-entitlement.js';
 import { requirePermission } from '../../middleware/require-permission.js';
@@ -37,27 +37,31 @@ router.get('/export', async (_req: Request, res: Response, next: NextFunction) =
 });
 
 /** Cari içe aktarma (dry-run: rapor; commit: aktarım) — /:id'den ÖNCE */
-router.post('/import', requirePermission('contacts.contact.create'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const parsed = importRequestSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const messages = parsed.error.issues
-        .map((i) => `${i.path.join('.')}: ${i.message}`)
-        .join('; ');
-      throw new AppError('VALIDATION_ERROR', messages);
+router.post(
+  '/import',
+  requirePermission('contacts.contact.create'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = importRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const messages = parsed.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ');
+        throw new AppError('VALIDATION_ERROR', messages);
+      }
+      const { csv, mapping, commit } = parsed.data;
+      if (commit) {
+        const result = await importService.commit(csv, mapping);
+        res.json(result);
+      } else {
+        const result = await importService.dryRun(csv, mapping);
+        res.json(result);
+      }
+    } catch (error) {
+      next(error);
     }
-    const { csv, mapping, commit } = parsed.data;
-    if (commit) {
-      const result = await importService.commit(csv, mapping);
-      res.json(result);
-    } else {
-      const result = await importService.dryRun(csv, mapping);
-      res.json(result);
-    }
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 /** Cari listesi özet sayaçları — /:id'den ÖNCE tanımlanmalı */
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
@@ -111,14 +115,18 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 /** Cari oluştur */
-router.post('/', requirePermission('contacts.contact.create'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.createContact(req.body);
-    res.status(201).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.post(
+  '/',
+  requirePermission('contacts.contact.create'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.createContact(req.body, (req as AuthenticatedRequest).user?.sub);
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Cari ID'ye göre getir */
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
@@ -134,43 +142,66 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 /** Cari güncelle */
-router.patch('/:id', requirePermission('contacts.contact.update'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.updateContact(req.params.id, req.body);
-    if (!result) {
-      throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+router.patch(
+  '/:id',
+  requirePermission('contacts.contact.update'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.updateContact(
+        req.params.id,
+        req.body,
+        (req as AuthenticatedRequest).user?.sub,
+      );
+      if (!result) {
+        throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 /** Cari güncelle (PUT alias for frontend) */
-router.put('/:id', requirePermission('contacts.contact.update'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.updateContact(req.params.id, req.body);
-    if (!result) {
-      throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+router.put(
+  '/:id',
+  requirePermission('contacts.contact.update'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.updateContact(
+        req.params.id,
+        req.body,
+        (req as AuthenticatedRequest).user?.sub,
+      );
+      if (!result) {
+        throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 /** Cari sil — yalnızca `contacts.contact.delete` izni veya owner (P0). */
-router.delete('/:id', requirePermission('contacts.contact.delete'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const deleted = await service.deleteContact(req.params.id);
-    if (!deleted) {
-      throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+router.delete(
+  '/:id',
+  requirePermission('contacts.contact.delete'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const deleted = await service.deleteContact(
+        req.params.id,
+        (req as AuthenticatedRequest).user?.sub,
+      );
+      if (!deleted) {
+        throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+      }
+      res.json({ message: 'Cari başarıyla silindi' });
+    } catch (error) {
+      next(error);
     }
-    res.json({ message: 'Cari başarıyla silindi' });
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 /** Cari detay paketi — bakiye, risk, açık belgeler, yaşlandırma */
 router.get('/:id/summary', async (req: Request, res: Response, next: NextFunction) => {
@@ -199,19 +230,23 @@ router.get('/:id/ledger', async (req: Request, res: Response, next: NextFunction
 });
 
 /** Cari tipi güncelle (müşteri/satıcı) */
-router.patch('/:id/type', requirePermission('contacts.contact.update'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.setContactType(
-      req.params.id,
-      req.body.type as 'customer' | 'supplier',
-    );
-    if (!result) {
-      throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+router.patch(
+  '/:id/type',
+  requirePermission('contacts.contact.update'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.setContactType(
+        req.params.id,
+        req.body.type as 'customer' | 'supplier',
+      );
+      if (!result) {
+        throw new AppError('NOT_FOUND', 'Cari bulunamadı');
+      }
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+  },
+);
 
 export default router;

@@ -175,33 +175,41 @@ describe('ContactService - Unit Tests', () => {
         ],
       }); // getContact
 
-      const result = await service.createContact({
-        code: 'C002',
-        name: 'Yeni Müşteri',
-        type: 'customer',
-        settings: {},
-        addresses: [
-          {
-            is_primary: true,
-            type: 'default',
-            province: 'İstanbul',
-            district: 'Kadıköy',
-            street: 'Test Sk.',
-            zip_code: '34000',
-            parsed: {},
-          },
-        ],
-        phones: [{ is_primary: true, type: 'mobile', number: '+905551234567', parsed: {} }],
-        emails: [
-          { is_primary: true, type: 'default', email: 'test@example.com', validated: false },
-        ],
-        relations: [],
-      });
+      const result = await service.createContact(
+        {
+          code: 'C002',
+          name: 'Yeni Müşteri',
+          type: 'customer',
+          settings: {},
+          addresses: [
+            {
+              is_primary: true,
+              type: 'default',
+              province: 'İstanbul',
+              district: 'Kadıköy',
+              street: 'Test Sk.',
+              zip_code: '34000',
+              parsed: {},
+            },
+          ],
+          phones: [{ is_primary: true, type: 'mobile', number: '+905551234567', parsed: {} }],
+          emails: [
+            { is_primary: true, type: 'default', email: 'test@example.com', validated: false },
+          ],
+          relations: [],
+        },
+        'user-1',
+      );
 
       expect(result).not.toBeNull();
       expect(result!.code).toBe('C002');
       expect(mockClient.query).toHaveBeenCalledWith('BEGIN');
       expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
+      // Denetim izi aynı transaction'da yazılır (ADR-0016, SPEC §27.3)
+      expect(mockClient.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO audit_logs'),
+        expect.any(Array),
+      );
     });
 
     it('should throw CONFLICT if code already exists', async () => {
@@ -230,9 +238,13 @@ describe('ContactService - Unit Tests', () => {
     it('should update contact fields', async () => {
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({ rowCount: 1 }) // existing check
+        .mockResolvedValueOnce({
+          rowCount: 1,
+          rows: [{ id: '1', code: 'C001', name: 'Eski Ad', type: 'customer' }],
+        }) // existing check — denetim izi old_values
         .mockResolvedValueOnce({ rowCount: 0 }) // code check - no conflict (no code change)
         .mockResolvedValueOnce({}) // UPDATE
+        .mockResolvedValueOnce({}) // audit INSERT
         .mockResolvedValueOnce({}); // COMMIT
 
       mockQuery.mockResolvedValueOnce({
@@ -259,10 +271,14 @@ describe('ContactService - Unit Tests', () => {
         ],
       }); // getContact
 
-      const result = await service.updateContact('1', { name: 'Güncellenmiş' });
+      const result = await service.updateContact('1', { name: 'Güncellenmiş' }, 'user-1');
 
       expect(result).not.toBeNull();
       expect(result!.name).toBe('Güncellenmiş');
+      expect(mockClient.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO audit_logs'),
+        expect.any(Array),
+      );
     });
 
     it('should throw CONFLICT if new code exists', async () => {
@@ -289,20 +305,32 @@ describe('ContactService - Unit Tests', () => {
   });
 
   describe('deleteContact', () => {
-    it('should delete contact and return true', async () => {
-      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    it('should delete contact and return true (audit aynı transaction)', async () => {
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: '1', code: 'C001', name: 'ABC Ltd.' }] }) // önceki kayıt
+        .mockResolvedValueOnce({ rowCount: 1 }) // DELETE
+        .mockResolvedValueOnce({}) // audit INSERT
+        .mockResolvedValueOnce({}); // COMMIT
 
-      const result = await service.deleteContact('1');
+      const result = await service.deleteContact('1', 'user-1');
 
       expect(result).toBe(true);
+      expect(mockClient.query).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO audit_logs'),
+        expect.any(Array),
+      );
     });
 
     it('should return false if contact not found', async () => {
-      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] }); // kayıt yok
 
       const result = await service.deleteContact('non-existent');
 
       expect(result).toBe(false);
+      expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
     });
   });
 
@@ -357,9 +385,7 @@ describe('ContactService - Unit Tests', () => {
         .mockResolvedValueOnce({ rows: [{ debit: '1000', credit: '0', total: '3' }] })
         .mockResolvedValueOnce({ rows: [{ opening: '250' }] })
         .mockResolvedValueOnce({
-          rows: [
-            { id: '1', contact_id: '1', type: 'receivable', amount: '1000', currency: 'TRY' },
-          ],
+          rows: [{ id: '1', contact_id: '1', type: 'receivable', amount: '1000', currency: 'TRY' }],
         });
 
       const result = await service.listContactLedger('1', { page: 1, limit: 20 });

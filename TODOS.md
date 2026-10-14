@@ -1,7 +1,7 @@
 # TODOS.md — İlerleme Kaydı
 
 **Amaç:** ROADMAP v5.1.0'a göre ilerlemeyi, tamamlananları ve sıradaki adımları takip etmek.
-**Son güncelleme:** 13 Ekim 2026
+**Son güncelleme:** 14 Ekim 2026
 **Durum:** Faz 0–3 · 5 · 6 · 8 ✅ tamamlandı · **Faz 4 (e-Dönüşüm) 🔄** · **Faz 7 (patron deneyimi/frontend) 🔄** devam
 
 **İlgili dokümanlar:** `docs/ROADMAP.md` · `docs/GOVERNANCE.md` · `docs/TECHNICAL_SPEC.md` · `readme.md`
@@ -254,6 +254,20 @@
 - [x] **§20 Webhook altyapısı**: migration `202610380000_integrations_webhook.sql` — `integrations`, `webhook_events`, `integration_credentials`, `external_mappings` (RLS + index + grant). `modules/integrations/` (service + routes) oluşturuldu; `verifyHmacSignature` (HMAC-SHA256, timing-safe), `recordWebhookEvent` (idempotent UNIQUE), `findMapping`, `createMapping`. `app.ts`'e `/api/v1/integrations` mount edildi. Permission senkronu: `integrations.integration.read/manage`, `integrations.webhook.read/receive`. ✅
 - [x] **§22 Public API**: `GET /api/v1/public/status` eklendi (kimlik gerektirmez, `{status, uptime, version}` döner); mevcut `POST /api/v1/public/contact` korundu. Typecheck + 216/216 test + governance temiz. ✅
 - [x] **§18 WhatsApp (dal further)**: Mesaj gönderme + durum sorgulama + inbox entegrasyonu (mock sağlayıcı eklendi, shared pakete entegre edildi). ✅
+
+### Bu oturumda yapılan düzeltmeler ve tamamlananlar (14 Ekim 2026)
+- [x] **Cari denetim izi (ADR-0016 uyumu)** — `apps/api/src/modules/contacts/service.ts`: `createContact`/`updateContact`/`deleteContact` artık **aynı transaction'da** `audit_logs` yazar (`contacts.create|update|delete`, `user_id`, `old_values`/`new_values`); route'lar `req.user.sub` geçirir. **Canlı kanıt:** create → update → delete sonrası `GET /audit-logs` üç kaydı da döndürdü (tenant RLS ile görünür, yani `tenant_id` doğru bağlandı). `contacts.test.ts` denetim assertion'larıyla güncellendi.
+- [x] **Entitlement tenant bağlamı (güvenlik)** — `check-module`/`check-limit`/`increment-usage` body'sinden zorunlu `tenantId` kaldırıldı; tenant otoritesi JWT (`req.user.tenantId`) + RLS. **Canlı kanıt:** body'de `tenantId` olmadan ikisi de 200 ve yanıt JWT tenant'ını döndürüyor.
+- [x] **Ürün + açılış stoğu içe aktarma (kapanış)** — uçtan uca canlı doğrulandı (3/3 ürün, otomatik "Merkez Depo", `initial_stock` → bakiye 100×8,00=800; açılış stoğu 2 created/2 invalid, üzerine ekleme uyarısı, hareketli ortalama 1,1038 doğru) + **`tests/stock-import.test.ts` (21 test)**.
+- [x] **Route sıra hataları** — `accounting` `GET /:id` tüm statik yolların ardına alındı (6 uç 500 → 200: `entries`, `periods`, `period-locks`, `posting-rules`, `account-mappings`, `next-entry-no`); `entitlement` mount öneki tekrarı kaldırıldı (`/api/v1/entitlements/entitlements` 404 → 200).
+- [x] **Audit-logs listeleme** — `parseQuery` sarmalaması (`{query: req.query}`) + `count`/`select` ayrı parametre listeleri (`prepared statement requires 1` 500'ü giderildi).
+- [x] **RLS erişim migration'ı** — `202610390000_current_tenant_id_public.sql` (+down): `public.current_tenant_id()` wrapper (uygulama şemasız çağırıyor) + `GRANT USAGE ON SCHEMA app` (politikalar `app.current_tenant_id()` kullanıyor). Tüm tenant uçları 500 veriyordu → düzeldi.
+- [x] **Tarayıcı-güvenli paylaşılan kernel** — `packages/shared/src/email/templates.ts` içindeki `process.env.APP_URL` koşullu erişime çevrildi (Vite'ta "process is not defined" tüm SPA'yı düşürüyordu).
+- [x] **A11y/shell** — `#icerik` hedefi `<main>` elementi oldu, skip-link yalnız uygulama kabuğunda; `axe-core` **ihlal yok** (WCAG 2.1 AA).
+- [x] **Doğrulama (bu oturum):** api **322/322 test**, shared 48/48, `typecheck` (api+web+shared), `eslint`, `prettier`, `governance:check` (14 modül / 156 tablo), `test:a11y` — hepsi temiz. Tarayıcı (puppeteer + Chrome): `/login`, `/dashboard`, `/invoices` konsol hatası yok, tüm API çağrıları 2xx.
+- [ ] **Push/CI blokajı** — SSH anahtarı üretildi (`~/.ssh/id_ed25519.pub`); GitHub hesabına eklenip `git push -u origin kuleplus` çalıştırılmalı (CI ilk yeşil koşu Faz 0 kapısı).
+- ⚠ **Bulgu (format:check):** `npm run format:check` 115 dosyada stil uyarısı veriyor — neden Windows CRLF/LF tutarsızlığı (dosyalar CRLF, Prettier `endOfLine` LF bekliyor). CI `format:check` adımı bu nedenle kırmızı başlar. Kalıcı çözüm: `.gitattributes` (`* text=auto eol=lf`) + `git add --renormalize .`; geçici çözüm bu adımı CI'de ayrı ele almak. İçerik hatası değildir (yalnız satır sonu).
+
 
 ## ⚠ Bekleyen Kararlar / Blokajlar
 **Tam liste ve işaretlenebilir karar formu:** `docs/operations/pending-decisions.md`

@@ -1,20 +1,21 @@
 import { z } from 'zod';
 
-/** Modül zorunlu kılma isteği */
+/**
+ * Modül zorunlu kılma isteği.
+ * NOT: `tenantId` body'den ALINMAZ — tenant bağlamı JWT'den (`req.user.tenantId`)
+ * ve RLS'ten gelir (SPEC §5.1/§7); body'de istemek tenant sızıntısı riski taşır.
+ */
 export const requireModuleSchema = z.object({
-  tenantId: z.string().uuid(),
   moduleCode: z.string().min(1),
 });
 
-/** Limit kontrol isteği */
+/** Limit kontrol isteği (tenant bağlamı JWT'den gelir) */
 export const checkLimitSchema = z.object({
-  tenantId: z.string().uuid(),
   limitKey: z.string().min(1),
 });
 
-/** Kullanım artırma isteği */
+/** Kullanım artırma isteği (tenant bağlamı JWT'den gelir) */
 export const incrementUsageSchema = z.object({
-  tenantId: z.string().uuid(),
   limitKey: z.string().min(1),
   periodStart: z.string().datetime().optional(),
 });

@@ -1,6 +1,6 @@
 import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { CreateContactInput, UpdateContactInput } from './schemas.js';
 
 export type ContactRow = {
@@ -204,8 +204,39 @@ export class ContactService {
     };
   }
 
+  /**
+   * Denetim kaydı — yazma işlemiyle AYNI transaction'da (ADR-0016, SPEC §27.3).
+   * tenant_id sunucu tarafında `current_tenant_id()` ile bağlanır (body'den gelmez).
+   */
+  private async writeAudit(
+    client: PoolClient,
+    entry: {
+      userId?: string;
+      action: string;
+      entityId: string;
+      oldValues?: Record<string, unknown> | null;
+      newValues?: Record<string, unknown> | null;
+    },
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, old_values, new_values, created_at)
+       VALUES ($1, current_tenant_id(), $2, $3, 'contacts', $4, $5, $6, now())`,
+      [
+        newId(),
+        entry.userId ?? null,
+        entry.action,
+        entry.entityId,
+        entry.oldValues ? JSON.stringify(entry.oldValues) : null,
+        entry.newValues ? JSON.stringify(entry.newValues) : null,
+      ],
+    );
+  }
+
   /** Yeni cari oluştur */
-  async createContact(data: CreateContactInput): Promise<ContactWithDetails | null> {
+  async createContact(
+    data: CreateContactInput,
+    userId?: string,
+  ): Promise<ContactWithDetails | null> {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
     try {
@@ -318,6 +349,14 @@ export class ContactService {
         );
       }
 
+      // Denetim izi — cari kaydıyla AYNI transaction'da (ADR-0016, SPEC §27.3)
+      await this.writeAudit(client, {
+        userId,
+        action: 'contacts.create',
+        entityId: contactId,
+        newValues: { code: data.code, name: data.name, type: data.type },
+      });
+
       await client.query('COMMIT');
       return this.getContact(contactId);
     } catch (err) {
@@ -329,15 +368,19 @@ export class ContactService {
   }
 
   /** Cari güncelle */
-  async updateContact(id: string, data: UpdateContactInput): Promise<ContactWithDetails | null> {
+  async updateContact(
+    id: string,
+    data: UpdateContactInput,
+    userId?: string,
+  ): Promise<ContactWithDetails | null> {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      // Varolup olmadığını kontrol et
+      // Varolup olmadığını kontrol et (denetim izi için eski değerler de okunur)
       const existing = await client.query(
-        'SELECT id FROM contacts WHERE id = $1 AND tenant_id = current_tenant_id()',
+        'SELECT id, code, name, type FROM contacts WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
       );
       if (existing.rowCount === 0) {
@@ -492,6 +535,29 @@ export class ContactService {
         }
       }
 
+      // Denetim izi — güncellemeyle AYNI transaction'da (ADR-0016, SPEC §27.3).
+      // new_values: yalnız gönderilen skaler alanlar (adres/telefon dizileri hariç).
+      const scalarUpdates: Record<string, unknown> = {};
+      for (const key of [
+        'code',
+        'name',
+        'trade_name',
+        'type',
+        'tax_number',
+        'tax_office',
+        'settings',
+      ] as const) {
+        const value = (data as Record<string, unknown>)[key];
+        if (value !== undefined) scalarUpdates[key] = value;
+      }
+      await this.writeAudit(client, {
+        userId,
+        action: 'contacts.update',
+        entityId: id,
+        oldValues: (existing.rows?.[0] as Record<string, unknown> | undefined) ?? null,
+        newValues: scalarUpdates,
+      });
+
       await client.query('COMMIT');
       return this.getContact(id);
     } catch (err) {
@@ -502,14 +568,37 @@ export class ContactService {
     }
   }
 
-  /** Cari sil (soft delete yerine hard delete - RLS ile güvenli) */
-  async deleteContact(id: string): Promise<boolean> {
+  /** Cari sil (hard delete — RLS ile güvenli) + denetim izi aynı transaction'da (ADR-0016) */
+  async deleteContact(id: string, userId?: string): Promise<boolean> {
     const pool = this.getPoolInstance();
-    const result = await pool.query(
-      'DELETE FROM contacts WHERE id = $1 AND tenant_id = current_tenant_id() RETURNING id',
-      [id],
-    );
-    return (result.rowCount ?? 0) > 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const previous = await client.query<{ id: string; code: string; name: string }>(
+        'SELECT id, code, name FROM contacts WHERE id = $1 AND tenant_id = current_tenant_id()',
+        [id],
+      );
+      if (previous.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      await client.query('DELETE FROM contacts WHERE id = $1 AND tenant_id = current_tenant_id()', [
+        id,
+      ]);
+      await this.writeAudit(client, {
+        userId,
+        action: 'contacts.delete',
+        entityId: id,
+        oldValues: (previous.rows?.[0] as Record<string, unknown> | undefined) ?? null,
+      });
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   /** Cari tipi güncelle (müşteri/satıcı) */
