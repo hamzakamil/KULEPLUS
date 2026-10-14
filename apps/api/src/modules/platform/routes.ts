@@ -174,4 +174,42 @@ router.get('/audit-logs', async (req, res: Response, next: NextFunction) => {
   }
 });
 
+// ===== Gelir Paneli (Faz 4 / SPEC §8.9) =====
+
+/**
+ * Canlı gelir metrikleri (MRR/ARR, plan dağılımı, yeni/ayrılan abonelik) +
+ * günlük snapshot serisi. Kapı: `platform_finance` rolü veya platform_owner.
+ */
+router.get(
+  '/metrics',
+  requirePlatformRole('platform_finance'),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const raw = Number(req.query.days ?? 30);
+      const days = Number.isFinite(raw) ? Math.min(365, Math.max(1, Math.trunc(raw))) : 30;
+      const { getMetricsSummary } = await import('./metrics.service');
+      res.json(await getMetricsSummary(days));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Günlük snapshot'ı hesaplar ve `platform_metrics_daily`'ye yazar (idempotent).
+ * Worker günlük işi eklendiğinde bu uç yeniden hesaplama/doğrulama için kalır.
+ */
+router.post(
+  '/metrics/snapshot',
+  requirePlatformOwner(),
+  async (_req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { computeDailySnapshot } = await import('./metrics.service');
+      res.status(201).json(await computeDailySnapshot());
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 export default router;
