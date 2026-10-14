@@ -135,6 +135,7 @@ const navGroups: {
       // Finansal işlemler — kasa ve banka ayrı ekranlarda yönetilir
       { to: '/cash', label: 'Kasa', module: 'cashbank' },
       { to: '/bank', label: 'Banka', module: 'cashbank' },
+      { to: '/currency', label: 'Döviz Kurları', module: 'cashbank' },
       { to: '/expenses', label: 'Giderler', module: 'trade' },
       { to: '/accounting', label: 'Genel Muhasebe', module: 'accounting' },
       { to: '/cheques', label: 'Çek / Senet', module: 'cheque' },

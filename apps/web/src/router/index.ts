@@ -122,6 +122,12 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/cheques', name: 'cheques', component: ChequeView, meta: { requiresAuth: true } },
   {
+    path: '/currency',
+    name: 'currency',
+    component: () => import('@/views/CurrencyView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/integrations',
     name: 'integrations',
     component: IntegrationsView,

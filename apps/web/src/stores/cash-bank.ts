@@ -114,6 +114,54 @@ export interface PosAccount {
   status: 'active' | 'inactive' | 'closed';
   description?: string | null;
 }
+/** POS hesabı (kredi kartı ile tahsilat için; banka hesabına bağlı). */
+export interface PosAccount {
+  id: string;
+  bankAccountId?: string;
+  bankAccountName?: string;
+  posLabel: string;
+  terminalId?: string | null;
+  merchantNumber?: string | null;
+  commissionRate: number;
+  installmentSupported: boolean;
+  currency: string;
+  status: 'active' | 'inactive' | 'closed';
+  description?: string | null;
+}
+
+/** Döviz kuru satırı — GET /v1/cash-bank/exchange-rates dönüşü. */
+export interface ExchangeRateItem {
+  id: string;
+  rateDate: string;
+  baseCurrency: string;
+  targetCurrency: string;
+  rate: number;
+  source: string;
+  createdAt: string;
+}
+
+/** Her para birimi için en son kur — GET /v1/cash-bank/exchange-rates/latest dönüşü. */
+export interface LatestRateRow {
+  currency: string;
+  rate: number;
+  rateDate: string;
+  source: string;
+}
+
+/** Dönem sonu değerleme satırı — POST /v1/cash-bank/exchange-rates/revalue dönüşü. */
+export interface RevaluationEntry {
+  accountId: string;
+  accountName: string;
+  currency: string;
+  rateDate: string;
+  foreignPosition: number;
+  currentBaseValue: number;
+  newBaseValue: number;
+  diff: number;
+  rateAvailable: boolean;
+}
+
+
 
 export const useCashBankStore = defineStore('cash-bank', () => {
   const accounts = ref<CashBankAccount[]>([]);
@@ -406,6 +454,91 @@ export const useCashBankStore = defineStore('cash-bank', () => {
     posAccounts.value = posAccounts.value.filter((p) => p.id !== id);
   };
 
+  // ================= Döviz Kurları (Faz 6.2) =================
+  const latestRates = ref<LatestRateRow[]>([]);
+  const latestAsOf = ref<string | null>(null);
+  const exchangeRates = ref<ExchangeRateItem[]>([]);
+  const exchangeRatePagination = ref({ page: 1, limit: 20, total: 0, pages: 0 });
+  const revaluationEntries = ref<RevaluationEntry[]>([]);
+  const revaluationTotalDiff = ref(0);
+  const ratesLoading = ref(false);
+  const ratesError = ref<string | null>(null);
+
+  const fetchLatestRates = async () => {
+    ratesLoading.value = true;
+    ratesError.value = null;
+    try {
+      const response = await api.get('/v1/cash-bank/exchange-rates/latest');
+      latestRates.value = response.data.items ?? [];
+      latestAsOf.value = response.data.asOf ?? null;
+    } catch (err) {
+      ratesError.value = errorMessage(err, 'Güncel kurlar yüklenemedi');
+    } finally {
+      ratesLoading.value = false;
+    }
+  };
+
+  const fetchExchangeRates = async (params?: { page?: number; limit?: number }) => {
+    ratesLoading.value = true;
+    ratesError.value = null;
+    try {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.append('page', String(params.page));
+      qs.append('limit', String(params?.limit ?? 20));
+      const response = await api.get(`/v1/cash-bank/exchange-rates?${qs.toString()}`);
+      exchangeRates.value = response.data.items ?? [];
+      exchangeRatePagination.value = {
+        page: response.data.page,
+        limit: response.data.limit,
+        total: response.data.total,
+        pages: response.data.totalPages,
+      };
+    } catch (err) {
+      ratesError.value = errorMessage(err, 'Kur geçmişi yüklenemedi');
+    } finally {
+      ratesLoading.value = false;
+    }
+  };
+
+  const importExchangeRates = async (rateDate?: string) => {
+    ratesLoading.value = true;
+    ratesError.value = null;
+    try {
+      const response = await api.post(
+        '/v1/cash-bank/exchange-rates/import',
+        rateDate ? { rateDate } : {},
+      );
+      await fetchLatestRates();
+      await fetchExchangeRates();
+      return response.data as { count: number; inserted: number; updated: number };
+    } catch (err) {
+      ratesError.value = errorMessage(err, 'Kurlar içe aktarılamadı');
+      throw err;
+    } finally {
+      ratesLoading.value = false;
+    }
+  };
+
+  const runRevaluation = async (valuationDate?: string) => {
+    ratesLoading.value = true;
+    ratesError.value = null;
+    try {
+      const response = await api.post(
+        '/v1/cash-bank/exchange-rates/revalue',
+        valuationDate ? { valuationDate } : {},
+      );
+      revaluationEntries.value = response.data.entries ?? [];
+      revaluationTotalDiff.value = response.data.totalDiff ?? 0;
+      return response.data as { entries: RevaluationEntry[]; totalDiff: number };
+    } catch (err) {
+      ratesError.value = errorMessage(err, 'Değerleme yapılamadı');
+      throw err;
+    } finally {
+      ratesLoading.value = false;
+    }
+  };
+
+
   return {
     accounts,
     currentAccount,
@@ -441,5 +574,18 @@ export const useCashBankStore = defineStore('cash-bank', () => {
     createPosAccount,
     updatePosAccount,
     deletePosAccount,
+    // Döviz kurları (Faz 6.2)
+    latestRates,
+    latestAsOf,
+    exchangeRates,
+    exchangeRatePagination,
+    revaluationEntries,
+    revaluationTotalDiff,
+    ratesLoading,
+    ratesError,
+    fetchLatestRates,
+    fetchExchangeRates,
+    importExchangeRates,
+    runRevaluation,
   };
 });
