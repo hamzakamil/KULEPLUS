@@ -20,6 +20,7 @@ import {
   type AllocationInput,
 } from './schemas';
 import { SubscriptionService, type ResourceSelector } from './service';
+import { createPaymentProvider } from './provider-factory';
 
 const router = Router();
 
@@ -27,7 +28,9 @@ const router = Router();
 // Modül kodu GOVERNANCE §2'ye göre 'subscription' (Faz 4 Hat B).
 router.use(authenticate, tenantContext, requireEntitlement('subscription'));
 
-const service = new SubscriptionService();
+// Ödeme sağlayıcı seçimi (Faz 4 K-08): PAYMENT_PROVIDER=mock|iyzico|manual.
+// Fail-fast: 'iyzico' seçiliyse anahtarlar yoksa import anında hata (Faz 1).
+const service = new SubscriptionService({ paymentProvider: createPaymentProvider() });
 
 // RBAC kapıları (SPEC §6.3) — izin kataloğu shared/permissions.ts'ten senkron olur.
 const canCreate = requirePermission('subscription.subscription.create');
