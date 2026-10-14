@@ -2,6 +2,11 @@
 
 **Durum:** İskelet — Faz 4 öncesi doldurulacak
 
+> **Şema hazırlığı (14 Ekim 2026):** `tenants.is_operator` kolonu + tek-satır kısıtı
+> (`uq_tenants_single_operator`) migration `202610430000_operator_tenant.sql` ile eklendi
+> (SPEC §8.9). İşletmeci şirket bilgileri (VKN/ünvan) netleşince operator tenant satırı
+> oluşturulup `is_operator = TRUE` işaretlenir.
+
 ## İşletmeci Şirket
 - Ünvan: TBD
 - VKN: TBD
