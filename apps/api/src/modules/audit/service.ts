@@ -103,33 +103,41 @@ export class AuditService {
 
     let countSql = `SELECT COUNT(*)::bigint AS total FROM audit_logs a WHERE a.tenant_id = $1`;
     let selectSql = `SELECT a.* FROM audit_logs a WHERE a.tenant_id = $1`;
-    const params: unknown[] = [tenantId];
-    let paramIndex = 2;
+    // count ve select farklı sayıda parametre taşıyabilir (LIMIT/OFFSET yalnız select'te) —
+    // ayrı listeler + ayrı placeholder sayaçları zorunludur; ortak sayaç "prepared statement
+    // requires N" hatasına yol açar.
+    const countParams: unknown[] = [tenantId];
+    const selectParams: unknown[] = [tenantId];
 
     if (query.action) {
-      selectSql += ` AND a.action = $${paramIndex++}`;
-      countSql += ` AND a.action = $${paramIndex++}`;
-      params.push(query.action);
+      countSql += ` AND a.action = $${countParams.length + 1}`;
+      selectSql += ` AND a.action = $${selectParams.length + 1}`;
+      countParams.push(query.action);
+      selectParams.push(query.action);
     }
     if (query.entityType) {
-      selectSql += ` AND a.entity_type = $${paramIndex++}`;
-      countSql += ` AND a.entity_type = $${paramIndex++}`;
-      params.push(query.entityType);
+      countSql += ` AND a.entity_type = $${countParams.length + 1}`;
+      selectSql += ` AND a.entity_type = $${selectParams.length + 1}`;
+      countParams.push(query.entityType);
+      selectParams.push(query.entityType);
     }
     if (query.userId) {
-      selectSql += ` AND a.user_id = $${paramIndex++}`;
-      countSql += ` AND a.user_id = $${paramIndex++}`;
-      params.push(query.userId);
+      countSql += ` AND a.user_id = $${countParams.length + 1}`;
+      selectSql += ` AND a.user_id = $${selectParams.length + 1}`;
+      countParams.push(query.userId);
+      selectParams.push(query.userId);
     }
     if (query.after) {
-      selectSql += ` AND a.created_at >= $${paramIndex++}`;
-      countSql += ` AND a.created_at >= $${paramIndex++}`;
-      params.push(query.after);
+      countSql += ` AND a.created_at >= $${countParams.length + 1}`;
+      selectSql += ` AND a.created_at >= $${selectParams.length + 1}`;
+      countParams.push(query.after);
+      selectParams.push(query.after);
     }
     if (query.before) {
-      selectSql += ` AND a.created_at <= $${paramIndex++}`;
-      countSql += ` AND a.created_at <= $${paramIndex++}`;
-      params.push(query.before);
+      countSql += ` AND a.created_at <= $${countParams.length + 1}`;
+      selectSql += ` AND a.created_at <= $${selectParams.length + 1}`;
+      countParams.push(query.before);
+      selectParams.push(query.before);
     }
 
     const sortColumn = query.sortBy ?? 'created_at';
@@ -137,12 +145,12 @@ export class AuditService {
     if (!['created_at', 'action', 'user_id'].includes(sortColumn)) {
       throw new AppError('VALIDATION_ERROR', `Geçersiz sıralama kolonu: ${sortColumn}`);
     }
-    selectSql += ` ORDER BY ${sortColumn} ${sortOrder} LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
-    params.push(limit, offset);
+    selectSql += ` ORDER BY ${sortColumn} ${sortOrder} LIMIT $${selectParams.length + 1} OFFSET $${selectParams.length + 2}`;
+    selectParams.push(limit, offset);
 
     const [countResult, listResult] = await Promise.all([
-      this.getPoolInstance().query<{ total: string }>(countSql, params.slice(0, paramIndex - 2)),
-      this.getPoolInstance().query<AuditLogRow>(selectSql, params),
+      this.getPoolInstance().query<{ total: string }>(countSql, countParams),
+      this.getPoolInstance().query<AuditLogRow>(selectSql, selectParams),
     ]);
 
     return {

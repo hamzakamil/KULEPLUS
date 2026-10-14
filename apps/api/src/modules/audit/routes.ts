@@ -14,7 +14,7 @@ function parseQuery<T extends Record<string, unknown>>(
   schema: z.ZodSchema<{ query: T }>,
   req: Request,
 ): T {
-  const parsed = schema.safeParse(req.query);
+  const parsed = schema.safeParse({ query: req.query });
   if (!parsed.success) {
     const messages = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new AppError('VALIDATION_ERROR', messages);
