@@ -139,7 +139,7 @@ function exec(sql: string, params: unknown[] = []): { rows: FakeRow[]; rowCount:
     return { rows: [], rowCount: 1 };
   }
   if (/^INSERT INTO audit_logs/i.test(s)) {
-    tables.audit_logs.push({ id: params[0], action: 'company_approved' });
+    tables.audit_logs.push({ id: params[0], action: 'tenant.approved' });
     return { rows: [], rowCount: 1 };
   }
   if (/^INSERT INTO user_sessions/i.test(s)) {

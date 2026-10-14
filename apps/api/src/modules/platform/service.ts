@@ -150,7 +150,7 @@ export class PlatformService {
 
       await client.query(
         `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, new_values, created_at)
-         VALUES ($1, $2, NULL, 'support_access_granted', 'support_access_grant', $3, $4, $5)`,
+         VALUES ($1, $2, NULL, 'support_access_grant.granted', 'support_access_grant', $3, $4, $5)`,
         [newId(), input.tenantId, id, JSON.stringify({ scope: input.scope, expiresAt }), now],
       );
 
@@ -201,7 +201,7 @@ export class PlatformService {
 
     await this.getPoolInstance().query(
       `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, created_at)
-       VALUES ($1, $2, NULL, 'support_access_used', 'support_access_grant', $3, now())`,
+       VALUES ($1, $2, NULL, 'support_access_grant.used', 'support_access_grant', $3, now())`,
       [newId(), tenantId, grant.id],
     );
 
@@ -298,7 +298,7 @@ export async function updateTenantStatus(
   }
   await sharedPool().query(
     `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, new_values, created_at)
-     VALUES ($1, $2, $3, 'tenant_status_changed', 'tenant', $2, $4, now())`,
+     VALUES ($1, $2, $3, 'tenant.status_changed', 'tenant', $2, $4, now())`,
     [newId(), tenantId, actorUserId, JSON.stringify({ status })],
   );
 }

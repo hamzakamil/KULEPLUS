@@ -237,7 +237,7 @@ export class CompanyService {
 
         await client.query(
           `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, new_values, created_at)
-           VALUES ($1, $2, $3, 'company_approved', 'tenant', $2, $4, $5)`,
+           VALUES ($1, $2, $3, 'tenant.approved', 'tenant', $2, $4, $5)`,
           [newId(), tenantId, input.reviewerId, JSON.stringify({ applicationId }), now],
         );
 
