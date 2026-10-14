@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n api,worker -c blue,magenta \"npm run dev --workspace apps/api\" \"npm run dev --workspace apps/worker\"",
+    "dev": "concurrently -n api,worker,web -c blue,magenta,green \"npm run dev --workspace apps/api\" \"npm run dev --workspace apps/worker\" \"npm run dev --workspace apps/web -- --host 127.0.0.1\"",
     "dev:site": "npm run dev --workspace apps/site",
     "build:site": "npm run build --workspace apps/site",
     "preview:site": "npm run preview --workspace apps/site",
