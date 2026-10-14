@@ -23,6 +23,8 @@ export type SubscriptionStatus =
 
 export type OrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 
+export type PaymentMethod = 'card' | 'bank_transfer' | null;
+
 export type BillingPaymentStatus = 'pending' | 'succeeded' | 'failed';
 
 export type InvoiceStatus = 'draft' | 'issued' | 'cancelled';
@@ -46,6 +48,7 @@ export interface CommercialOrder {
   plan_version_id: string;
   amount: string;
   currency: string;
+  payment_method: PaymentMethod;
   status: OrderStatus;
   created_at: string;
   updated_at: string;
@@ -124,6 +127,26 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     }
   }
 
+  /**
+   * Havale/EFT ile ödeme bildirimi — SPEC §8.5 (backend `POST /orders/:id/manual-confirm`).
+   * Bildirim sonrası listeler tazelenir; sipariş `paid` olur, fatura+abonelik+entitlement
+   * aynı transaction'da ilerler (bkz. subscription service `confirmManualPayment`).
+   */
+  async function confirmManualPayment(
+    orderId: string,
+    input: { reference?: string; note?: string },
+  ): Promise<boolean> {
+    error.value = null;
+    try {
+      await api.post(`${BASE}/orders/${orderId}/manual-confirm`, input);
+      await fetchAll();
+      return true;
+    } catch (err) {
+      error.value = errorMessage(err, 'Ödeme onayı iletilemedi');
+      return false;
+    }
+  }
+
   return {
     subscriptions,
     orders,
@@ -134,5 +157,6 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     loading,
     error,
     fetchAll,
+    confirmManualPayment,
   };
 });

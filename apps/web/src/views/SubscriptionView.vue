@@ -143,7 +143,9 @@
                 <th>Sipariş No</th>
                 <th>Tarih</th>
                 <th>Durum</th>
+                <th>Yöntem</th>
                 <th class="num">Tutar</th>
+                <th class="num">İşlem</th>
               </tr>
             </thead>
             <tbody>
@@ -155,7 +157,16 @@
                     {{ orderLabel(ord.status) }}
                   </span>
                 </td>
+                <td>
+                  <span class="muted small">{{ paymentMethodLabel(ord.payment_method) }}</span>
+                </td>
                 <td class="num">{{ fmtMoney(ord.amount, ord.currency) }}</td>
+                <td class="num actions">
+                  <template v-if="ord.status === 'pending'">
+                    <button class="link" @click="openManualConfirm(ord)">Havale ile Ödedim</button>
+                  </template>
+                  <span v-else class="muted small">—</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -163,15 +174,92 @@
         </div>
       </section>
     </template>
+
+    <!-- Havale/EFT manuel onay (SPEC §8.5) -->
+    <div v-if="manualTarget" class="modal-overlay" @click.self="manualTarget = null">
+      <div class="modal modal-md" role="dialog" aria-modal="true">
+        <div class="modal-header">
+          <h2>Havale/EFT Ödeme Bildirimi</h2>
+          <button type="button" class="modal-close" aria-label="Kapat" @click="manualTarget = null">
+            ×
+          </button>
+        </div>
+        <div class="modal-body">
+          <p class="strong">{{ manualTarget.order_no }}</p>
+          <p class="muted small">
+            {{ fmtMoney(manualTarget.amount, manualTarget.currency) }} tutarındaki havaleyi
+            yaptığınızı bildirin; yöneticiniz onayladığında fatura kesilir ve abonelik etkinleşir.
+          </p>
+          <div class="field">
+            <label for="mc-reference">Referans / Dekont No (opsiyonel)</label>
+            <input
+              id="mc-reference"
+              v-model="manualReference"
+              class="input"
+              maxlength="120"
+              placeholder="IBAN son 4, dekont no vb."
+            />
+          </div>
+          <div class="field">
+            <label for="mc-note">Not (opsiyonel)</label>
+            <textarea id="mc-note" v-model="manualNote" class="input" rows="2" maxlength="500" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" @click="manualTarget = null">
+            Vazgeç
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="manualSaving"
+            @click="submitManualConfirm"
+          >
+            {{ manualSaving ? 'Gönderiliyor…' : 'Ödeme Bildir' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { useSubscriptionStore } from '@/stores/subscription';
+import { onMounted, ref } from 'vue';
+import { useSubscriptionStore, type CommercialOrder } from '@/stores/subscription';
 
 const store = useSubscriptionStore();
 onMounted(() => store.fetchAll());
+
+/** Havale/EFT manuel onay modalı (SPEC §8.5). */
+const manualTarget = ref<CommercialOrder | null>(null);
+const manualReference = ref('');
+const manualNote = ref('');
+const manualSaving = ref(false);
+
+function openManualConfirm(order: CommercialOrder): void {
+  manualTarget.value = order;
+  manualReference.value = '';
+  manualNote.value = '';
+}
+
+async function submitManualConfirm(): Promise<void> {
+  if (!manualTarget.value) return;
+  manualSaving.value = true;
+  const ok = await store.confirmManualPayment(manualTarget.value.id, {
+    reference: manualReference.value.trim() || undefined,
+    note: manualNote.value.trim() || undefined,
+  });
+  manualSaving.value = false;
+  if (ok) manualTarget.value = null;
+}
+
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  card: 'Kredi Kartı',
+  bank_transfer: 'Havale/EFT',
+};
+
+const paymentMethodLabel = (m: string | null | undefined): string =>
+  m ? (PAYMENT_METHOD_LABEL[m] ?? m) : '—';
 
 const fmtDate = (v: string | null): string => (v ? new Date(v).toLocaleDateString('tr-TR') : '—');
 
