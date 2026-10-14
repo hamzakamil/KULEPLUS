@@ -105,17 +105,31 @@ export class TenantAwarePool extends pg.Pool {
 
 /**
  * PostgreSQL connection pool — SPEC §7.
- * Tek bir pool instance (singleton pattern) kullanılır.
+ *
+ * Rol bazlı havuzlar: `app` (app_user — RLS'e TABİ), `migrator` (app_migrator —
+ * tablo sahibi; RLS politikalarını baypas eder), `platform` (app_platform).
+ *
+ * ÖNEMLİ (düzeltme): önceden tek bir singleton havuz tutuluyordu ve `role`
+ * parametresi yalnızca İLK çağrıda etkiliydi — bu yüzden `getPool('migrator')`
+ * çağrıları pratikte app_user havuzunu döndürüyor, RLS'e takılıyordu (ör. platform
+ * gelir metrikleri 0 çıkıyordu). Artık her rol kendi havuzunu alır;
+ * `getPool('app')` davranışı değişmez.
  */
-let pool: TenantAwarePool | null = null;
+export type PoolRole = 'app' | 'migrator' | 'platform';
+
+const pools: Partial<Record<PoolRole, TenantAwarePool>> = {};
+
+/** Rol başına maksimum bağlantı: uygulama trafiği geniş, yönetim işleri dar. */
+const POOL_MAX: Record<PoolRole, number> = { app: 20, migrator: 5, platform: 5 };
 
 /**
  * Pool örneğini döndürür; yoksa oluşturur.
  * Bağlantı string'i: postgresql://user:pass@host:port/db
  * ENV: DATABASE_URL (app_user), DATABASE_MIGRATOR_URL (app_migrator), DATABASE_PLATFORM_URL (app_platform)
  */
-export function getPool(role: 'app' | 'migrator' | 'platform' = 'app'): pg.Pool {
-  if (pool) return pool;
+export function getPool(role: PoolRole = 'app'): pg.Pool {
+  const existing = pools[role];
+  if (existing) return existing;
 
   const envKey = {
     app: 'DATABASE_URL',
@@ -128,28 +142,32 @@ export function getPool(role: 'app' | 'migrator' | 'platform' = 'app'): pg.Pool 
     throw new Error(`${envKey} environment variable not set`);
   }
 
-  pool = new TenantAwarePool({
+  const created = new TenantAwarePool({
     connectionString,
-    max: 20,
+    max: POOL_MAX[role],
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   });
 
-  pool.on('error', (err) => {
-    console.error('Unexpected pg pool error', err);
+  created.on('error', (err) => {
+    console.error(`Unexpected pg pool error (${role})`, err);
   });
 
-  return pool;
+  pools[role] = created;
+  return created;
 }
 
 /**
- * Mevcut pool'u kapatır (graceful shutdown).
+ * Tüm havuzları kapatır (graceful shutdown).
  */
 export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
+  const roles = Object.keys(pools) as PoolRole[];
+  const instances = roles
+    .map((role) => pools[role])
+    .filter((instance): instance is TenantAwarePool => Boolean(instance));
+
+  await Promise.all(instances.map((instance) => instance.end()));
+  for (const role of roles) delete pools[role];
 }
 
 export { pg };
