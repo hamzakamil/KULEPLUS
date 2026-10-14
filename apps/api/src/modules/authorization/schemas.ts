@@ -13,7 +13,10 @@ export const acceptInvitationSchema = z.object({
   body: z
     .object({
       token: z.string().min(1, 'Davet tokenı zorunludur'),
-      password: z.string().min(8, 'Şifre en az 8 karakter olmalıdır'),
+      password: z
+        .string()
+        .min(6, 'Şifre en az 6 karakter olmalıdır')
+        .max(8, 'Şifre en fazla 8 karakter olmalıdır'),
       passwordConfirm: z.string(),
     })
     .refine((data) => data.password === data.passwordConfirm, {

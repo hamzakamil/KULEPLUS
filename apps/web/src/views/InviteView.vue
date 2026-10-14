@@ -62,7 +62,8 @@ async function accept() {
           v-model="password"
           type="password"
           autocomplete="new-password"
-          minlength="8"
+          minlength="6"
+          maxlength="8"
           required
         />
         <label for="invite-password-confirm">Şifre (tekrar)</label>
@@ -71,7 +72,8 @@ async function accept() {
           v-model="passwordConfirm"
           type="password"
           autocomplete="new-password"
-          minlength="8"
+          minlength="6"
+          maxlength="8"
           required
         />
         <button class="btn btn-primary" type="submit" :disabled="busy">

@@ -42,7 +42,7 @@
                 v-model="password"
                 :type="showPassword ? 'text' : 'password'"
                 required
-                minlength="12"
+                minlength="6"
                 class="input"
                 autocomplete="current-password"
                 placeholder="••••••••••••"

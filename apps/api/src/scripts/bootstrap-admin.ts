@@ -29,8 +29,8 @@ async function main() {
   if (!emailArg.includes('@') || emailArg.length < 5) {
     throw new Error('Geçerli bir e-posta adresi girin');
   }
-  if (passwordArg.length < 12) {
-    throw new Error('Parola en az 12 karakter olmalıdır');
+  if (passwordArg.length < 6 || passwordArg.length > 8) {
+    throw new Error('Parola 6 ile 8 karakter arasında olmalıdır');
   }
 
   const pool = getPool('app');

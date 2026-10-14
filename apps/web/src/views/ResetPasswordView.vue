@@ -97,7 +97,8 @@ async function setNewPassword() {
           v-model="password"
           type="password"
           autocomplete="new-password"
-          minlength="8"
+          minlength="6"
+          maxlength="8"
           required
         />
         <label for="new-password-confirm">Yeni şifre (tekrar)</label>
@@ -106,7 +107,8 @@ async function setNewPassword() {
           v-model="passwordConfirm"
           type="password"
           autocomplete="new-password"
-          minlength="8"
+          minlength="6"
+          maxlength="8"
           required
         />
         <button class="btn btn-primary" type="submit" :disabled="busy">

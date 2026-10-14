@@ -3,7 +3,7 @@ import { z } from 'zod';
 /** Kayıt isteği */
 export const registerSchema = z.object({
   email: z.string().email('Geçersiz e-posta'),
-  password: z.string().min(12, 'Parola en az 12 karakter').max(128),
+  password: z.string().min(6, 'Parola en az 6 karakter olmalıdır').max(8, 'Parola en fazla 8 karakter olmalıdır'),
   name: z.string().min(2).max(100),
   companyName: z.string().min(2).max(200).optional(),
   startingModule: z.enum(['contacts', 'stock']).optional(),
@@ -30,13 +30,13 @@ export const passwordResetRequestSchema = z.object({
 /** Şifre sıfırlama onayı */
 export const passwordResetConfirmSchema = z.object({
   token: z.string().min(32),
-  password: z.string().min(12).max(128),
+  password: z.string().min(6, 'Parola en az 6 karakter olmalıdır').max(8, 'Parola en fazla 8 karakter olmalıdır'),
 });
 
 /** Parola değiştirme (oturumlu kullanıcı) */
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Mevcut parola gerekli'),
-  newPassword: z.string().min(12, 'Yeni parola en az 12 karakter').max(128),
+  newPassword: z.string().min(6, 'Yeni parola en az 6 karakter olmalıdır').max(8, 'Yeni parola en fazla 8 karakter olmalıdır'),
 });
 
 /** 2FA kurulum yanıtı */
