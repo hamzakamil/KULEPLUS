@@ -5,6 +5,7 @@ import {
   latestRates,
   importRates,
   revalueForeignBalances,
+  bookRevaluationJournal,
   getRate,
   getLatestRate,
   calculateRateDifference,
@@ -257,5 +258,118 @@ describe('getRate / getLatestRate / calculateRateDifference (API sarmalayıcıla
     const out = await calculateRateDifference('t1', 'USD', '2026-10-01', '2026-10-14');
     expect(out).not.toBeNull();
     expect(out!.diffPercent).toBeCloseTo(5, 6);
+  });
+});
+
+describe('bookRevaluationJournal', () => {
+  it('değerlemeyi hesaplar ve 645/655 + kasa/banka hesaplarına dengeli kapanış fişi yazar', async () => {
+    sharedMockQuery.mockImplementation((sql: string, params: unknown[]) => {
+      const s = String(sql);
+      if (s.includes('FROM cash_bank_accounts')) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'a1',
+              account_name: 'Dolar Kasası',
+              currency: 'USD',
+              account_type: 'cash',
+              opening_balance: '100',
+              balance: '3500',
+            },
+          ],
+        });
+      }
+      if (s.includes('SUM(CASE WHEN movement_type')) {
+        return Promise.resolve({ rows: [{ net: '20' }] });
+      }
+      if (s.includes('ORDER BY rate_date DESC')) {
+        return Promise.resolve({ rows: [{ rate: '0.027', rate_date: '2026-10-14' }] });
+      }
+      // Mevcut fiş kontrolü (idempotans) — ilk çağrıda boş.
+      if (s.includes('FROM journal_entries') && s.includes('source_type')) {
+        return Promise.resolve({ rows: [] });
+      }
+      // TDHP zaten seed edilmiş (ensureChartOfAccountsOn hiçbir şey yapmaz).
+      if (s.includes('COUNT(*) AS total') && s.includes('accounting_accounts')) {
+        return Promise.resolve({ rows: [{ total: '1' }] });
+      }
+      // Varsayılan hesap eşlemesi yok → TDHP fallback koduna düşer (resolveAccountByCodeLocal).
+      if (s.includes('FROM account_mappings am')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (s.includes('FROM accounting_accounts') && s.includes('code = $1')) {
+        const code = String(params?.[0] ?? '');
+        const ids: Record<string, string> = {
+          '645': 'acct-645',
+          '655': 'acct-655',
+          '100': 'acct-cash',
+          '102': 'acct-bank',
+        };
+        return ids[code] ? Promise.resolve({ rows: [{ id: ids[code] }] }) : Promise.resolve({ rows: [] });
+      }
+      if (s.includes('MAX(entry_no)')) {
+        return Promise.resolve({ rows: [{ next_no: '1' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const out = await bookRevaluationJournal('t1', '2026-10-31', 'u1');
+
+    // Rapor tarafı: pozisyon 100+20=120 USD, yeni TL = 120/0.027 ≈ 4444.44 → lehte fark.
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0].accountType).toBe('cash');
+    const absDiff = Math.round(Math.abs(120 / 0.027 - 3500) * 100) / 100;
+    expect(absDiff).toBeGreaterThan(0);
+    expect(out.totalDiff).toBeGreaterThan(0);
+    expect(out.booked).toBe(true);
+    expect(out.entryNo).toBe(1);
+    expect(out.journalEntryId).toBeTruthy();
+
+    const calls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
+    const entryInsert = calls.find((c) => c.startsWith('INSERT INTO journal_entries'));
+    expect(entryInsert).toBeDefined();
+    expect(entryInsert).toContain("'revaluation'");
+    expect(entryInsert).toContain("'mahsup'");
+    expect(entryInsert).toContain("'posted'");
+    // Dengeli fiş: her döviz hesabı için 2 satır (kasa/banka + 645).
+    expect(calls.filter((c) => c.startsWith('INSERT INTO journal_lines'))).toHaveLength(2);
+    expect(calls.some((c) => c.startsWith('INSERT INTO audit_logs'))).toBe(true);
+  });
+
+  it('aynı değerleme tarihi için mevcut fişi yeniden kullanır (idempotent)', async () => {
+    sharedMockQuery.mockImplementation((sql: string) => {
+      const s = String(sql);
+      if (s.includes('FROM cash_bank_accounts')) {
+        return Promise.resolve({
+          rows: [
+            { id: 'a1', account_name: 'Dolar Kasası', currency: 'USD', account_type: 'cash', opening_balance: '100', balance: '3500' },
+          ],
+        });
+      }
+      if (s.includes('SUM(CASE WHEN movement_type')) {
+        return Promise.resolve({ rows: [{ net: '20' }] });
+      }
+      if (s.includes('ORDER BY rate_date DESC')) {
+        return Promise.resolve({ rows: [{ rate: '0.027', rate_date: '2026-10-14' }] });
+      }
+      if (s.includes('FROM journal_entries') && s.includes('source_type')) {
+        return Promise.resolve({ rows: [{ id: 'existing-entry' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const out = await bookRevaluationJournal('t1', '2026-10-31', 'u1');
+
+    expect(out.booked).toBe(false);
+    expect(out.journalEntryId).toBe('existing-entry');
+    const calls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
+    expect(calls.some((c) => c.startsWith('INSERT INTO journal_entries'))).toBe(false);
+  });
+
+  it('dövizli hesap yoksa fiş üretmez', async () => {
+    const out = await bookRevaluationJournal('t1', '2026-10-31', 'u1');
+    expect(out.entries).toEqual([]);
+    expect(out.booked).toBe(false);
+    expect(out.journalEntryId).toBeNull();
   });
 });

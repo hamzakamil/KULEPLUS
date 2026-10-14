@@ -9,6 +9,7 @@ import {
   latestRates,
   importRates,
   revalueForeignBalances,
+  bookRevaluationJournal,
   type ExchangeRateListQuery,
 } from './currency.service';
 
@@ -91,6 +92,25 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const result = await revalueForeignBalances(
+        (req as TenantRequest).tenantId,
+        req.body.valuationDate ?? todayIso(),
+        (req as TenantRequest).user!.sub,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Dönem sonu değerleme + KAPANIŞ FİŞİ (Faz 6.6): raporun yanı sıra 645/655'e
+// dengeli `mahsup` yevmiye fişi yazar; aynı tarih için idempotenttir.
+router.post(
+  '/revalue/book',
+  validate(RevalueSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await bookRevaluationJournal(
         (req as TenantRequest).tenantId,
         req.body.valuationDate ?? todayIso(),
         (req as TenantRequest).user!.sub,

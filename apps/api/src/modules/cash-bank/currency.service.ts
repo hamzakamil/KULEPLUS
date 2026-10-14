@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { getPool } from '@kuleplus/db';
-import { AppError } from '@kuleplus/shared';
+import { AppError, newId } from '@kuleplus/shared';
+import { ensureChartOfAccountsOn } from '../accounting/chart.js';
 import {
   upsertRates as sharedUpsertRates,
   getRate as sharedGetRate,
@@ -227,6 +229,7 @@ export interface ExchangeRevaluationRow {
   accountId: string;
   accountName: string;
   currency: string;
+  accountType: string;
   rateDate: string;
   foreignPosition: number;
   currentBaseValue: number;
@@ -235,30 +238,32 @@ export interface ExchangeRevaluationRow {
   rateAvailable: boolean;
 }
 
-/** Dönem sonu değerleme: dövizli kasa/banka bakiyelerinin son kura göre TL karşılığı + kur farkı raporu. */
-export async function revalueForeignBalances(
-  tenantId: string,
-  valuationDate: string,
-  _userId: string,
-): Promise<{
-  entries: ExchangeRevaluationRow[];
-  totalDiff: number;
-}> {
+/** Havuzdan bağlantı alıp tenant bağlamını kurar (ortak yardımcı). */
+async function connectAsTenant(tenantId: string): Promise<import('pg').PoolClient> {
   const pool = getPool('app');
   const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+  await client.query('BEGIN');
+  await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
+  return client;
+}
 
+/** Değerleme satırlarını hesaplar; yazma yapmaz (rapor ve fiş üretiminin ortak girdisi). */
+async function collectRevaluationLines(
+  tenantId: string,
+  valuationDate: string,
+): Promise<{ entries: ExchangeRevaluationRow[]; totalDiff: number }> {
+  const client = await connectAsTenant(tenantId);
+  try {
     // Dövizli kasa/banka hesaplarını bul (currency <> 'TRY')
     const accounts = await client.query<{
       id: string;
       account_name: string;
       currency: string;
+      account_type: string;
       opening_balance: string;
       balance: string;
     }>(
-      `SELECT id, account_name, currency, opening_balance, balance FROM cash_bank_accounts
+      `SELECT id, account_name, currency, account_type, opening_balance, balance FROM cash_bank_accounts
         WHERE tenant_id = current_tenant_id() AND currency <> 'TRY' AND status = 'active'`,
     );
 
@@ -290,6 +295,7 @@ export async function revalueForeignBalances(
         accountId: acc.id,
         accountName: acc.account_name,
         currency: acc.currency,
+        accountType: acc.account_type,
         rateDate: latestRate?.date ?? valuationDate,
         ...valuation,
       });
@@ -298,6 +304,220 @@ export async function revalueForeignBalances(
 
     await client.query('COMMIT');
     return { entries, totalDiff };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Dönem sonu değerleme: dövizli kasa/banka bakiyelerinin son kura göre TL karşılığı + kur farkı raporu. */
+export async function revalueForeignBalances(
+  tenantId: string,
+  valuationDate: string,
+  _userId: string,
+): Promise<{
+  entries: ExchangeRevaluationRow[];
+  totalDiff: number;
+}> {
+  return collectRevaluationLines(tenantId, valuationDate);
+}
+
+// ===== Dönem sonu değerleme FİŞİ (kapanış kaydı) — Faz 6.6 =====
+
+/** Aynı seed için her zaman aynı UUID üretir (idempotans — ADR-0017). */
+function deterministicUuid(seed: string): string {
+  const hash = createHash('md5').update(seed).digest();
+  hash[6] = (hash[6] & 0x0f) | 0x50; // version 5
+  hash[8] = (hash[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const h = hash.toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Hesap planında kod ile hesap çözer (tenant planı; yoksa null). */
+async function resolveAccountByCodeLocal(
+  client: import('pg').PoolClient,
+  code: string,
+): Promise<string | null> {
+  const r = await client.query<{ id: string }>(
+    `SELECT id FROM accounting_accounts
+      WHERE tenant_id = current_tenant_id() AND code = $1 LIMIT 1`,
+    [code],
+  );
+  return r.rows[0]?.id ?? null;
+}
+
+/**
+ * Kasa/banka hesap türü için TL karşılık muhasebe hesabı.
+ * Tahsilat/ödeme fişlerindeki `account_mappings` ('cash'/'bank') → TDHP fallback.
+ */
+async function resolveCashBankAccountForType(
+  client: import('pg').PoolClient,
+  accountType: string,
+): Promise<string | null> {
+  const sourceType = accountType === 'bank' ? 'bank' : 'cash';
+  const fallbackCode = accountType === 'bank' ? '102' : '100';
+  const mapped = await client.query<{ id: string }>(
+    `SELECT aa.id
+       FROM account_mappings am
+       JOIN accounting_accounts aa ON aa.id = am.account_id AND aa.tenant_id = am.tenant_id
+      WHERE am.tenant_id = current_tenant_id() AND am.source_type = $1
+      LIMIT 1`,
+    [sourceType],
+  );
+  if (mapped.rows.length > 0) return mapped.rows[0].id;
+  return resolveAccountByCodeLocal(client, fallbackCode);
+}
+
+export interface RevaluationJournalResult {
+  entries: ExchangeRevaluationRow[];
+  totalDiff: number;
+  /** Yazılan/var olan fişin id'si; fiş üretilemediyse null. */
+  journalEntryId: string | null;
+  /** Bu çağrıda yeni fiş mi yazıldı, yoksa önceki fiş mi kullanıldı? */
+  booked: boolean;
+  entryNo?: number;
+}
+
+/**
+ * Dönem sonu değerleme + KAPANIŞ FİŞİ üretir (idempotent — ADR-0017).
+ *
+ * Değerlemeyi `revalueForeignBalances` ile aynı kurallarla hesaplar; fark
+ * 645 (kambiyo kârı) / 655 (kambiyo zararı) hesaplarına karşılık, kasa/banka
+ * TL karşılık hesabı (account_mappings | 100/102) ile dengeli bir `mahsup`
+ * yevmiye fişi olarak `posted` statüsünde yazar.
+ *
+ * Aynı değerleme tarihi için ikinci çalıştırma yeni fiş yazmaz
+ * (deterministik source_id + `idx_journal_entries_revaluation_once`).
+ * Fark eşiği: mutlak değeri 0.005 TL'nin altındaki hesaplar fişe yazılmaz.
+ */
+export async function bookRevaluationJournal(
+  tenantId: string,
+  valuationDate: string,
+  userId: string,
+): Promise<RevaluationJournalResult> {
+  const report = await collectRevaluationLines(tenantId, valuationDate);
+  if (report.entries.length === 0) {
+    return { entries: [], totalDiff: 0, journalEntryId: null, booked: false };
+  }
+
+  const client = await connectAsTenant(tenantId);
+  try {
+    // Idempotans: aynı değerleme tarihi için fiş varsa yeni fiş yazma.
+    const sourceId = deterministicUuid(`${tenantId}:${valuationDate}`);
+    const existing = await client.query<{ id: string }>(
+      `SELECT id FROM journal_entries
+        WHERE tenant_id = current_tenant_id()
+          AND source_type = 'revaluation' AND source_id = $1
+        LIMIT 1`,
+      [sourceId],
+    );
+    if (existing.rows.length > 0) {
+      await client.query('COMMIT');
+      return {
+        entries: report.entries,
+        totalDiff: report.totalDiff,
+        journalEntryId: existing.rows[0].id,
+        booked: false,
+      };
+    }
+
+    // Fiş için gereken hesaplar — TDHP şablonu gerekirse bootstrap edilir.
+    await ensureChartOfAccountsOn(client);
+    const gainAccount = await resolveAccountByCodeLocal(client, '645');
+    const lossAccount = await resolveAccountByCodeLocal(client, '655');
+
+    // Satırları topla: hesap başına denge (borç = alacak, |fark|).
+    type Line = { accountId: string; debit: number; credit: number };
+    const lines: Line[] = [];
+    for (const e of report.entries) {
+      if (!e.rateAvailable) continue;
+      const absDiff = round2(Math.abs(e.diff));
+      if (absDiff < 0.005) continue;
+      const fxAccountId = e.diff > 0 ? gainAccount : lossAccount;
+      const cashAccountId = await resolveCashBankAccountForType(client, e.accountType);
+      if (!fxAccountId || !cashAccountId) continue;
+      if (e.diff > 0) {
+        // Varlık artışı: Borç kasa/banka, Alacak 645 (kambiyo kârı).
+        lines.push({ accountId: cashAccountId, debit: absDiff, credit: 0 });
+        lines.push({ accountId: fxAccountId, debit: 0, credit: absDiff });
+      } else {
+        // Varlık azalışı: Borç 655 (kambiyo zararı), Alacak kasa/banka.
+        lines.push({ accountId: fxAccountId, debit: absDiff, credit: 0 });
+        lines.push({ accountId: cashAccountId, debit: 0, credit: absDiff });
+      }
+    }
+
+    const totalDebit = round2(lines.reduce((s, l) => s + l.debit, 0));
+    const totalCredit = round2(lines.reduce((s, l) => s + l.credit, 0));
+    if (lines.length === 0 || Math.abs(totalDebit - totalCredit) >= 0.005) {
+      await client.query('COMMIT');
+      return {
+        entries: report.entries,
+        totalDiff: report.totalDiff,
+        journalEntryId: null,
+        booked: false,
+      };
+    }
+
+    // Gap-free fiş numarası (aynı tenant içinde eşzamanlılık kilidinde — SPEC §12.3).
+    await client.query('SELECT pg_advisory_xact_lock(hashtext(current_setting($1)))', [
+      'app.tenant_id',
+    ]);
+    const seq = await client.query<{ next_no: string }>(
+      `SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries
+        WHERE tenant_id = current_tenant_id()`,
+    );
+    const entryNo = Number(seq.rows[0].next_no);
+    const entryId = newId();
+    const description = `Dönem sonu kur değerleme ${valuationDate} (${report.entries.length} döviz hesap)`;
+
+    await client.query(
+      `INSERT INTO journal_entries
+         (id, tenant_id, entry_no, entry_date, entry_type, status, description,
+          source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
+       VALUES ($1, current_tenant_id(), $2, $3, 'mahsup', 'posted', $4, 'revaluation', $5, $6, $6, $7, now(), $7, $7)`,
+      [entryId, entryNo, valuationDate, description, sourceId, totalDebit, userId],
+    );
+
+    let lineNo = 1;
+    for (const l of lines) {
+      await client.query(
+        `INSERT INTO journal_lines
+           (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
+         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
+        [newId(), entryId, lineNo, l.accountId, description, l.debit, l.credit, userId],
+      );
+      lineNo++;
+    }
+
+    // ADR-0016: denetim izi — fiş aynı transaction'da kaydedilir.
+    await client.query(
+      `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, new_values, created_at)
+       VALUES ($1, current_tenant_id(), $2, 'post', 'revaluation', $3, $4, now())`,
+      [
+        newId(),
+        userId,
+        entryId,
+        JSON.stringify({
+          valuation_date: valuationDate,
+          total_diff: report.totalDiff,
+          entry_no: entryNo,
+        }),
+      ],
+    );
+
+    await client.query('COMMIT');
+    return {
+      entries: report.entries,
+      totalDiff: report.totalDiff,
+      journalEntryId: entryId,
+      booked: true,
+      entryNo,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

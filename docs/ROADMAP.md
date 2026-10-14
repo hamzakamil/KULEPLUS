@@ -29,6 +29,7 @@
 | 14 | §8.1 Sürüm Aşamaları'na **preview environment** notu eklendi. | B14 |
 | 15 | Yeni dosya referansları: `docs/product/import-templates/`, `docs/legal/`, `docs/operations/incident-runbook.md`. | B17, B22, B25 |
 | 16 | Faz 6 döviz / çoklu para birimi **backend** tamamlandı: faturalarda otomatik kur çözümü (tarih bazlı → en güncel TCMB kuru), `invoices.rate_date` + `base_total` kolonları (202610450000), otomatik muhasebeleştirmede TRY karşılık (base) kullanımı. UI iş akışı açık (Faz 6). | Faz 6, SPEC §9.2 |
+| 17 | Faz 6.2 **dönem sonu değerleme → kapanış fişi** tamamlandı: `POST /exchange-rates/revalue/book` (202610460000) değerlemeyi hesaplar ve 645/655 + kasa/banka TL karşılığına dengeli `mahsup` yevmiye fişi yazar; deterministik source_id + unique index ile aynı tarih için idempotent (ADR-0017). Web UI'a "Kapanış Fişi Oluştur" eklendi. | Faz 6, SPEC §9.2 |
 
 ### v5.0.0'da Ne Değişti?
 
@@ -766,7 +767,7 @@ Muhasebe derinliğini tamamlayıp üst pakete değer katmak.
 
 İş Listesi
 □ Çek / Senet (cheque): cheques, cheque_transactions, cheque_portfolio — portföy, ciro, tahsil, karşılıksız, vade takvimi, durum geçmişi + muhasebe kaydı.
-□ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2) ✅ backend + ✅ Web UI (Kasa/Banka altında "Döviz Kurları" ekranı: TCMB'den içe aktar, güncel kurlar, kur geçmişi, dönem sonu değerleme raporu) + dönem sonu değerleme (revalue) ✅ backend + ⏳ değerleme sonucunun 645/655 hesabına kapanış fişine dönüştürülmesi (revalue şu an rapor; fiş üretimi) + tahsilat/ödeme anı kur farkı ✅ backend (bakınız Faz 6.6).
+□ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2) ✅ backend + ✅ Web UI (Kasa/Banka altında "Döviz Kurları" ekranı: TCMB'den içe aktar, güncel kurlar, kur geçmişi, dönem sonu değerleme raporu) + dönem sonu değerleme (revalue) ✅ backend + ✅ değerleme → kapanış fişi (202610460000 + POST /exchange-rates/revalue/book: 645 kambiyo kârı / 655 kambiyo zararı + kasa/banka TL karşılığına dengeli `mahsup` yevmiye fişi; aynı tarih için idempotent) + tahsilat/ödeme anı kur farkı ✅ backend (bakınız Faz 6.6).
 □ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur ✅ backend (202610450000: `invoices.rate_date` + `base_total`) + ✅ Web UI (fatura formunda kur/kur tarihi alanları — boş bırakılınca tarihe göre otomatik TCMB kuru; liste ve detayda TRY karşılık görünümü). Kur farkı muhasebeleştirme ✅ backend (202610450001: addPayment ödeme günü kuruyla TRY karşılık; fatura kuru ile fark 645 "kambiyo kârı" / 655 "kambiyo zararı" hesabına tahsilat/ödeme fişinde yazılır; ödemenin kuru + TRY karşılığı invoice_payments'ta kalıcı).
 □ KDV hazırlık raporu (hesaplanan/indirilecek/devreden, tevkifat, istisna) + belge–defter mutabakatı.
 □ Ba-Bs raporu, cari mutabakat mektubu.

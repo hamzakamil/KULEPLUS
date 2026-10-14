@@ -153,6 +153,7 @@ export interface RevaluationEntry {
   accountId: string;
   accountName: string;
   currency: string;
+  accountType?: string;
   rateDate: string;
   foreignPosition: number;
   currentBaseValue: number;
@@ -460,6 +461,9 @@ export const useCashBankStore = defineStore('cash-bank', () => {
   const exchangeRates = ref<ExchangeRateItem[]>([]);
   const exchangeRatePagination = ref({ page: 1, limit: 20, total: 0, pages: 0 });
   const revaluationEntries = ref<RevaluationEntry[]>([]);
+/** Dönem sonu değerleme kapanış fişi (book edildiyse) — Faz 6.6. */
+const revaluationJournalId = ref<string | null>(null);
+const revaluationJournalNo = ref<number | null>(null);
   const revaluationTotalDiff = ref(0);
   const ratesLoading = ref(false);
   const ratesError = ref<string | null>(null);
@@ -538,6 +542,38 @@ export const useCashBankStore = defineStore('cash-bank', () => {
     }
   };
 
+  /**
+   * Dönem sonu değerleme + KAPANIŞ FİŞİ (Faz 6.6).
+   * POST /v1/cash-bank/exchange-rates/revalue/book — 645/655 hesabına dengeli
+   * `mahsup` yevmiye fişi yazar; aynı tarih için idempotenttir.
+   */
+  const bookRevaluation = async (valuationDate?: string) => {
+    ratesLoading.value = true;
+    ratesError.value = null;
+    try {
+      const response = await api.post(
+        '/v1/cash-bank/exchange-rates/revalue/book',
+        valuationDate ? { valuationDate } : {},
+      );
+      revaluationEntries.value = response.data.entries ?? [];
+      revaluationTotalDiff.value = response.data.totalDiff ?? 0;
+      revaluationJournalId.value = response.data.journalEntryId ?? null;
+      revaluationJournalNo.value = response.data.entryNo ?? null;
+      return response.data as {
+        entries: RevaluationEntry[];
+        totalDiff: number;
+        journalEntryId: string | null;
+        booked: boolean;
+        entryNo?: number;
+      };
+    } catch (err) {
+      ratesError.value = errorMessage(err, 'Kapanış fişi oluşturulamadı');
+      throw err;
+    } finally {
+      ratesLoading.value = false;
+    }
+  };
+
 
   return {
     accounts,
@@ -581,11 +617,14 @@ export const useCashBankStore = defineStore('cash-bank', () => {
     exchangeRatePagination,
     revaluationEntries,
     revaluationTotalDiff,
+    revaluationJournalId,
+    revaluationJournalNo,
     ratesLoading,
     ratesError,
     fetchLatestRates,
     fetchExchangeRates,
     importExchangeRates,
     runRevaluation,
+    bookRevaluation,
   };
 });

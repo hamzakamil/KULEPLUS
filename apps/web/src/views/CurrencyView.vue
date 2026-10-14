@@ -134,12 +134,19 @@
           <button class="btn btn-primary btn-sm" :disabled="store.ratesLoading" @click="openRevalue">
             Değerle
           </button>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="store.ratesLoading || !store.revaluationEntries.length"
+            @click="runBookRevalue"
+          >
+            {{ store.ratesLoading ? 'İşleniyor…' : 'Kapanış Fişi Oluştur' }}
+          </button>
         </div>
       </div>
       <p v-if="!store.revaluationEntries.length" class="state-msg">
         Değerleme yapılmadı. "Dönem Sonu Değerle" ile dövizli kasa/banka hesaplarının TL
         karşılığını tarihteki son kura göre yeniden hesaplayın. Fark; kâr için 645, zarar için
-        655 hesabına yansıtılacak kur farkı kaydının özetidir.
+        655 hesabına "kapanış fişi" olarak dengeli yevmiye kaydı üretir (aynı tarih için tek fiş).
       </p>
       <div v-else class="table-wrap">
         <table class="data-table">
@@ -177,6 +184,9 @@
             </tr>
           </tbody>
         </table>
+        <p v-if="store.revaluationJournalNo" class="state-msg">
+          ✓ Değerleme kaydı fişe bağlandı — Fiş No: {{ store.revaluationJournalNo }}
+        </p>
       </div>
     </section>
 
@@ -220,6 +230,14 @@
           </label>
           <div class="modal-actions">
             <button type="button" class="btn btn-secondary" @click="showRevalue = false">İptal</button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="store.ratesLoading"
+              @click="runBookRevalue"
+            >
+              {{ store.ratesLoading ? 'İşleniyor…' : 'Değerle & Kapanış Fişi Kaydet' }}
+            </button>
             <button type="submit" class="btn btn-primary" :disabled="store.ratesLoading">
               {{ store.ratesLoading ? 'Değerleniyor…' : 'Değerle' }}
             </button>
@@ -275,6 +293,16 @@ function openRevalue() {
 async function runRevalue() {
   await store.runRevaluation(revalueDate.value || undefined);
   showRevalue.value = false;
+}
+
+/** Değerleme yapar ve 645/655 hesabına kapanış fişi üretir (Faz 6.6). */
+async function runBookRevalue() {
+  try {
+    await store.bookRevaluation(revalueDate.value || undefined);
+    showRevalue.value = false;
+  } catch {
+    // Hata store.ratesError'da görünür.
+  }
 }
 
 function loadAll() {
