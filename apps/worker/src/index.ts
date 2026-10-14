@@ -8,6 +8,7 @@ import {
   createDigestHandler,
   createPushDispatchHandler,
   createDunningHandler,
+  createLifecycleHandler,
   type EmailSendJob,
   type WorkerHandlerDeps,
 } from './handlers';
@@ -26,6 +27,7 @@ export const QUEUE_NAMES = {
   digest: 'management-digest',
   push: 'notification-push',
   billingDunning: 'billing-dunning',
+  billingLifecycle: 'billing-lifecycle',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -141,6 +143,17 @@ export async function startWorker({
     },
   );
 
+  // yaşam döngüsü taraması — grace sonrası suspend ve dönem sonu iptalleri tek yerden.
+  await queues[QUEUE_NAMES.billingLifecycle].upsertJobScheduler(
+    'billing-lifecycle',
+    { pattern: '0 4 * * *', tz: 'Europe/Istanbul' },
+    {
+      name: 'process-lifecycle',
+      data: {},
+      opts: { removeOnComplete: 10, removeOnFail: 5 },
+    },
+  );
+
   const emailHandler =
     handlers?.email && handlers?.outbox ? createEmailSendHandler(handlers) : null;
   const outboxHandler = handlers?.outbox
@@ -164,6 +177,8 @@ export async function startWorker({
   // Dunning handler'ı yalnız payment sağlayıcısı verildiyse kurulur (K-08). Verilmezse
   // job'lar "handler atandı değil" ile atlanır (geliştirme/iskelet davranışı).
   const dunningHandler = handlers?.payment ? createDunningHandler(handlers) : null;
+  // Yaşam döngüsü handler'ı harici bağımlılık istemez — handler'lar kurulduysa bağlanır.
+  const lifecycleHandler = handlers ? createLifecycleHandler(handlers) : null;
 
   const processor = async (name: QueueName, job: Job) => {
     if (name === QUEUE_NAMES.email && emailHandler) return emailHandler(job);
@@ -175,6 +190,7 @@ export async function startWorker({
     if (name === QUEUE_NAMES.digest && digestHandler) return digestHandler(job);
     if (name === QUEUE_NAMES.push && pushHandler) return pushHandler(job);
     if (name === QUEUE_NAMES.billingDunning && dunningHandler) return dunningHandler(job);
+    if (name === QUEUE_NAMES.billingLifecycle && lifecycleHandler) return lifecycleHandler(job);
     log.warn({ queue: name, jobId: job.id }, 'Handler atandı değil — job atlandı.');
   };
 
@@ -194,6 +210,7 @@ export async function startWorker({
   if (digestHandler) wired.push('management-digest');
   if (pushHandler) wired.push('notification-push');
   if (dunningHandler) wired.push('billing-dunning');
+  if (lifecycleHandler) wired.push('billing-lifecycle');
   log.info(
     wired.length > 0
       ? `Worker hazır — bağlı handler'lar: ${wired.join(', ')}.`

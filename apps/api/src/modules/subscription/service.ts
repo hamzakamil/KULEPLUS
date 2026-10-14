@@ -3,6 +3,7 @@ import {
   AppError,
   MockPaymentProvider,
   applyDunningOutcome,
+  applyLifecycleStep,
   claimDueDunningRow,
   compareMoney,
   newId,
@@ -11,6 +12,7 @@ import {
   type MoneyString,
   type PaymentProvider,
   type ProcessDunningResult,
+  type SubscriptionLifecycleResult,
 } from '@kuleplus/shared';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
@@ -1167,6 +1169,25 @@ export class SubscriptionService {
         providerRef: charge.providerRef,
         detail: charge.detail ?? null,
       }),
+    );
+  }
+
+  // ======================= Yaşam döngüsü kesinleştirme (SPEC §8.7/§8.8) =======================
+
+  /**
+   * Zaman-bağımlı abonelik geçişlerini tek tenant kapsamında uygular
+   * (paylaşılan kernel — worker'ın `billing-lifecycle` taramasıyla AYNI mantık):
+   *  - `past_due` + ek süre (`grace_period_until`) dolmuş + açık dunning denemesi
+   *    kalmamış → `suspended` (ücretsiz plana düşme) + premium entitlement'lar
+   *    kapatılır (`core` hariç).
+   *  - `active` + `cancel_at_period_end` + dönem sonu gelmiş → `cancelled`
+   *    + premium entitlement'lar kapatılır (`core` hariç).
+   * Idempotent (ADR-0020): geçişler durum koşullarına bağlıdır; yinelenen çalışma
+   * yeni yan etki üretmez.
+   */
+  async processLifecycle(tenantId: string): Promise<SubscriptionLifecycleResult> {
+    return this.withTenantClient(tenantId, (client) =>
+      applyLifecycleStep((text, params) => client.query(text, params)),
     );
   }
 }

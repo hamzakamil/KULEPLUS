@@ -155,13 +155,52 @@ describe('SubscriptionService — dunning (SPEC §8.7/§8.8)', () => {
       expect(skip).toBeTruthy();
     });
 
-    it('işlenecek deneme yoksa sıfır sayım döner', async () => {
-      const service = new SubscriptionService({
-        pool: mockPool as never,
-        paymentProvider: syncProvider,
+    describe('processDueDunning — tüm denemeler başarısız + ek süre doldu', () => {
+      it('son deneme başarısız + grace geçmiş → suspended + premium entitlement kapatıldı', async () => {
+        const failingProvider: PaymentProvider = {
+          createCustomer: async () => ({ providerCustomerRef: 'cust-1' }),
+          charge: async () => ({ providerRef: 'ref-fail', status: 'failed', redirectUrl: null }),
+          refund: async (providerRef: string) => ({ providerRef, status: 'refunded' }),
+          status: async (providerRef: string) => ({ providerRef, status: 'succeeded' }),
+          parseWebhook: (_raw: string, _sig?: string): WebhookEvent | null => null,
+        };
+        const service = new SubscriptionService({
+          pool: mockPool as never,
+          paymentProvider: failingProvider,
+        });
+        const dueRow = {
+          id: 'd3',
+          subscription_id: 'sub-1',
+          order_id: 'order-1',
+          attempt_no: 3,
+          amount: '149.90',
+          currency: 'TRY',
+        };
+        mockQuery.mockImplementation((sql: string) => {
+          if (/FOR UPDATE OF da SKIP LOCKED/.test(sql)) return Promise.resolve({ rows: [dueRow] });
+          if (/SET status = 'processing'/.test(sql)) return Promise.resolve({ rows: [] });
+          if (/UPDATE dunning_attempts/.test(sql)) return Promise.resolve({ rows: [] });
+          // Kalan deneme 0 + ek süre geçmiş (geçmiş tarih) → suspended dalı tetiklenir.
+          if (/count\(\*\)::int FROM dunning_attempts/.test(sql))
+            return Promise.resolve({
+              rows: [{ remaining: 0, grace: new Date(Date.now() - 60_000).toISOString() }],
+            });
+          if (/UPDATE subscriptions/.test(sql)) return Promise.resolve({ rows: [] });
+          if (/UPDATE tenant_entitlements/.test(sql)) return Promise.resolve({ rows: [] });
+          return Promise.resolve({ rows: [] });
+        });
+
+        const result = await service.processDueDunning('t1');
+
+        expect(result).toEqual({ processed: 1, succeeded: 0, suspended: 1 });
+        // Entitlement kapatma (core hariç) çağrıldı — ücretsiz plana düşünce modül erişimi kapanır.
+        const ent = mockQuery.mock.calls.find((c) =>
+          /UPDATE tenant_entitlements/.test(String(c[0])),
+        );
+        expect(ent).toBeTruthy();
+        expect(String(ent![0])).toContain("module_code <> 'core'");
+        expect((ent![1] as unknown[])[0]).toBe('suspended');
       });
-      const result = await service.processDueDunning('t1');
-      expect(result).toEqual({ processed: 0, succeeded: 0, suspended: 0 });
     });
   });
 });

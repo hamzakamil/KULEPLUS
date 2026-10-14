@@ -15,6 +15,7 @@
 
 import type { MoneyString } from '../integrations/ports.js';
 import type { RowQuery } from '../management/indicators.js';
+import { deactivatePremiumEntitlements } from './lifecycle.js';
 
 /** Kilitli dunning denemesi (claim) — işlenecek tek kayıt. */
 export interface DunningClaimRow {
@@ -124,6 +125,8 @@ export async function applyDunningOutcome(
         WHERE id = $1 AND tenant_id = current_tenant_id()`,
       [attempt.subscription_id],
     );
+    // Ücretsiz plana düşüldü → premium (core hariç) modül erişimi kapatılır.
+    await deactivatePremiumEntitlements(query, 'suspended');
     return { processed: 1, succeeded: 0, suspended: 1 };
   }
   return { processed: 1, succeeded: 0, suspended: 0 };

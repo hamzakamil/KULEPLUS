@@ -97,5 +97,7 @@ export type {
   ApplyDunningInput,
   ProcessDunningResult,
 } from './subscription/dunning';
+export { applyLifecycleStep, deactivatePremiumEntitlements } from './subscription/lifecycle';
+export type { SubscriptionLifecycleResult } from './subscription/lifecycle';
 export { isWithinQuietHours, buildPushPayload, entityPath } from './management/push';
 export type { QuietHours, PushPayload, PushPayloadInput } from './management/push';

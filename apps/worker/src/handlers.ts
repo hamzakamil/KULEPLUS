@@ -9,6 +9,7 @@ import {
   buildPushPayload,
   claimDueDunningRow,
   applyDunningOutcome,
+  applyLifecycleStep,
   formatDigestSummary,
   isWithinQuietHours,
   newId,
@@ -622,6 +623,61 @@ export function createDunningHandler(deps: WorkerHandlerDeps) {
     deps.logger.info(
       { jobId: job.id, tenants: rows.length, processed, succeeded, suspended },
       'Dunning taraması tamamlandı',
+    );
+  };
+}
+
+// ======================= Abonelik yaşam döngüsü (Faz 4 — SPEC §8.7/§8.8) =======================
+
+/**
+ * Yaşam döngüsü job'ı — zaman-bağımlı abonelik geçişlerini kesinleştirir.
+ *
+ * Dunning handler'ından bağımsız çalışır: `past_due` + ek süresi
+ * (`grace_period_until`) dolmuş + açık dunning denemesi kalmamış abonelikleri
+ * `suspended` yapar, `cancel_at_period_end` + dönem sonu gelenleri `cancelled`;
+ * her iki geçişte premium (`core` hariç) entitlement'lar kapatılır. Paylaşılan
+ * kernel `applyLifecycleStep` tek kaynaktır (API `processLifecycle` ile AYNI
+ * mantık — DRY).
+ *
+ * Idempotency (ADR-0020): geçişler durum koşullarına bağlıdır; yinelenen çalışma
+ * yeni yan etki üretmez. Harici I/O yok. `tenantIds` verilirse yalnız o
+ * tenant'lar taranır (test/manuel tetik).
+ */
+export interface BillingLifecycleJob {
+  /** Hedef tenant'lar; boşsa tüm aktif tenant'lar. */
+  tenantIds?: string[];
+}
+
+export function createLifecycleHandler(deps: WorkerHandlerDeps) {
+  return async (job: Job<BillingLifecycleJob>): Promise<void> => {
+    const pool = getPool('app');
+    const tenantIds = job.data.tenantIds ?? null;
+
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM tenants WHERE status = 'active'
+        ${tenantIds ? 'AND id = ANY($1::uuid[])' : ''}
+        ORDER BY id`,
+      tenantIds ? [tenantIds] : [],
+    );
+
+    deps.logger.info(
+      { queue: 'billing-lifecycle', jobId: job.id, tenants: rows.length },
+      'Abonelik yaşam döngüsü taraması başlıyor',
+    );
+
+    let suspended = 0;
+    let cancelled = 0;
+    for (const { id: tenantId } of rows) {
+      const result = await withTenant(pool, tenantId, (client) =>
+        applyLifecycleStep(digestQueryOf(client)),
+      );
+      suspended += result.suspended;
+      cancelled += result.cancelled;
+    }
+
+    deps.logger.info(
+      { jobId: job.id, tenants: rows.length, suspended, cancelled },
+      'Abonelik yaşam döngüsü taraması tamamlandı',
     );
   };
 }
