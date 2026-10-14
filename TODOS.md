@@ -241,7 +241,7 @@
   - Entitlement geçiş boşluğu: ADR-0007/0008 sonrası kod `trade` isterken tenant'lar yalnızca eski `invoices`/`expense` satırlarına sahipti → tüm ticari uçlar 403. Dev DB'ye `trade` (active) eklendi; kalıcı çözüm Faz 4 abonelik altyapısında.
   - Web: store'larda çift `/v1` URL hataları giderildi (`cash-bank`, `report`, `expense`); `public/favicon.svg` + `index.html` `<link>` eklendi.
 
-- [~] İçe/dışa aktarma sihirbazı — cari sihirbazı (kolon eşleştirme → dry-run → hata raporu → onay → batch) tamam; **tam veri dışa aktarma (ZIP)** ve **ürün CSV** bu oturumda eklendi. Ürün/açılış *içe* aktarma hedefleri sonraki oturumda.
+- [x] İçe/dışa aktarma sihirbazı — cari sihirbazı + **ürün ve açılış stoğu içe aktarma** (kolon eşleştirme → dry-run → hata raporu → onay → batch) + **tam veri dışa aktarma (ZIP)** + ürün CSV. **Canlı E2E doğrulandı (14 Ekim 2026):** 3/3 ürün oluştu, Merkez Depo otomatik açıldı (`is_base`), `initial_stock=100` bakiyeye işledi (100×8,00=800); açılış stoğu 2 created / 2 invalid (ürün yok + negatif miktar), üzerine ekleme uyarısı ve hareketli ortalama maliyet (1,1038) doğru. **Testler:** `apps/api/tests/stock-import.test.ts` (21 test).
 - [x] UX kabuğu (responsive, **şirket seçici**, **modül bazlı navigasyon**, kullanıcı menüsü) — 13 Ekim 2026.
 - [x] PWA (gerçek PNG ikonlar + service worker + `offline.html`; çevrimdışı finansal kesinleştirme YOK, yalnızca okuma önbelleği) — 13 Ekim 2026.
 - [x] Boş durum ekranları (EmptyState) + **kilitli modül önizlemesi ve CTA** + **onboarding kontrol listesi** — 13 Ekim 2026. Patron Görünümü v1 panosu KPI + kısayollarla mevcut; yönetim paketi (Faz 7) derinleşmesi bekliyor.
