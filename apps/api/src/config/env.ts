@@ -32,12 +32,31 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+function isHttpUrl(value: unknown): value is string {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ortamı doğrular; başarısızlıkta hata fırlatır — çağıran taraf (server.ts)
  * loglayıp süreçten çıkarır ("eksikse uygulama başlamaz").
  */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const parsed = envSchema.safeParse(source);
+  // Vercel preview URL'leri her dağıtımda değişir. Vercel'in otomatik verdiği
+  // hostname'i, geçersiz veya şablondan kalmış URL değişkenleri için güvenli
+  // aynı-origin varsayılanı olarak kullan.
+  const deploymentUrl = source.VERCEL_URL ? `https://${source.VERCEL_URL}` : undefined;
+  const normalized = { ...source };
+  if (deploymentUrl) {
+    if (!isHttpUrl(normalized.APP_URL)) normalized.APP_URL = deploymentUrl;
+    if (!isHttpUrl(normalized.API_URL)) normalized.API_URL = deploymentUrl;
+  }
+
+  const parsed = envSchema.safeParse(normalized);
   if (!parsed.success) {
     const details = parsed.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(kök)'}: ${issue.message}`)
