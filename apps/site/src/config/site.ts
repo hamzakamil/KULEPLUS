@@ -6,7 +6,7 @@ import type { MessageKey } from '../i18n';
  */
 export const SITE = {
   name: 'Kuleplus',
-  tagline: 'Patron için sade, muhasebeci için derin.',
+  tagline: 'Şirketinizin tüm süreçleri tek bir merkezde.',
   description:
     'Türkiye mevzuatına (e-Fatura, KDV, Tek Düzen Hesap Planı, KVKK) uyumlu, modüler bulut ön muhasebe ve ERP platformu. Ücretsiz modelle başlayın, modülleri ihtiyacınız kadar satın alın.',
   // Astro config'teki `site` değeri (canonical/sitemap için)

@@ -16,7 +16,7 @@ https://evren-llmapi.ssyz.org.tr/v1
 
 # Kurumsal Bulut ERP & Ön Muhasebe Platformu
 
-### Patron için sade, muhasebeci için derin. Modüler, çok şirketli (multi-tenant) bulut yazılımı.
+### Şirketinizin tüm süreçleri tek bir merkezde. Modüler, çok şirketli (multi-tenant) bulut yazılımı.
 
 **Sürüm:** 4.3.0 · **Güncelleme:** 13 Ekim 2026 · **Durum:** Planlama / Faz 0
 **İlgili dokümanlar:** [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) · [`docs/TECHNICAL_SPEC.md`](docs/TECHNICAL_SPEC.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md)
@@ -64,7 +64,7 @@ Türkiye mevzuatına (e-Fatura, e-Arşiv, e-Defter, KDV, Tek Düzen Hesap Planı
 
 | # | Fikir | Anlamı |
 |---|-------|--------|
-| 1 | **Tek sistem, iki yüz** | Aynı veri; patron için sade özet, muhasebeci için klavye odaklı derin veri girişi. |
+| 1 | **Tek sistem, iki yüz** | Aynı veri; işletme sahibi için sade özet, muhasebeci için klavye odaklı derin veri girişi. |
 | 2 | **Ücretsiz model, ücretli modüller** | Yeni kayıt olan herkes süresiz ücretsiz başlangıç paketine sahip (Cari veya Stok). Diğer modüller satın alınır. Demo süresi yoktur. |
 | 3 | **Platform kendi gelirini görür** | Şirketler, abonelikler, MRR/ARR, kuponlar ve mali müşavir komisyonları platform panelinden izlenir. |
 

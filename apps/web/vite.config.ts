@@ -16,7 +16,7 @@ export default defineConfig({
       manifest: {
         name: 'Kuleplus',
         short_name: 'Kuleplus',
-        description: 'Patron için sade, muhasebeci için derin.',
+        description: 'Şirketinizin tüm süreçleri tek bir merkezde.',
         theme_color: '#1d4ed8',
         background_color: '#ffffff',
         display: 'standalone',

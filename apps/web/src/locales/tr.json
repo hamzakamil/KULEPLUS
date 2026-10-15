@@ -1,7 +1,7 @@
 {
   "web.a11y.skip": "İçeriğe geç",
   "web.home.title": "Kuleplus",
-  "web.home.tagline": "Patron için sade, muhasebeci için derin.",
+  "web.home.tagline": "Şirketinizin tüm süreçleri tek bir merkezde.",
   "web.auth.login.title": "Giriş",
   "errors.MODULE_NOT_ENTITLED": "Bu modül paketinizde yok."
 }
