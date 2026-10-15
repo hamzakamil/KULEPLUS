@@ -1,7 +1,9 @@
 node_modules/
 dist/
 .astro/
-apps/api/api/
+apps/api/api/generated.js
+apps/api/api/generated.js.map
+apps/api/api/index.js.map
 .env
 .env.local
 # Üretim/önsahne ortam dosyaları — GERÇEK SIR içerir, commit'lenmez.

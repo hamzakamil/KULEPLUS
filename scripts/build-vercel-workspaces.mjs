@@ -1,4 +1,3 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,55 +25,14 @@ const workspacePlugin = {
   },
 };
 
-async function bundlePackage(root, entries) {
-  const outdir = resolve(root, 'dist');
-  await mkdir(outdir, { recursive: true });
-  await build({
-    absWorkingDir: root,
-    entryPoints: entries,
-    outdir,
-    bundle: true,
-    packages: 'external',
-    platform: 'node',
-    format: 'esm',
-    target: 'node22',
-    sourcemap: true,
-    plugins: [workspacePlugin],
-  });
-}
-
-await bundlePackage(sharedRoot, {
-  index: 'src/index.ts',
-  'integrations/payment-server': 'src/integrations/payment-server.ts',
-  'integrations/ports': 'src/integrations/ports.ts',
-  'integrations/mock': 'src/integrations/mock.ts',
-});
-await bundlePackage(dbRoot, { index: 'src/index.ts' });
-
 if (forVercel) {
-  for (const packageRoot of [sharedRoot, dbRoot]) {
-    const packageFile = resolve(packageRoot, 'package.json');
-    const manifest = JSON.parse(await readFile(packageFile, 'utf8'));
-    manifest.main = manifest.main.replace('./src/', './dist/').replace(/\.ts$/, '.js');
-    manifest.exports = Object.fromEntries(
-      Object.entries(manifest.exports).map(([name, target]) => [
-        name,
-        {
-          types: target,
-          import: target.replace('./src/', './dist/').replace(/\.ts$/, '.js'),
-        },
-      ]),
-    );
-    await writeFile(packageFile, `${JSON.stringify(manifest, null, 2)}\n`);
-  }
-
   // Vercel's TypeScript compiler leaves this monorepo's extensionless local
   // imports in the emitted ESM. Bundle the API so the deployed function has no
   // runtime dependency on those source-file import paths.
   await build({
     absWorkingDir: apiRoot,
     entryPoints: ['src/server.ts'],
-    outfile: resolve(apiRoot, 'api/index.js'),
+    outfile: resolve(apiRoot, 'api/generated.js'),
     bundle: true,
     packages: 'external',
     platform: 'node',
