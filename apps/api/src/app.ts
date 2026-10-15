@@ -1,8 +1,8 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
-import helmet from 'helmet';
+import { default as helmet } from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import pinoHttp from 'pino-http';
+import { pinoHttp } from 'pino-http';
 import type { Logger } from 'pino';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Env } from './config/env';
