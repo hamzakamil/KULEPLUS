@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { z } from 'zod';
+import type { ZodTypeAny } from 'zod';
 import { AuthorizationService } from './service.js';
 import { validate } from '../../middleware/validate.js';
 import {
@@ -44,14 +45,24 @@ const canOwnerTransfer = requirePermission('core.owner.transfer');
 const router = Router();
 const service = new AuthorizationService();
 
-/** Express ParsedQs'u şemaya göre doğrula ve tipleyerek dışa aktar. */
-function parseQuery<T>(schema: z.ZodSchema<{ query: T }>, req: Request): T {
+/**
+ * Express ParsedQs'u şemaya göre doğrula ve tipleyerek dışa aktar.
+ *
+ * DİKKAT: iki overload — audit/routes.ts'teki `parseQuery` ile aynı gerekçe.
+ * Birinci overload strict AÇIK derlemede hassas tipi verir; strict KAPALI
+ * derlemede (Vercel build) tutmaz ve ikinci overload (`any`) devralır.
+ * Runtime davranışı değişmez.
+ */
+function parseQuery<T>(schema: z.ZodSchema<{ query: T }>, req: Request): T;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseQuery(schema: ZodTypeAny, req: Request): any;
+function parseQuery(schema: ZodTypeAny, req: Request): unknown {
   const parsed = schema.safeParse(req.query);
   if (!parsed.success) {
     const messages = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new AppError('VALIDATION_ERROR', messages);
   }
-  return parsed.data.query;
+  return (parsed.data as { query: unknown }).query;
 }
 
 // === Invitations ===

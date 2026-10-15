@@ -1,8 +1,12 @@
 import { type Request, type Response, type NextFunction } from 'express';
-import { type ZodSchema, type ZodError } from 'zod';
+import { type ZodTypeAny, type ZodError } from 'zod';
 import { AppError } from '@kuleplus/shared';
 
-export function validate(schema: ZodSchema, source: 'body' | 'query' | 'params' = 'body') {
+// DİKKAT: parametre ZodTypeAny. `ZodSchema` yazılırsa strictNullChecks kapalı
+// derlemede (Vercel build) ZodObject'in optional-infer edilen `_output` tipi
+// parametre tipiyle çakışıp TS2345 üretir (`Property 'query' is optional...`).
+// Generic tek tip olduğu için runtime davranışı değişmez.
+export function validate(schema: ZodTypeAny, source: 'body' | 'query' | 'params' = 'body') {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       const data = source === 'body' ? req.body : source === 'query' ? req.query : req.params;

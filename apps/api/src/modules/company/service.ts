@@ -39,6 +39,10 @@ export type TenantRow = {
 
 export type TenantSettingsRow = {
   tenant_id: string;
+  // DİKKAT: DB satırında `key` kolonu vardır (sorgu `key = 'company_profile'`
+  // filtreler); yokluk varsayılanı da aynı kolonu taşır. Optional tip,
+  // strictNullChecks kapalı derlemede (Vercel build) TS2322'yi engeller.
+  key?: string;
   onboarding_mode: string;
   settings: Record<string, unknown>;
   updated_at: Date;

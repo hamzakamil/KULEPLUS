@@ -1,4 +1,10 @@
-import Decimal from 'decimal.js';
+// DİKKAT: named import. `import Decimal from 'decimal.js'` biçimi node16/nodenext
+// çözümleyicisinde (Vercel build) CJS sınıflandırılan `decimal.d.ts` içindeki
+// `export default` yüzünden namespace'e düşer ve TS2709/TS2351/TS2339 üretir.
+// Named import her modda (bundler/node10/node16/nodenext) class+namespace birleşimini
+// verir; runtime'da da geçerlidir (ESM: `decimal.mjs` → `export var Decimal`,
+// CJS: `Decimal.Decimal = Decimal`).
+import { Decimal } from 'decimal.js';
 
 /**
  * Para standardı — SPEC §0.3 / README §14:

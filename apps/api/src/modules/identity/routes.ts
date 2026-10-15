@@ -43,8 +43,17 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = registerSchema.parse(req.body);
+      // DİKKAT: spread YOK — `...input` strictNullChecks kapalı derlemede
+      // (Vercel build) Zod'un optional-infer ettiği alanları taşıyıp TS2345
+      // üretir. `parse` çıktısı verilir (zaten validasyonlu), üstüne
+      // ipAddress/userAgent eklenir; runtime değeri değişmez.
       const { session } = await service.register({
-        ...input,
+        email: input.email,
+        password: input.password,
+        name: input.name,
+        companyName: input.companyName,
+        startingModule: input.startingModule,
+        acceptTerms: input.acceptTerms,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });

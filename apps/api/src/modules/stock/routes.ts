@@ -59,7 +59,15 @@ function parseImportRequest(req: Request): {
       .join('; ');
     throw new AppError('VALIDATION_ERROR', messages);
   }
-  return parsed.data;
+  // DİKKAT: doğrudan `parsed.data` döndürülmez. Zod `.default()` alanları
+  // strictNullChecks kapalı derlemede (Vercel build) optional infer edilir ve
+  // TS2322 üretir. Şema csv'yi zorunlu kılar, commit'e default(false) verir;
+  // `??` yedekleri runtime'da ölü koddur, tip daraltmak içindir.
+  return {
+    csv: parsed.data.csv ?? '',
+    mapping: parsed.data.mapping,
+    commit: parsed.data.commit ?? false,
+  };
 }
 
 /** UTF-8 BOM'lu CSV şablonu indir (Excel uyumu — SPEC §3) */

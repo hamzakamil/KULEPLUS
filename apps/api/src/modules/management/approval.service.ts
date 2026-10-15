@@ -72,14 +72,19 @@ export class ApprovalService {
   private page<T>(
     items: T[],
     total: number,
-    query: { page: number; limit: number },
+    // DİKKAT: page/limit optional — management/service.ts'teki `page()` ile
+    // aynı gerekçe (strictNullChecks kapalı Vercel derlemesi). Runtime'da şema
+    // default'ları dolu gelir; `??` yedekleri davranışı değiştirmez.
+    query: { page?: number; limit?: number },
   ): PageResult<T> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
     return {
       items,
-      page: query.page,
-      limit: query.limit,
+      page,
+      limit,
       total,
-      totalPages: Math.ceil(total / query.limit),
+      totalPages: Math.ceil(total / limit),
     };
   }
 

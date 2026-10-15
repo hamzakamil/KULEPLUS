@@ -1427,14 +1427,20 @@ export class ManagementService {
   private page<T>(
     items: T[],
     total: number,
-    query: { page: number; limit: number },
+    // DİKKAT: page/limit optional. Zod `.default()` alanları strictNullChecks
+    // kapalı derlemede (Vercel build) optional infer edilir; runtime'da şema
+    // default'ları sayesinde her zaman doludur. `??` yedekleri davranışı
+    // değiştirmez, yalnızca tip daraltır.
+    query: { page?: number; limit?: number },
   ): PageResult<T> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
     return {
       items,
-      page: query.page,
-      limit: query.limit,
+      page,
+      limit,
       total,
-      totalPages: Math.ceil(total / query.limit),
+      totalPages: Math.ceil(total / limit),
     };
   }
 

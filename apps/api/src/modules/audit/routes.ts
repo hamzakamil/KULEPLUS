@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { z } from 'zod';
+import type { ZodTypeAny } from 'zod';
 import { AuditService } from './service.js';
 import { validate } from '../../middleware/validate.js';
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
@@ -9,18 +10,27 @@ import { auditListQuerySchema, auditParamsSchema } from './schemas.js';
 const router = Router();
 const service = new AuditService();
 
-/** Express ParsedQs'u şemaya göre doğrula ve tipleyerek dışa aktar. */
-function parseQuery<T extends Record<string, unknown>>(
-  schema: z.ZodSchema<{ query: T }>,
-  req: Request,
-): T {
+/**
+ * Express ParsedQs'u şemaya göre doğrula ve tipleyerek dışa aktar.
+ *
+ * DİKKAT: iki overload. Birinci overload strict AÇIK derlemede çağrı
+ * noktasına hassas `{ query: ... }` tipini verir (orijinal davranış).
+ * strictNullChecks KAPALI derlemede (Vercel build) Zod'un `_output`'u
+ * optional-infer edildiği için birinci overload tutmaz; ikinci overload
+ * (`any`) devreye girer ve TS2345/TS2698/TS2339 engellenir.
+ * Runtime davranışı iki modda da aynıdır (safeParse + query iadesi).
+ */
+function parseQuery<T>(schema: z.ZodSchema<{ query: T }>, req: Request): T;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseQuery(schema: ZodTypeAny, req: Request): any;
+function parseQuery(schema: ZodTypeAny, req: Request): unknown {
   const parsed = schema.safeParse({ query: req.query });
   if (!parsed.success) {
     const messages = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new AppError('VALIDATION_ERROR', messages);
   }
 
-  return parsed.data.query;
+  return (parsed.data as { query: unknown }).query;
 }
 
 router.get(
