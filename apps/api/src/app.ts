@@ -63,6 +63,18 @@ export interface CreateAppOptions {
 export function createApp({ env, logger, testRoutes = false }: CreateAppOptions): Express {
   const app = express();
 
+  // Proxy zinciri (Caddy → nginx) arkasında `req.ip` varsayılan olarak doğrudan TCP
+  // eşinin adresidir — yani nginx KONTEYNERİNİN IP'si. Bu değer iki yerde kritik
+  // kullanılıyor: hız sınırı kova anahtarı (middleware/rate-limit.ts) ve kayıt/giriş
+  // denetim IP'si (modules/identity/routes.ts). Ayarlanmazsa üretimde:
+  //   • tüm kullanıcılar TEK kovaya düşer → birinin deneme hakkı biterse diğerleri
+  //     429 alır (ya da limit yüksekse brute-force fiilen başıboş kalır),
+  //   • denetim kayıtlarına her satırda aynı Docker IP'si yazılır.
+  // Yalnızca özel ağlardaki eşler güvenilirdir (Docker ağındaki Caddy/nginx); soldan
+  // ilk "güvenilmeyen" giriş gerçek istemcidir, istemcinin XFF eklemesi sonuç vermez.
+  // Proxisiz yayında eş genel IP olacağından XFF yok sayılır — güvenli varsayılan.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
   // Request ID: istemci verdiyse korunur, yoksa üretilir; yanıtta da döner.
   app.use((req: Request, res: Response, next: NextFunction) => {
     const header = req.headers['x-request-id'];
