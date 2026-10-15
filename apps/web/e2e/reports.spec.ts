@@ -51,7 +51,12 @@ test.describe('Report Flow', () => {
   });
 
   test('canlı rapor sekmeleri (Faz 6.4/6.5) görüntülenir', async ({ page }) => {
-    for (const label of ['KDV Hazırlık', 'Ba-Bs Bildirim', 'Cari Mutabakat', 'Nakit Akış Tahmini']) {
+    for (const label of [
+      'KDV Hazırlık',
+      'Ba-Bs Bildirim',
+      'Cari Mutabakat',
+      'Nakit Akış Tahmini',
+    ]) {
       await expect(page.locator('.report-tabs .tab', { hasText: label })).toBeVisible();
     }
   });

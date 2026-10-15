@@ -766,12 +766,16 @@
         <article class="kpi">
           <p class="kpi-label">Hesaplanan KDV (satış)</p>
           <p class="kpi-value">{{ money(vatReport.calculatedVat) }}</p>
-          <p class="kpi-sub">Tevkifat sonrası {{ money(vatReport.calculatedVatAfterWithholding) }}</p>
+          <p class="kpi-sub">
+            Tevkifat sonrası {{ money(vatReport.calculatedVatAfterWithholding) }}
+          </p>
         </article>
         <article class="kpi">
           <p class="kpi-label">İndirilecek KDV (alış)</p>
           <p class="kpi-value">{{ money(vatReport.deductibleVat) }}</p>
-          <p class="kpi-sub">Tevkifat sonrası {{ money(vatReport.deductibleVatAfterWithholding) }}</p>
+          <p class="kpi-sub">
+            Tevkifat sonrası {{ money(vatReport.deductibleVatAfterWithholding) }}
+          </p>
         </article>
         <article class="kpi">
           <p class="kpi-label">Devreden KDV</p>
@@ -968,9 +972,7 @@
             <tr v-for="(row, i) in babsReport.lines" :key="`${row.entry_no}-${i}`">
               <td class="mono">{{ row.entry_no }}</td>
               <td class="nowrap">{{ date(row.entry_date) }}</td>
-              <td class="mono">
-                {{ row.code }} · {{ row.name }}
-              </td>
+              <td class="mono">{{ row.code }} · {{ row.name }}</td>
               <td class="muted">{{ row.description ?? '—' }}</td>
               <td class="num strong">{{ money(row.amount) }}</td>
             </tr>
@@ -1025,7 +1027,9 @@
             {{ reconciliation.contact.name }}
             <span class="muted" style="font-weight: 400">
               · {{ reconciliation.contact.code }}
-              <template v-if="reconciliation.contact.tax_number"> · VKN {{ reconciliation.contact.tax_number }}</template>
+              <template v-if="reconciliation.contact.tax_number">
+                · VKN {{ reconciliation.contact.tax_number }}</template
+              >
             </span>
           </h3>
           <table class="data-table">
@@ -1338,7 +1342,12 @@ interface CashFlowForecastData {
   buckets: { label: string; inflow: number; outflow: number; net: number }[];
   totals: { inflow: number; outflow: number; net: number };
   detail: {
-    receivable: { due_date: string; balance: number; number: string; contact_name: string | null }[];
+    receivable: {
+      due_date: string;
+      balance: number;
+      number: string;
+      contact_name: string | null;
+    }[];
     payable: { due_date: string; balance: number; number: string; contact_name: string | null }[];
     expenses: { due_date: string; balance: number; number: string; contact_name: string | null }[];
   };

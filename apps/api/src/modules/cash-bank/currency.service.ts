@@ -339,10 +339,7 @@ function deterministicUuid(seed: string): string {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Hesap planında kod ile hesap çözer (tenant planı; yoksa null). */
-async function resolveAccountByCodeLocal(
-  client: PoolClient,
-  code: string,
-): Promise<string | null> {
+async function resolveAccountByCodeLocal(client: PoolClient, code: string): Promise<string | null> {
   const r = await client.query<{ id: string }>(
     `SELECT id FROM accounting_accounts
       WHERE tenant_id = current_tenant_id() AND code = $1 LIMIT 1`,
