@@ -1,0 +1,38 @@
+# KULEPLUS — üretim ters vekili (Caddy v2)
+#
+# Görevi: TLS sonlandırma + HTTP->HTTPS yönlendirme + `web` servisine iletme.
+# API'ye DOĞRUDAN burada yön vermiyoruz: `/api` ters vekili web'in nginx'inde
+# (docker/web/nginx.conf). Böylece istek tek kez proxy'lenir ve SPA ile API aynı
+# origin'i paylaşır -> CORS gerekmez, SameSite=Lax refresh cookie çalışır.
+#
+# Neden Caddy? Sertifikaları otomatik alır/yeniler (ACME), yapılandırma hatası
+# ihtimali nginx+certbot kombinasyonuna göre çok daha düşük.
+#
+# WEB_DOMAIN:
+#   - Gerçek alan adı (app.kuleplus.com) -> Let's Encrypt sertifikası otomatik.
+#     ACME HTTP-01 için 80. portun DIŞA açık olması şarttır.
+#   - `localhost` -> Caddy kendi iç CA'sını kullanır (kendi imzaladığı sertifika).
+#     Böylece TLS akışı alan adı olmadan da test edilebilir (curl -k).
+#
+# e-mail verilmezse Let's Encrypt kayıt için e-posta ister; üretimde bırakmayın.
+
+{
+	# Yönetim API'si dışa kapalı (varsayılan :2019 bilgi sızdırabilir).
+	admin off
+	email {$CADDY_EMAIL}
+}
+
+{$WEB_DOMAIN} {
+	encode zstd gzip
+
+	# Erişim logları kapalı; sağlık kontrolleri logu boğmasın.
+	log {
+		output stderr
+		format console
+	}
+
+	# SPA'nın sağlık ucu nginx'te tanımlı; buradan aynen geçer.
+	reverse_proxy web:80 {
+		header_up X-Forwarded-Proto https
+	}
+}

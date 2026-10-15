@@ -1,0 +1,63 @@
+# KULEPLUS WEB — üretim imajı (Vue SPA, statik)
+#
+# Neden burada DERLEME var, API'de yok?
+#   API/worker Node'da `.ts` DOĞRUDAN çalışıyor (tsx) — Node ham TS'i kendi çözemez,
+#   ama Vite (esbuild/Rollup) @kuleplus/ui ve @kuleplus/shared'ın HAM .ts'ini ve
+#   uzantısız bağıl importları KENDİSİ çözer. Bu yüzden web/site `tsc` dist derdinden
+#   etkilenmez ve statik bundle'a derlenir (doğrulandı: apps/web build exit 0).
+#   Sonuç nginx'e yalnızca statik dosya verilir; Node çalışmaz.
+#
+# Çıktı: apps/web/dist (PWA: sw.js, manifest, workbox — bkz. vite.config.ts).
+
+# --- 1) Derleme katmanı -------------------------------------------------------
+FROM node:22-slim AS build
+WORKDIR /app
+
+# Manifestler önce: bağımlılık katmanı kod değişiminde boşa düşmez.
+# npm workspaces monorepo'da `npm ci` TÜM workspace manifestlerini ister.
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/worker/package.json ./apps/worker/
+COPY apps/web/package.json ./apps/web/
+COPY apps/site/package.json ./apps/site/
+COPY packages/db/package.json ./packages/db/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/ui/package.json ./packages/ui/
+
+# Web + onun workspace bağımlılıkları (ui, shared) — TAM kurulum (vite, vue-tsc,
+# tailwind, PWA eklentisi = devDependency). site/db/api/worker kurulmaz (--omit=dev
+# + yalnızca adları anılan workspace'ler), çünkü web build'i için gerekmezler.
+RUN npm ci \
+      --workspace apps/web \
+      --workspace packages/shared \
+      --workspace packages/ui \
+      --include-workspace-root \
+    && npm cache clean --force
+
+# Kaynak: @kuleplus/ui ve @kuleplus/shared HAM .ts olarak çözülür (node_modules
+# symlink'leri ile workspace kaynaklarına bağlıdır).
+COPY . .
+
+# SPA, API'yi AYNI ORİGİNDE `/api` altında çağırır (nginx `/api`'yi api servisine
+# proxy'ler). Böylece CORS gerekmez; refresh cookie SameSite=Lax çalışır.
+# PWA işleyicisi zaten `/api/v1/` GET'lerini NetworkFirst önbelleğe alır.
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=${VITE_API_URL}
+
+RUN npm run build --workspace apps/web
+
+# --- 2) Statik sunum katmanı (nginx) -----------------------------------------
+FROM nginx:1.27-alpine AS runner
+
+# SPA kuralları + `/api` ters vekili (bkz. docker/web/nginx.conf).
+COPY docker/web/nginx.conf /etc/nginx/conf.d/default.conf
+# Build çıktısı: /srv/web altına statik dosyalar.
+COPY --from=build /app/apps/web/dist /srv/web
+
+EXPOSE 80
+
+# nginx:alpine'de busybox wget vardır. /healthz nginx'in kendi ucudur (statik değil).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1/healthz || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

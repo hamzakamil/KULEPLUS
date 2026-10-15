@@ -1,0 +1,174 @@
+# KULEPLUS — ÜRETİM compose (VPS)
+#
+# Mevcut `docker-compose.yml` GELİŞTİRME altyapısıdır (api/worker host'ta `npm run dev`
+# ile koşar). Bu dosya ise api + worker + migration'ı KONTEYNERDE koşturur;
+# dokümante edilen hedef budur (docs/ROADMAP.md K-12 hosting TR,
+# docs/operations/pending-decisions.md B2 "staging deploy — VPS").
+#
+# Kullanım (--env-file ŞART, iki ayrı iş yapar):
+#   cp .env.production.example .env.production   # sonra gerçek değerleri doldur
+#   docker compose --env-file .env.production -f docker-compose.prod.yml build
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+#
+#   --env-file -> compose'un ${...} interpolasyonu (POSTGRES_SUPER_PASSWORD, portlar)
+#   env_file   -> servislerin konteyner ortamı (DATABASE_URL, JWT_*, ...)
+# İkisi aynı dosyayı gösterir; `--env-file` unutulursa interpolate edilemeyen
+# değişkenler yüzünden compose fail-fast verir (sessiz hatalı başlatma yok).
+#
+# Sıra: postgres/redis sağlıklı -> migrate (bir kez, çıkar) -> api + worker.
+# Build YAPILMAZ; imaj tsx ile .ts kaynaklarını doğrudan çalıştırır (Dockerfile'a bakın).
+#
+# !! PROJE YALITIMI !!
+# `name` VERİLMEDİĞİNDE compose proje adını dizinden alır ("muhasebe") ve bu dosya,
+# dev `docker-compose.yml` ile AYNI projeyi paylaşır. `postgres`/`redis` servis adları
+# de aynı olduğu için `docker compose -f docker-compose.prod.yml up` DEV konteynerlerini
+# "recreate" edip `pgdata` volume'ünü paylaşırdı (ölçüldü: dev stack yeniden kuruldu).
+# Aşağıdaki `name` bu iki dünyayı ayırır: volume'ler `kuleplus-prod_*` olur.
+
+name: kuleplus-prod
+
+# Üç uygulama servisi aynı imajı paylaşır; yalnızca komutları farklıdır.
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: kuleplus:prod
+  env_file: .env.production
+  init: true # SIGTERM'i Node'a iletir — server.ts/runner.ts kapatmayı buna bağlar
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kuleplus-pg-prod
+    restart: unless-stopped
+    environment:
+      # SABİT: docker/postgres/init/01-roles.sql `ALTER DATABASE erp_db ...` diye
+      # hardcode edilmiş. Bu değeri değiştirmek init betiğini kırar — açılır
+      # bırakılmadı (footgun önleme).
+      POSTGRES_DB: erp_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPER_PASSWORD:?POSTGRES_SUPER_PASSWORD zorunlu}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    # Port YAYINLANMIYOR (varsayılan): api/worker/migrate `postgres` servis adıyla
+    # container ağı üzerinden erişir. Host'tan psql gerekirse açılır — dev stack'in
+    # 5432'siyle çakışmamak için farklı host portu kullanın:
+    #   ports:
+    #     - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d erp_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: kuleplus-redis-prod
+    restart: unless-stopped
+    # Kuyruk kayıtları restart'ta kaybolmasın.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    # Port yayınlanmıyor — bkz. postgres notu (container ağı yeterli).
+    #   ports:
+    #     - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Bir kez çalışır, migration'ları uygular ve 0 ile çıkar. Uzun ömürlü servis değildir.
+  migrate:
+    <<: *app
+    container_name: kuleplus-migrate
+    command: ["node", "--import", "tsx", "packages/db/src/migrate.ts", "up"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+  api:
+    <<: *app
+    container_name: kuleplus-api
+    command: ["node", "--import", "tsx", "apps/api/src/server.ts"]
+    ports:
+      # Ters vekil (nginx/Caddy) önüne çıkar; doğrudan public bind yapılmaz.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
+
+  worker:
+    <<: *app
+    container_name: kuleplus-worker
+    command: ["node", "--import", "tsx", "apps/worker/src/runner.ts"]
+    # /healthz yok; süreç ayakta mı yeter.
+    healthcheck:
+      disable: true
+
+  # --- Vue SPA (statik) -------------------------------------------------------
+  # Ayrı imaj: web DERLENİR (Vite), api/worker ise tsx ile çalışır. nginx hem
+  # statik dosyaları sunar hem `/api`'yi `api` servisine proxy'ler -> SPA ile API
+  # aynı origin = CORS yok, SameSite=Lax refresh cookie çalışır.
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        # SPA API'yi göreli `/api`'den çağırır (ters vekil nginx'de).
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    image: kuleplus-web:prod
+    container_name: kuleplus-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # TLS ucu (edge) olmadan da test edilebilsin diye; varsayılan loopback.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8081}:80"
+    # nginx config'i değişirse yeniden başlatmaya gerek yok: dosya imaja gömülüdür.
+
+  # --- TLS ucu ---------------------------------------------------------------
+  # Sertifikaları otomatik alır/yeniler. WEB_DOMAIN gerçek alan adıysa Let's
+  # Encrypt, `localhost` ise Caddy'nin iç CA'sı kullanılır (bkz. Caddyfile).
+  edge:
+    image: caddy:2-alpine
+    container_name: kuleplus-edge
+    restart: unless-stopped
+    # Caddy'nin cert/agent verisi restart'ta kaybolmasın (LE rate-limit koruması).
+    volumes:
+      - ./docker/edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:?WEB_DOMAIN zorunlu (örn. app.kuleplus.com)}
+      CADDY_EMAIL: ${CADDY_EMAIL:?CADDY_EMAIL zorunlu (LE kayıt e-postası)}
+    ports:
+      # ACME HTTP-01 için 80 şart; üretimde 0.0.0.0 olmalı (LETSENCRYPT DNS'i).
+      - "${EDGE_HTTP_BIND:-0.0.0.0}:${EDGE_HTTP_PORT:-80}:80"
+      - "${EDGE_HTTPS_BIND:-0.0.0.0}:${EDGE_HTTPS_PORT:-443}:443"
+      - "${EDGE_HTTPS_BIND:-0.0.0.0}:${EDGE_HTTPS_PORT:-443}:443/udp" # HTTP/3
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      # Caddy imajında sağlık ucu yok; yapılandırma geçerliliği yeterli sinyal.
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

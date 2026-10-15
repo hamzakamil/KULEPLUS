@@ -1,0 +1,41 @@
+# Üretim imajı build'siz çalışır (tsx ile .ts doğrudan çalıştırılır).
+# Buradaki amaç: imajı küçük tutmak ve sırrı / geliştirme artığını imaja sokmamak.
+
+# Bağımlılıklar: `npm ci` imajın içinde çalışır, evdeki node_modules kopyalanmaz.
+node_modules
+**/node_modules
+
+# Git ve araç dizinleri
+.git
+.gitignore
+.gitattributes
+.github
+.claude
+.kilo
+.mcp.json
+
+# Sırlar asla imaja girmez — env, compose tarafından konteynere verilir.
+.env
+.env.*
+!.env.example
+
+# Loglar ve çalışma zamanı artıkları (repoda dağınık halde duruyorlar)
+*.log
+**/*.log
+logs
+screenshots
+
+# Çıktı / rapor dizinleri
+dist
+**/dist
+coverage
+**/coverage
+.nyc_output
+playwright-report
+test-results
+.tmp_probe
+
+# Yerel araç önbellekleri
+.vercel
+.cache
+turbo
