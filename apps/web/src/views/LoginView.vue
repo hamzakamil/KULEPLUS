@@ -8,7 +8,7 @@
       <p class="brand-sub">Türkiye mevzuatına uyumlu, modüler bulut ön muhasebe.</p>
       <ul class="brand-points">
         <li>e-Fatura · KDV · Tek Düzen Hesap Planı</li>
-        <li>Ücretsiz çekirdek, süresiz</li>
+        <li>Ücretsiz model, süresiz</li>
         <li>KVKK uyumlu, verileriniz sizde</li>
       </ul>
     </aside>

@@ -1,11 +1,11 @@
 ---
 title: Ücretsiz paket limitleri neler?
-description: Ücretsiz çekirdek paketin kapsamı ve limit kontrolü.
+description: Ücretsiz modelin kapsamı ve limit kontrolü.
 order: 6
 phase: 2
 ---
 
-## Ücretsiz çekirdek
+## Ücretsiz model
 
 Yeni kayıt olan herkes **süresiz** ücretsiz başlangıç paketine sahip olur. Demo süresi
 yoktur. Paketinizden birini seçersiniz:

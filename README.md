@@ -65,7 +65,7 @@ Türkiye mevzuatına (e-Fatura, e-Arşiv, e-Defter, KDV, Tek Düzen Hesap Planı
 | # | Fikir | Anlamı |
 |---|-------|--------|
 | 1 | **Tek sistem, iki yüz** | Aynı veri; patron için sade özet, muhasebeci için klavye odaklı derin veri girişi. |
-| 2 | **Ücretsiz çekirdek, ücretli modüller** | Yeni kayıt olan herkes süresiz ücretsiz başlangıç paketine sahip (Cari veya Stok). Diğer modüller satın alınır. Demo süresi yoktur. |
+| 2 | **Ücretsiz model, ücretli modüller** | Yeni kayıt olan herkes süresiz ücretsiz başlangıç paketine sahip (Cari veya Stok). Diğer modüller satın alınır. Demo süresi yoktur. |
 | 3 | **Platform kendi gelirini görür** | Şirketler, abonelikler, MRR/ARR, kuponlar ve mali müşavir komisyonları platform panelinden izlenir. |
 
 Çalışma alanları:
@@ -406,7 +406,7 @@ Detay: docs/ROADMAP.md.
 Faz	Başlık	Çıkış kapısı
 0	Temel ve altyapı	CI yeşil, izolasyon testi yeşil
 1	Platform çekirdeği	Kayıt → şirket → rol → paket kilidi e2e
-2	Ücretsiz çekirdek (Cari + Stok + içe aktarma + site)	Genel Beta
+2	Ücretsiz model (Cari + Stok + içe aktarma + site)	Genel Beta
 3	Fatura, tahsilat/ödeme, kasa/banka, gider	İlk ücretli modüller
 4	e-Dönüşüm + SaaS ticari altyapı	İlk ücretli satış
 5	Muhasebe	SMMM golden test imzası

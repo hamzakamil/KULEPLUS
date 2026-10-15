@@ -8,7 +8,7 @@ export const SITE = {
   name: 'Kuleplus',
   tagline: 'Patron için sade, muhasebeci için derin.',
   description:
-    'Türkiye mevzuatına (e-Fatura, KDV, Tek Düzen Hesap Planı, KVKK) uyumlu, modüler bulut ön muhasebe ve ERP platformu. Ücretsiz çekirdek ile başlayın, modülleri ihtiyacınız kadar satın alın.',
+    'Türkiye mevzuatına (e-Fatura, KDV, Tek Düzen Hesap Planı, KVKK) uyumlu, modüler bulut ön muhasebe ve ERP platformu. Ücretsiz modelle başlayın, modülleri ihtiyacınız kadar satın alın.',
   // Astro config'teki `site` değeri (canonical/sitemap için)
   url: import.meta.env.SITE ?? 'http://localhost:4321',
   appUrl: (import.meta.env.PUBLIC_APP_URL ?? 'http://localhost:5173').replace(/\/$/, ''),

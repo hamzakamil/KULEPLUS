@@ -4,7 +4,7 @@
     <aside class="brand-panel">
       <span class="brand-mark" aria-hidden="true">▲</span>
       <p class="brand-name">Kuleplus</p>
-      <blockquote class="brand-headline">Ücretsiz çekirdekle<br />bugün başlayın.</blockquote>
+      <blockquote class="brand-headline">Ücretsiz modelle<br />bugün başlayın.</blockquote>
       <p class="brand-sub">
         Kayıt oldığınız anda çalışma alanınız hazır: cari ve stok kartlarını içe aktarın,
         faturalarınızı aynı gün kesin.

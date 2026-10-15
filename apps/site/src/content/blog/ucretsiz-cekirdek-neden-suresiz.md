@@ -1,6 +1,6 @@
 ---
-title: "Ücretsiz çekirdek neden süresiz? KOBİ’ler için ön muhasebede demo kültürü"
-description: "Demo süresi ve geri sayım yerine süresiz ücretsiz çekirdek: KOBİ’lerin ilk cari kartını bugünden atabilmesi."
+title: "Ücretsiz model neden süresiz? KOBİ’ler için ön muhasebede demo kültürü"
+description: "Demo süresi ve geri sayım yerine süresiz ücretsiz model: KOBİ’lerin ilk cari kartını bugünden atabilmesi."
 pubDate: 2026-10-01
 author: Kuleplus Ekibi
 tags: ["ürün", "fiyatlandırma"]
