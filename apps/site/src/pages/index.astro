@@ -42,6 +42,38 @@ const priceTone: Record<string, string> = {
   Ücretli: 'paid',
   Eklenti: 'addon',
 };
+
+/**
+ * Hero görsel rotasyonu — ürünün GERÇEK ekranlarıdır (apps/web), metin taklidi değildir.
+ * Görseller 1280×920 WebP; `apps/site/public/screenshots/` altında tutulur.
+ * Not: Veriler demo amaçlıdır ("Örnek İnşaat A.Ş." kirası).
+ */
+const heroShots = [
+  {
+    file: 'yonetici-kokpiti',
+    title: 'Yönetici Kokpiti',
+    alt: 'Yönetici kokpiti ekranı: nakit pozisyonu, banka hareketleri, gecikmiş alacaklar ve şantiye kameraları tek ekranda.',
+    note: 'Nakit pozisyonu, banka hareketleri, gecikmiş alacaklar ve şantiye kameraları — yöneticinin gördüğü tek ekran.',
+  },
+  {
+    file: 'cari-hesaplar',
+    title: 'Cari Hesaplar',
+    alt: 'Cari hesaplar ekranı: toplam alacak ve vadesi geçen alacak özetleri ile cari kart listesi ve kart detayı.',
+    note: 'Cari kart, ekstre ve yaşlandırma: kim ne kadar borçlu, hangisi vadeyi aştı — tek listede.',
+  },
+  {
+    file: 'faturalar',
+    title: 'Faturalar',
+    alt: 'Fatura listesi ekranı: satış faturalarının numarası, tarihi, vadesi, cari hesabı, tutarı ve ödeme durumu.',
+    note: 'Satış ve alış faturaları tek yerde: numara, vade, tutar ve ödeme durumu. Süz, dışa aktar.',
+  },
+  {
+    file: 'raporlar',
+    title: 'Raporlar',
+    alt: 'Raporlar ekranı: satış, alış, gider, kasa-banka özetleri ile alacak ve borç durumu kartları.',
+    note: 'Modüller tek raporla konuşur: satış, alış, gider, kasa-banka ve alacak/borç özeti.',
+  },
+];
 ---
 
 <BaseLayout title={SITE.name} description={SITE.description}>
@@ -80,30 +112,58 @@ const priceTone: Record<string, string> = {
           </p>
         </div>
 
-        <div class="hero-visual reveal" style="animation-delay: 0.32s" aria-hidden="true">
-          <div class="dash-card">
+        <div class="hero-visual reveal" style="animation-delay: 0.32s">
+          <div class="dash-card" data-shot-card>
             <div class="dash-head">
-              <span class="dash-title">Yönetici Kokpiti</span>
+              <span class="dash-title" data-shot-title>
+                {heroShots[0].title}
+              </span>
               <span class="dash-live">
                 <span class="dot"></span>Canlı
               </span>
             </div>
-            <!-- Ürünün gerçek ekranı: Yönetici Kokpiti (apps/web /yonetici-kokpiti) -->
-            <figure class="dash-shot">
-              <img
-                src="/screenshots/yonetici-kokpiti.webp"
-                alt=""
-                width="1280"
-                height="920"
-                loading="eager"
-                decoding="async"
-                fetchpriority="high"
-              />
-              <figcaption class="dash-shot-note">
-                Nakit pozisyonu, banka hareketleri, gecikmiş alacaklar ve şantiye kameraları —
-                yöneticinin gördüğü tek ekran.
+
+            <!-- Ürünün gerçek ekranları (apps/web) — birkaç saniyede bir kendiliğinden değişir -->
+            <figure class="dash-shot" data-shot>
+              <div class="dash-shot-stage">
+                {heroShots.map((shot, i) => (
+                  <div
+                    class:list={['dash-shot-slide', { 'is-active': i === 0 }]}
+                    data-title={shot.title}
+                    data-note={shot.note}
+                    inert={i > 0}
+                    aria-hidden={i > 0 ? 'true' : undefined}
+                  >
+                    <img
+                      src={i === 0 ? `/screenshots/${shot.file}.webp` : undefined}
+                      data-src={i === 0 ? undefined : `/screenshots/${shot.file}.webp`}
+                      alt={shot.alt}
+                      width="1280"
+                      height="920"
+                      loading={i === 0 ? 'eager' : 'lazy'}
+                      decoding="async"
+                      fetchpriority={i === 0 ? 'high' : 'low'}
+                    />
+                  </div>
+                ))}
+              </div>
+              <figcaption class="dash-shot-note" data-shot-note>
+                {heroShots[0].note}
               </figcaption>
             </figure>
+
+            <div class="dash-shot-nav" role="group" aria-label="Ürün ekranları arasında geçiş">
+              {heroShots.map((shot, i) => (
+                <button
+                  type="button"
+                  class="dash-shot-dot"
+                  data-shot-index={i}
+                  aria-label={`${i + 1}. ekran: ${shot.title}`}
+                  aria-current={i === 0 ? 'true' : undefined}
+                />
+              ))}
+            </div>
+
             <div class="dash-foot">
               <span class="chip">e-Fatura</span>
               <span class="chip">e-Arşiv</span>
@@ -485,10 +545,74 @@ const priceTone: Record<string, string> = {
     background: #f5f7fa;
   }
 
-  .dash-shot img {
+  /* Rotasyon sahnesi: ekranlar üst üste bindirilir, aktif olan görünür */
+  .dash-shot-stage {
+    position: relative;
+    aspect-ratio: 1280 / 920;
+    background: #f5f7fa;
+  }
+
+  .dash-shot-slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+
+  .dash-shot-slide.is-active {
+    opacity: 1;
+  }
+
+  .dash-shot-slide img {
     display: block;
     width: 100%;
-    height: auto;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Ekran seçme noktaları (fare gerektirmez — klavyeyle de erişilir) */
+  .dash-shot-nav {
+    display: flex;
+    justify-content: center;
+    gap: 0.15rem;
+    padding-top: 0.75rem;
+  }
+
+  .dash-shot-dot {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.4rem;
+    background: none;
+    cursor: pointer;
+  }
+
+  .dash-shot-dot::after {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: #334155;
+    transition:
+      width 0.25s ease,
+      background-color 0.25s ease;
+  }
+
+  .dash-shot-dot:hover::after {
+    background: #64748b;
+  }
+
+  .dash-shot-dot[aria-current='true']::after {
+    width: 1.35rem;
+    background: #22d3ee;
+  }
+
+  .dash-shot-dot:focus-visible {
+    outline: 2px solid #22d3ee;
+    outline-offset: 2px;
   }
 
   .dash-shot-note {
@@ -578,6 +702,11 @@ const priceTone: Record<string, string> = {
     .dash-card,
     .dash-live .dot {
       animation: none !important;
+    }
+
+    .dash-shot-slide,
+    .dash-shot-dot::after {
+      transition: none !important;
     }
 
     .hero .btn:hover {
@@ -871,3 +1000,106 @@ const priceTone: Record<string, string> = {
     }
   }
 </style>
+
+<!--
+  Hero görsel rotasyonu — ürün ekranları sırayla değişir.
+  · İmleç kartın üzerindeyken veya klavye kartın içine girdiğinde durur
+  · Sekme arka plandayken çalışmaz; prefers-reduced-motion açıksa döngü hiç kurulmaz
+  · JS kapalıysa ilk ekran görünür kalır (istismara açık animasyon yok)
+-->
+<script>
+  (function () {
+    var card = document.querySelector('[data-shot-card]');
+    var figure = document.querySelector('[data-shot]');
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.dash-shot-slide'));
+    if (!card || !figure || slides.length < 2) return;
+
+    var dots = Array.prototype.slice.call(document.querySelectorAll('[data-shot-index]'));
+    var title = document.querySelector('[data-shot-title]');
+    var note = document.querySelector('[data-shot-note]');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var current = 0;
+    var timer = null;
+    var paused = false;
+
+    function show(index) {
+      current = (index + slides.length) % slides.length;
+      slides.forEach(function (slide, i) {
+        var active = i === current;
+        slide.classList.toggle('is-active', active);
+        // aktif olmayan ekran klavye ve ekran okuyucu dışında kalır
+        slide.inert = !active;
+        if (active) slide.removeAttribute('aria-hidden');
+        else slide.setAttribute('aria-hidden', 'true');
+      });
+      dots.forEach(function (dot, i) {
+        if (i === current) dot.setAttribute('aria-current', 'true');
+        else dot.removeAttribute('aria-current');
+      });
+      if (title) title.textContent = slides[current].getAttribute('data-title') || '';
+      if (note) note.textContent = slides[current].getAttribute('data-note') || '';
+    }
+
+    function stop() {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function start() {
+      stop();
+      if (paused || reduce.matches) return;
+      timer = window.setInterval(function () {
+        show(current + 1);
+      }, 6000);
+    }
+
+    // Kullanici kartla etkileşirken döngü durur (imleç/maruziyet karta girdiğinde)
+    function pause() {
+      paused = true;
+      stop();
+    }
+
+    function resume() {
+      paused = false;
+      start();
+    }
+
+    // LCP için: yalnızca ilk ekran yüklenir, diğerleri sayfa açıldıktan sonra alınır
+    function loadRest() {
+      slides.forEach(function (slide, i) {
+        if (i === 0) return;
+        var img = slide.querySelector('img[data-src]');
+        if (img) img.src = img.getAttribute('data-src') || '';
+      });
+    }
+
+    window.addEventListener('load', function () {
+      if ('requestIdleCallback' in window) window.requestIdleCallback(loadRest, { timeout: 4000 });
+      else loadRest();
+    });
+
+    dots.forEach(function (dot) {
+      dot.addEventListener('click', function () {
+        show(parseInt(dot.getAttribute('data-shot-index') || '0', 10));
+        start();
+      });
+    });
+
+    ['mouseenter', 'focusin'].forEach(function (event) {
+      card.addEventListener(event, pause);
+    });
+    card.addEventListener('focusout', function (event) {
+      if (!card.contains(event.relatedTarget)) resume();
+    });
+    card.addEventListener('mouseleave', resume);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else start();
+    });
+
+    show(0);
+    start();
+  })();
+</script>
