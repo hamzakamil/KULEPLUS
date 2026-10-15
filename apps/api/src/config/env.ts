@@ -11,7 +11,10 @@ export const envSchema = z.object({
   APP_URL: z.string().url().default('http://localhost:5173'),
   API_URL: z.string().url().default('http://localhost:3000'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL zorunlu'),
-  REDIS_URL: z.string().min(1, 'REDIS_URL zorunlu'),
+  // API sürecinin Redis istemcisi yoktur; kuyruk tüketicisi ayrı worker
+  // sürecidir. Bu yüzden HTTP API'nin (ör. Vercel Function) başlaması Redis
+  // bağlantı bilgisini gerektirmez.
+  REDIS_URL: z.string().min(1).optional(),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET en az 32 karakter olmalı'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET en az 32 karakter olmalı'),
   // Ödeme sağlayıcısı (Faz 4 K-08). Varsayılan mock; iyzico seçilirse anahtarlar zorunlu.
