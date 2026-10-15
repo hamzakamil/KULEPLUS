@@ -152,7 +152,8 @@ const verifyTotpCode = async () => {
 };
 
 const finishSetup = () => {
-  router.push('/dashboard');
+  // Yönetici kokpite, diğer kullanıcılar panele döner.
+  void router.push({ name: authStore.landingRoute });
 };
 
 const copyToClipboard = (text: string) => {

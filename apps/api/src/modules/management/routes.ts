@@ -55,7 +55,9 @@ import type {
 } from './schemas';
 import { ManagementService } from './service';
 import { ManagementDashboardService } from './dashboard.service';
+import { ManagementCockpitService } from './cockpit.service';
 import { ApprovalService } from './approval.service';
+import { loadPermissionGrants } from '../../middleware/permission-grants';
 import { ruleUpsertSchema, type RuleUpsertInput } from './rules';
 
 const router = Router();
@@ -65,6 +67,7 @@ router.use(authenticate, tenantContext, requireEntitlement('management'));
 
 const service = new ManagementService();
 const dashboardService = new ManagementDashboardService();
+const cockpitService = new ManagementCockpitService();
 const approvalService = new ApprovalService();
 
 const canTaskRead = requirePermission('management.task.read');
@@ -119,6 +122,31 @@ router.get(
     res.json(await dashboardService.summary(tenant(req)));
   }),
 );
+
+// ======================= Yönetici Kokpiti (canlı yüklemesi) =======================
+
+/**
+ * Kokpitin tek veri ucu: KPI şeridi, hesap bakiyeleri, cari, nakit akışı,
+ * vadeler, çek/senet, stok, onay kuyruğu ve kural motoru uyarıları.
+ *
+ * `approvalsEditable` alanı için karar yetkisi ayrıca sorgulanır — iframe'deki
+ * "Onayla/Reddet" düğmeleri yalnızca yetkisi olan kullanıcıda çalışır; asıl
+ * zorlama `POST /approvals/:id/decide` ucunda yine backend'dedir.
+ */
+router.get(
+  '/cockpit',
+  canDashboardRead,
+  handle(async (req, res) => {
+    const grants = await loadPermissionGrants(tenant(req), userId(req));
+    res.json(
+      await cockpitService.payload({
+        tenantId: tenant(req),
+        canDecideApprovals: grants.isOwner || grants.codes.has('management.approval.decide'),
+      }),
+    );
+  }),
+);
+
 
 // Kural motoru ayarları (T-7.5: hazır kurallar kod + parametreler DB).
 

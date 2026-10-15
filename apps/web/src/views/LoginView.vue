@@ -128,7 +128,10 @@ const handleLogin = async () => {
     if (response.user?.totpEnabled) {
       router.push('/2fa/verify');
     } else {
-      router.push('/dashboard');
+      // Varış yeri role göre belirlenir: yönetici → Yönetici Kokpiti,
+      // diğer kullanıcılar → klasik Panel. Rol JWT'de gelmez, `/me`'den çözülür.
+      await authStore.fetchMe();
+      await router.push({ name: authStore.landingRoute });
     }
   } catch (err: any) {
     const status = err.response?.status;

@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
-import { getPool } from '@kuleplus/db';
 import { AppError, isValidPermissionCode } from '@kuleplus/shared';
 import type { AuthenticatedRequest } from './auth.js';
 import type { TenantRequest } from './tenant.js';
+import { loadPermissionGrants, type PermissionGrants } from './permission-grants.js';
 
 /**
  * RBAC kapısı — SPEC §6.3 değerlendirme zinciri:
@@ -24,53 +24,28 @@ import type { TenantRequest } from './tenant.js';
  * - `isValidPermissionCode` başarısız olursa (katalogda olmayan kod) geliştirme
  *   hatasıdır — 500 yerine açık FORBIDDEN + konsol uyarısı verilir.
  */
-const grantCache = new WeakMap<Request, Promise<{ isOwner: boolean; codes: Set<string> }>>();
+const grantCache = new WeakMap<Request, Promise<PermissionGrants>>();
 
-async function loadGrants(req: Request): Promise<{ isOwner: boolean; codes: Set<string> }> {
-  const tenantId = (req as TenantRequest).tenantId ?? (req as AuthenticatedRequest).user?.tenantId;
-  const userId = (req as AuthenticatedRequest).user?.sub;
-  if (!tenantId || !userId) {
-    throw new AppError('UNAUTHENTICATED', 'Tenant context yok');
+/**
+ * İstek içi önbellek: aynı istekte birden fazla `requirePermission` varsa izin
+ * sorgusu bir kez çalışır. Çözümleme mantığı `permission-grants.ts`te (tek kaynak).
+ */
+function grantsFor(req: Request): Promise<PermissionGrants> {
+  let grants = grantCache.get(req);
+  if (!grants) {
+    const tenantId =
+      (req as TenantRequest).tenantId ?? (req as AuthenticatedRequest).user?.tenantId;
+    const userId = (req as AuthenticatedRequest).user?.sub;
+    grants = loadPermissionGrants(tenantId, userId);
+    grantCache.set(req, grants);
   }
-
-  const pool = getPool('app');
-
-  // Owner mu? (tenant_users is_owner — SPEC §6.6) — üyelik yoksa satır gelmez → fail-closed.
-  const ownerResult = await pool.query<{ is_owner: boolean }>(
-    `SELECT is_owner FROM tenant_users WHERE tenant_id = $1 AND user_id = $2 LIMIT 1`,
-    [tenantId, userId],
-  );
-  const isOwner = ownerResult.rows[0]?.is_owner ?? false;
-  const codes = new Set<string>();
-
-  if (!isOwner) {
-    // Kullanıcının rollerinin izin kodlarını çöz — RLS'siz zincir (core tablolar),
-    // tenant_id filtreleri açık bekletilir (SPEC §7.0: permissions globaldir).
-    const permResult = await pool.query<{ code: string }>(
-      `SELECT DISTINCT p.code
-         FROM tenant_user_roles tur
-         JOIN roles r ON r.id = tur.role_id AND r.tenant_id = tur.tenant_id
-         JOIN role_permissions rp ON rp.tenant_id = tur.tenant_id
-               AND rp.role_id = tur.role_id
-         JOIN permissions p ON p.id = rp.permission_id
-        WHERE tur.tenant_id = $1 AND tur.user_id = $2`,
-      [tenantId, userId],
-    );
-    for (const row of permResult.rows) codes.add(row.code);
-  }
-
-  return { isOwner, codes };
+  return grants;
 }
 
 export function requirePermission(...required: string[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      let grants = grantCache.get(req);
-      if (!grants) {
-        grants = loadGrants(req);
-        grantCache.set(req, grants);
-      }
-      const { isOwner, codes } = await grants;
+      const { isOwner, codes } = await grantsFor(req);
 
       if (isOwner) {
         next();

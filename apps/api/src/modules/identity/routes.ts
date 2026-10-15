@@ -2,6 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { IdentityService } from './service.js';
 import { validate } from '../../middleware/validate.js';
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
+import { tenantContext, type TenantRequest } from '../../middleware/tenant.js';
+import { loadPermissionGrants } from '../../middleware/permission-grants.js';
 import {
   registerSchema,
   loginSchema,
@@ -9,7 +11,7 @@ import {
   verifyTwoFactorSchema,
   disableTwoFactorSchema,
 } from './schemas.js';
-import { AppError } from '@kuleplus/shared';
+import { AppError, PERMISSIONS } from '@kuleplus/shared';
 
 const router = Router();
 const service = new IdentityService();
@@ -108,6 +110,44 @@ router.post('/logout', async (req: Request, res: Response, next: NextFunction) =
     next(error);
   }
 });
+
+/**
+ * Oturum sahibi — rol ve efektif izinler (frontend yetki kapısı için).
+ *
+ * Neden gerekli? JWT yalnızca `sub/email/tenantId` taşır; frontend'de "bu kullanıcı
+ * yönetici mi?" sorusunu cevaplayacak hiçbir sinyaldi yoktu (rol yok). Bu uç,
+ * `requirePermission` ile BİREBİR aynı çözümlemeyi kullanır (`permission-grants.ts`),
+ * böylece frontend'de gizlenen menü ile backend'in verdiği 403 birbirini tutar.
+ *
+ * Owner (`is_owner`) → kataloğun tamamı yetkili sayılır (SPEC §6.6).
+ * Yetki YALNIZCA burada bildirilir; asıl koruma her endpoint'te `requirePermission`.
+ */
+router.get(
+  '/me',
+  authenticate,
+  tenantContext,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authReq = req as TenantRequest;
+      const grants = await loadPermissionGrants(authReq.tenantId, authReq.user?.sub, {
+        withRoles: true,
+      });
+      const permissions = grants.isOwner
+        ? PERMISSIONS.map((p) => p.code)
+        : [...grants.codes].sort();
+
+      res.json({
+        user: { id: authReq.user?.sub, email: authReq.user?.email },
+        tenantId: authReq.tenantId,
+        isOwner: grants.isOwner,
+        roles: grants.roles,
+        permissions,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Şifre sıfırlama talebi */
 router.post('/password/reset', async (req: Request, res: Response, next: NextFunction) => {

@@ -771,13 +771,16 @@ Muhasebe derinliğini tamamlayıp üst pakete değer katmak.
 - ✅ Çek / Senet (cheque): cheques, cheque_transactions, cheque_portfolio — portföy, ciro, tahsil, karşılıksız, vade takvimi, durum geçmişi + muhasebe kaydı (tahsil: borç kasa/banka ↔ alacak 120/320; karşılıksız: tersi; hesap çözümleme account_mappings → TDHP fallback 100/102/120/320; JournalPort/DIP ile durum geçişiyle atomik, gap-free entry_no). ✅ backend (202610240000_cheques) + ✅ Web UI (ChequeView: yeni çek/senet, ciro/tahsil/karşılıksız/iptal, portföy özeti, ✓ vade takvimi + ✓ durum geçmişi modal'ı) + ✅ test (20261024: cheque.test.ts — CRUD, durum makinesi kısıtları, muhasebe entegrasyonu).
 □ Döviz: TCMB kur içe aktarma (exchange_rates — SPEC §9.2) ✅ backend + ✅ Web UI (Kasa/Banka altında "Döviz Kurları" ekranı: TCMB'den içe aktar, güncel kurlar, kur geçmişi, dönem sonu değerleme raporu) + dönem sonu değerleme (revalue) ✅ backend + ✅ değerleme → kapanış fişi (202610460000 + POST /exchange-rates/revalue/book: 645 kambiyo kârı / 655 kambiyo zararı + kasa/banka TL karşılığına dengeli `mahsup` yevmiye fişi; aynı tarih için idempotent) + tahsilat/ödeme anı kur farkı ✅ backend (bakınız Faz 6.6).
 □ Çoklu para birimi (Faz 3'ten ertelenen — K-05): belge düzeyinde çok para birimi ve kur ✅ backend (202610450000: `invoices.rate_date` + `base_total`) + ✅ Web UI (fatura formunda kur/kur tarihi alanları — boş bırakılınca tarihe göre otomatik TCMB kuru; liste ve detayda TRY karşılık görünümü). Kur farkı muhasebeleştirme ✅ backend (202610450001: addPayment ödeme günü kuruyla TRY karşılık; fatura kuru ile fark 645 "kambiyo kârı" / 655 "kambiyo zararı" hesabına tahsilat/ödeme fişinde yazılır; ödemenin kuru + TRY karşılığı invoice_payments'ta kalıcı).
-□ KDV hazırlık raporu (hesaplanan/indirilecek/devreden, tevkifat, istisna) + belge–defter mutabakatı.
-□ Ba-Bs raporu, cari mutabakat mektubu.
-□ e-İrsaliye (entegratör adapter'ı üzerinden).
+- ✅ KDV hazırlık raporu (hesaplanan/indirilecek/devreden + tevkifat) ✅ backend (`/reports/vat`; satır bazlı `withholding_rate` — migration 202610470000) + ✅ Web UI (Raporlar → KDV Hazırlık: KPI kartları, satış/alış oran tabloları, tevkifat özeti) + ✅ test (reports.spec.ts).
+- □ Belge–defter mutabakatı (KDV raporu ile defter uyumu — ayrı kalem; backend `/reports/ledger-reconciliation` hazır, UI bekliyor).
+- ✅ Ba-Bs raporu ✅ backend (`/reports/babs` — eşik parametrik, varsayılan 5000 TL; T-6.4) + ✅ Web UI (Ba-Bs Bildirim sekmesi: banka 10/120 dökümü, eşik üstü satırlar, eşik girişi) + ✅ test.
+- ✅ Cari mutabakat mektubu ✅ backend (`/reports/contacts/:id/reconciliation` — hareket dökümü + vadesi geçmiş özet) + ✅ Web UI (Cari Mutabakat sekmesi: cari seçici → döküm) + ✅ test.
+- □ e-İrsaliye (entegratör adapter'ı üzerinden).
 □ e-Defter: yevmiye/kebir XML üretimi, berat süreci (EDefterProvider port'u).
 □ Sabit kıymet ve amortisman (basit).
 □ Maliyet merkezi / proje etiketi (opsiyonel boyut).
-□ Vade bazlı nakit akış tahmini, gelişmiş yaşlandırma (reports_plus).
+- ✅ Vade bazlı nakit akış tahmini ✅ backend (`/reports/cash-flow-forecast` — haftalık kovalar) + ✅ Web UI (Nakit Akış Tahmini sekmesi: giriş/çıkış/net, kovalar) + ✅ test.
+- □ Gelişmiş yaşlandırma (reports_plus) — temel alacak/borç yaşlandırma sekmeleri mevcuttur; ileri düzey vade/iş akışı tahmini ayrı kalem.
 □ Banka ekstre eşleştirmede kural öğrenme (kullanıcı onaylı).
 Kabul Kriterleri
 □ e-Defter: XML şema doğrulaması geçiyor.

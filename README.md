@@ -1,3 +1,19 @@
+evren_llm_XeoVBDNYuxTS4dkho8cCcvQ5aVsuUr7uVhPw4M3LzjA
+
+betulevren
+evren_llm_jWdZcjS5zHVWNRati09LTJop_k5JfPb3KQgiz5WJuug
+
+deepseek-v4.1-flash
+mimo-v2.6-pro
+glm-5.3
+qwen3.8-flash-next
+gemma-4-31b
+https://evren-llmapi.ssyz.org.tr/v1
+
+
+
+
+
 # Kurumsal Bulut ERP & Ön Muhasebe Platformu
 
 ### Patron için sade, muhasebeci için derin. Modüler, çok şirketli (multi-tenant) bulut yazılımı.

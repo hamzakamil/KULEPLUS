@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { t } from '@/i18n';
-import { useAuthStore } from '@/stores/auth';
+import { useAuthStore, COCKPIT_PERMISSION } from '@/stores/auth';
 import { useInvoiceStore } from '@/stores/invoices';
 import { useEntitlementStore } from '@/stores/entitlement';
 import { useCompanyStore } from '@/stores/company';
@@ -27,7 +27,13 @@ const currentCompanyName = computed(
 
 async function loadShell() {
   if (!auth.isAuthenticated) return;
-  await Promise.all([entitlements.fetchEntitlements(), companies.fetchCompanies()]);
+  // `fetchMe` rol/izinleri getirir — menüdeki izin filtreli maddeler buna bağlıdır.
+  // Sayfa yenilendiğinde (F5) guard tetiklenmeyebilir, bu yüzden kabuk burada çağırır.
+  await Promise.all([
+    entitlements.fetchEntitlements(),
+    companies.fetchCompanies(),
+    auth.fetchMe(),
+  ]);
 }
 onMounted(loadShell);
 watch(isAuthenticated, (value) => {
@@ -118,9 +124,21 @@ initializeWorkspace();
  *  `module` alanı entitlement kapısı içindir (GOVERNANCE §2 modül kodları). */
 const navGroups: {
   label: string;
-  items: { to: string; label: string; module?: string }[];
+  items: { to: string; label: string; module?: string; permission?: string }[];
 }[] = [
-  { label: 'Genel', items: [{ to: '/dashboard', label: 'Panel' }] },
+  {
+    label: 'Genel',
+    items: [
+      { to: '/dashboard', label: 'Panel' },
+      // `permission` alanı olan maddeler yalnızca izni olan kullanıcıya görünür.
+      {
+        to: '/yonetici-kokpiti',
+        label: 'Yönetici Kokpiti',
+        module: 'management',
+        permission: COCKPIT_PERMISSION,
+      },
+    ],
+  },
   {
     label: 'Muhasebe',
     items: [
@@ -160,6 +178,21 @@ const navGroups: {
     items: [{ to: '/settings', label: 'Ayarlar' }],
   },
 ];
+
+/**
+ * Menü — izin filtresi. `permission` alanı olan maddeler yalnızca o izne sahip
+ * kullanıcıya gösterilir; hiç madde kalmayan grup başlığıyla birlikte gizlenir.
+ * BU KOLAYLIK GÜVENLİK KAPISI DEĞİLDİR: asıl yetki her endpoint'te backend'de
+ * (`requirePermission`) verilir. Buradaki filtre yalnızca gezinme gürültüsünü azaltır.
+ */
+const visibleNavGroups = computed(() =>
+  navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || auth.can(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0),
+);
 
 /**
  * Ağaç menü durumu: grup başlıkları tıklanınca alt menüler açılır/kapanır.
@@ -207,7 +240,7 @@ function toggleGroup(groupLabel: string) {
       </RouterLink>
 
       <nav aria-label="Ana menü" class="side-nav">
-        <div v-for="group in navGroups" :key="group.label" class="nav-group">
+        <div v-for="group in visibleNavGroups" :key="group.label" class="nav-group">
           <button
             type="button"
             class="nav-group-toggle"

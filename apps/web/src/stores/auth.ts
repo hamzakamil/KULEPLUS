@@ -16,6 +16,29 @@ export interface Company {
   taxNumber: string;
 }
 
+/** `roles` tablosu — `code` nullable (migration 202610050001). */
+export interface UserRole {
+  id: string;
+  name: string;
+  code: string | null;
+}
+
+/**
+ * Yönetici kokpiti kapısı. Backend'deki gerçek izin kodu
+ * (`packages/shared/permissions.ts` → `management.dashboard.read`); frontend
+ * YALNIZCA menü/yönlendirme için okur, asıl yetki endpoint'te verilir.
+ */
+export const COCKPIT_PERMISSION = 'management.dashboard.read';
+
+/** `GET /api/v1/auth/me` yanıt sözleşmesi. */
+export interface MeResponse {
+  user: { id: string; email: string };
+  tenantId: string;
+  isOwner: boolean;
+  roles: UserRole[];
+  permissions: string[];
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // Oturumu saklama yerinden geri yükle (localStorage: beni hatırla, sessionStorage: tek sekme)
   const token = ref<string | null>(getAccessToken());
@@ -23,6 +46,20 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null);
   const loading = ref(false);
   const rememberMe = ref<boolean>(isRemembered());
+
+  /**
+   * RBAC durumu. JWT rol TAŞIMAZ (yalnızca sub/email/jti/tenantId/authVersion),
+   * bu yüzden rol ve izinler `GET /v1/auth/me` ile backend'den çözülür.
+   * Frontend kendi rolünü uydurmaz: buradaki liste, backend'in `requirePermission`
+   * kararıyla aynı kaynaktan (`permission-grants.ts`) gelir.
+   */
+  const roles = ref<UserRole[]>([]);
+  const permissions = ref<string[]>([]);
+  /** `tenant_users.is_owner` — owner tüm izinleri taşır (SPEC §6.6). */
+  const isOwner = ref(false);
+  const profileLoaded = ref(false);
+  /** Eşzaman guard çağrılarında tek istek — korunan rota yanlışlıkla reddedilmesin. */
+  let mePromise: Promise<boolean> | null = null;
 
   // Initialize company from storage if token exists
   if (token.value) {
@@ -35,6 +72,8 @@ export const useAuthStore = defineStore('auth', () => {
   const login = async (email: string, password: string, remember = true, totpCode?: string) => {
     loading.value = true;
     error.value = null;
+    // Önceki hesabın rol/izinleri yeni oturuma taşınmasın.
+    clearProfile();
     try {
       const response = await api.post('/v1/auth/login', {
         email: email.trim().toLowerCase(),
@@ -68,6 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = null;
     company.value = null;
+    clearProfile();
     clearSession();
     window.location.href = '/login';
   };
@@ -128,6 +168,51 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
+  /** Oturum profiline ait RBAC durumunu sıfırla. */
+  const clearProfile = () => {
+    roles.value = [];
+    permissions.value = [];
+    isOwner.value = false;
+    profileLoaded.value = false;
+    mePromise = null;
+  };
+
+  /**
+   * Rol + izinleri yükler (önbellekli, eşzaman çağrılarda tek istek).
+   * Hata → fail-closed: liste boş kalır, korunan rotalar reddedilir.
+   */
+  const fetchMe = (force = false): Promise<boolean> => {
+    if (!token.value) return Promise.resolve(false);
+    if (profileLoaded.value && !force) return Promise.resolve(true);
+    if (!mePromise) {
+      mePromise = (async () => {
+        try {
+          const response = await api.get<MeResponse>('/v1/auth/me');
+          roles.value = response.data.roles ?? [];
+          permissions.value = response.data.permissions ?? [];
+          isOwner.value = response.data.isOwner === true;
+          profileLoaded.value = true;
+          return true;
+        } catch {
+          clearProfile();
+          return false;
+        }
+      })();
+    }
+    return mePromise;
+  };
+
+  const permissionIndex = computed(() => new Set(permissions.value));
+
+  /** İzin sorgusu — yalnızca menü/yönlendirme içindir, güvenlik kapısı DEĞİLDİR. */
+  const can = (code: string): boolean => isOwner.value || permissionIndex.value.has(code);
+
+  /** Yönetici kokpitine erişebilir mi? (owner veya `management.dashboard.read`) */
+  const isManager = computed(() => can(COCKPIT_PERMISSION));
+
+  /** Giriş sonrası varış yeri: yönetici → kokpit, diğerleri → klasik panel. */
+  const landingRoute = computed(() => (isManager.value ? 'management-cockpit' : 'dashboard'));
+
   const isAuthenticated = computed(() => !!token.value);
 
   return {
@@ -136,6 +221,15 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     loading,
     rememberMe,
+    roles,
+    permissions,
+    isOwner,
+    profileLoaded,
+    isManager,
+    landingRoute,
+    can,
+    fetchMe,
+    clearProfile,
     login,
     logout,
     get2FASetup,

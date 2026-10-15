@@ -16,6 +16,7 @@ import TwoFactorVerifyView from '../views/TwoFactorVerifyView.vue';
 import AccountingView from '../views/AccountingView.vue';
 import ChequeView from '../views/ChequeView.vue';
 import { useAuthStore } from '@/stores/auth';
+import { COCKPIT_PERMISSION } from '@/stores/auth';
 import IntegrationsView from '../views/IntegrationsView.vue';
 import SubscriptionView from '../views/SubscriptionView.vue';
 import EInvoiceView from '../views/EInvoiceView.vue';
@@ -25,6 +26,19 @@ import EInvoiceView from '../views/EInvoiceView.vue';
  * | Route | Ekran | Görünüm | Rol/Permission | Faz | İlgili API |
  * Faz 1: /login, platform rotaları · Faz 2: /dashboard, /contacts, /stock, /invoices
  */
+/**
+ * Rota meta sözleşmesi. `permission` tanımlıysa guard, `/v1/auth/me` ile çözülen
+ * izin listesinde o kodu arar; tanımsızsa yalnızca oturum yeterlidir.
+ */
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean;
+    isPublic?: boolean;
+    /** İzin kodu — `packages/shared/permissions.ts` kataloğundan. */
+    permission?: string;
+  }
+}
+
 const routes: RouteRecordRaw[] = [
   { path: '/', name: 'home', component: HomeView },
   { path: '/login', name: 'login', component: LoginView },
@@ -50,6 +64,14 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   { path: '/dashboard', name: 'dashboard', component: DashboardView, meta: { requiresAuth: true } },
+  // Yönetici Kokpiti — yalnızca `management.dashboard.read` izni olanlar (veya owner).
+  // Kaynak HTML `public/`ten `src/cockpit/`e taşındı; artık doğrudan URL ile açılamaz.
+  {
+    path: '/yonetici-kokpiti',
+    name: 'management-cockpit',
+    component: () => import('@/views/ManagementCockpitView.vue'),
+    meta: { requiresAuth: true, permission: COCKPIT_PERMISSION },
+  },
   { path: '/contacts', name: 'contacts', component: ContactsView, meta: { requiresAuth: true } },
   {
     path: '/contacts/new',
@@ -193,8 +215,8 @@ const router = createRouter({
   routes,
 });
 
-// Navigation guard for authentication check
-router.beforeEach((to, _from) => {
+// Navigation guard — kimlik doğrulama + rol/izin (RBAC)
+router.beforeEach(async (to, _from) => {
   const requiresAuth = to.meta.requiresAuth;
   const isPublic = to.meta.isPublic === true;
   const authStore = useAuthStore();
@@ -208,10 +230,24 @@ router.beforeEach((to, _from) => {
       return { name: 'login' };
     }
     return true;
-  } else if (!requiresAuth && !isPublic && authStore.isAuthenticated && to.name !== 'dashboard') {
-    // If already authenticated and trying to access login, redirect to dashboard.
+  }
+
+  // Rol/izin kapısı. JWT rol TAŞIMAZ → roller `GET /v1/auth/me` ile backend'den
+  // çözülür (önbellekli: guard her gezinmede çağırır ama istek tek sefer gider).
+  // `/me` başarısız olursa fail-closed → izin yok sayılır ve rota reddedilir.
+  if (requiresAuth && to.meta.permission && authStore.isAuthenticated) {
+    await authStore.fetchMe();
+    if (!authStore.can(to.meta.permission)) {
+      return { name: 'dashboard' };
+    }
+  }
+
+  if (!requiresAuth && !isPublic && authStore.isAuthenticated && to.name !== 'dashboard') {
+    // Oturum açıkken giriş/ana ekrana dönüş → kullanıcının VARIŞ yerine gönderilir:
+    // yönetici kokpite, diğer kullanıcılar klasik panele.
     // `meta.isPublic` ekranları (davet/şifre sıfırlama bağlantıları) bundan muaftır.
-    return { name: 'dashboard' };
+    await authStore.fetchMe();
+    return { name: authStore.landingRoute };
   }
   return true;
 });
