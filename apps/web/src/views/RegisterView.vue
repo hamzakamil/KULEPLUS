@@ -106,7 +106,7 @@
           <div class="field">
             <label class="field-label" for="register-module">İlk adımınız</label>
             <select id="register-module" v-model="startingModule" class="input">
-              <option value="">Sadece çekirdek ile başla</option>
+              <option value="">Ücretsiz model ile başla</option>
               <option value="contacts">Cari hesapları içe aktar</option>
               <option value="stock">Stok kartlarını içe aktar</option>
             </select>
