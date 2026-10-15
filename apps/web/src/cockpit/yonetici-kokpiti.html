@@ -167,6 +167,25 @@ body.free-on .grid>*.fdrag{z-index:50;opacity:.95}
 #mobEdit.show{display:block}
 @media (min-width:1000px){#mobEdit{display:none!important}}
 @media (max-width:999px){#editBtn,#freeBtn{display:none!important}}
+/* Telefon (≤699px): başlık 4 satıra akar — 1) marka + düğmeler, 2) selamlama + rozet,
+   3) kur şeridi (tek satır, yatay kaydırılabilir), 4) düzenleme araçları. Başlık
+   yapışkan değil; içerikle birlikte kayar, böylece ekran içerik için kalır. */
+@media (max-width:699px){
+ .top{position:relative;flex-wrap:wrap;gap:8px 10px;padding:10px 12px 12px}
+ .top .ident{order:0;flex:none}
+ #refreshBtn{order:1;margin-left:auto}
+ #allToggle{order:1;padding:6px 10px;min-height:36px;font-size:.82rem}
+ .hi{order:2;flex:1 1 180px;min-width:0}
+ .hi b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #dataPill{order:2;margin-left:auto;font-size:.72rem;padding:1px 8px}
+ .wx{order:3;flex:1 1 100%;min-width:0;display:flex;gap:14px;overflow-x:auto;white-space:nowrap;text-align:left;font-size:.82rem;line-height:1.3;scrollbar-width:none}
+ .wx::-webkit-scrollbar{display:none}
+ .wx>div{display:contents}
+ .wx .sep,.wx .chg{display:none}
+ .wx .rt:not(.keep){display:none}
+ #prevBtn,#resetBtn,#magBtn{order:4}
+ body.editing #prevBtn,body.editing #resetBtn,body.editing #magBtn{flex:1 1 auto;padding:6px 8px;min-height:36px;font-size:.8rem}
+}
 </style>
 </head>
 <body>
@@ -977,12 +996,15 @@ function drawPill(err){
 /* Kur şeridi: canlı liste (Gramhane → TCMB yedeği) çizilir; satış fiyatı esas
    alınır, alış/satış spread'i tooltip'te gösterilir. Kaynak + saat başlıkta. */
 const fmtr=(v,unit)=>(v==null||isNaN(v))?'—':v.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+(unit==='USD'?' $':' ₺');
+/* Telefonda kur şeridinde yalnızca bu kalemler kalır (CSS: .wx .rt:not(.keep)). */
+const MOBILE_RATES=['dolar','euro','gram altın'];
 function rateRow(it){
   const v=(it.sell==null?it.buy:it.sell);
   const chg=(it.changePercent==null||isNaN(Number(it.changePercent)))
     ?''
     :' <span class="chg">'+(Number(it.changePercent)>0?'+':'')+Number(it.changePercent).toLocaleString('tr-TR',{maximumFractionDigits:2})+'%</span>';
-  return '<b>'+esc(it.label)+'</b> '+fmtr(v,it.unit)+chg;
+  const keep=MOBILE_RATES.includes(String(it.label).toLocaleLowerCase('tr-TR'));
+  return '<span class="rt'+(keep?' keep':'')+'"><b>'+esc(it.label)+'</b> '+fmtr(v,it.unit)+chg+'</span>';
 }
 function drawFx(){
   const wx=$('#wx');

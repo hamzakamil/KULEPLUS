@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { t } from '@/i18n';
 import { useAuthStore, COCKPIT_PERMISSION } from '@/stores/auth';
 import { useInvoiceStore } from '@/stores/invoices';
@@ -9,7 +9,17 @@ import { useCompanyStore } from '@/stores/company';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 const isAuthenticated = computed(() => auth.isAuthenticated);
+
+/** Telefonda (≤60rem) kenar çubuğu çekmecedir; yalnızca üst çubuktaki ☰ ile açılır. */
+const menuOpen = ref(false);
+watch(
+  () => route.fullPath,
+  () => {
+    menuOpen.value = false;
+  },
+);
 const userName = computed(() => auth.company?.name || 'Kullanıcı');
 
 /** Modül hakları + şirket listesi — oturum açılınca bir kez yüklenir (Faz 2 kabuk). */
@@ -233,8 +243,27 @@ function toggleGroup(groupLabel: string) {
   <RouterView v-if="!isAuthenticated" />
 
   <!-- Uygulama kabuğu: sabit sol kenar çubuğu + içerik alanı -->
-  <div v-else class="app-shell">
-    <aside class="sidebar">
+  <div v-else class="app-shell" :class="{ 'menu-open': menuOpen }">
+    <!-- Yalnızca telefonda görünür: marka + menü düğmesi -->
+    <header class="mobile-bar">
+      <RouterLink to="/dashboard" class="mobile-brand" aria-label="Kuleplus Panel">
+        <span class="brand-mark" aria-hidden="true">▲</span>
+        <span>Kuleplus</span>
+      </RouterLink>
+      <button
+        type="button"
+        class="menu-btn"
+        aria-controls="app-sidebar"
+        :aria-expanded="menuOpen"
+        :aria-label="menuOpen ? 'Menüyü kapat' : 'Menüyü aç'"
+        @click="menuOpen = !menuOpen"
+      >
+        <span aria-hidden="true">{{ menuOpen ? '✕' : '☰' }}</span>
+      </button>
+    </header>
+    <div v-if="menuOpen" class="menu-scrim" aria-hidden="true" @click="menuOpen = false"></div>
+
+    <aside id="app-sidebar" class="sidebar">
       <RouterLink to="/dashboard" class="brand" aria-label="Kuleplus Panel">
         <span class="brand-mark" aria-hidden="true">▲</span>
         <span class="brand-name">Kuleplus</span>
@@ -631,32 +660,88 @@ function toggleGroup(groupLabel: string) {
   background: var(--c-warning);
 }
 
-/* Mobil: kenar çubuğu üstte yatay kaydırılır */
+/* Mobil (≤60rem): üstte sabit çubuk, menü çekmece. Sayfa tek kaydırma alanı olur. */
+.mobile-bar {
+  display: none;
+}
+.menu-scrim {
+  display: none;
+}
+
 @media (max-width: 60rem) {
   .app-shell {
     --erp-sidebar-width: 0rem;
     grid-template-columns: 1fr;
   }
-  .sidebar {
-    position: static;
-    height: auto;
-  }
-  .side-nav {
+  .mobile-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
     display: flex;
-    gap: 1.5rem;
-    overflow-x: auto;
-    padding: 0.5rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
+    padding: 0 0.75rem 0 1rem;
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
   }
-  .nav-group {
-    margin-bottom: 0;
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #f8fafc;
+    font-weight: 800;
+    font-size: 1.05rem;
+    text-decoration: none;
   }
-  .nav-group-toggle {
-    margin-bottom: 0.25rem;
+  .menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    background: #0f172a;
+    color: #f8fafc;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
   }
-  .nav-group-items {
-    border-left: 0;
-    margin-left: 0;
-    padding-left: 0.5rem;
+  .menu-btn:focus-visible {
+    outline: 2px solid var(--c-primary);
+    outline-offset: 2px;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(20rem, 85vw);
+    height: 100vh;
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 0 32px rgb(0 0 0 / 0.4);
+  }
+  .app-shell.menu-open .sidebar {
+    transform: none;
+  }
+  .menu-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgb(2 6 23 / 0.6);
+  }
+  .app-shell.menu-open .draft-return {
+    display: none;
+  }
+  .main {
+    padding-top: 3.5rem;
   }
 }
 </style>

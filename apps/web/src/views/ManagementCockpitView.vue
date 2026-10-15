@@ -167,6 +167,14 @@ watch(() => [cockpit.payload, cockpit.error, cockpit.loadedAt], () => pushData()
   background: #0b1220;
 }
 
+/* Telefonda üst çubuk (3.5rem) sabit; kokpit kalan alanı doldurur, tek kaydırma alanı kalır. */
+@media (max-width: 60rem) {
+  .cockpit-shell {
+    height: calc(100vh - 3.5rem);
+    height: calc(100dvh - 3.5rem);
+  }
+}
+
 .cockpit-state {
   position: absolute;
   inset: 12px 12px auto;
