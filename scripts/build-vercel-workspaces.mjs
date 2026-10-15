@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sharedRoot = resolve(repoRoot, 'packages/shared');
 const dbRoot = resolve(repoRoot, 'packages/db');
+const apiRoot = resolve(repoRoot, 'apps/api');
 const forVercel = process.argv.includes('--vercel');
 const { build } = createRequire(resolve(repoRoot, 'apps/api/package.json'))('esbuild');
 
@@ -66,4 +67,20 @@ if (forVercel) {
     );
     await writeFile(packageFile, `${JSON.stringify(manifest, null, 2)}\n`);
   }
+
+  // Vercel's TypeScript compiler leaves this monorepo's extensionless local
+  // imports in the emitted ESM. Bundle the API so the deployed function has no
+  // runtime dependency on those source-file import paths.
+  await build({
+    absWorkingDir: apiRoot,
+    entryPoints: ['src/server.ts'],
+    outfile: resolve(apiRoot, 'api/index.js'),
+    bundle: true,
+    packages: 'external',
+    platform: 'node',
+    format: 'esm',
+    target: 'node22',
+    sourcemap: true,
+    plugins: [workspacePlugin],
+  });
 }

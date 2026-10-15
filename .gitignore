@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .astro/
+apps/api/api/
 .env
 .env.local
 # Üretim/önsahne ortam dosyaları — GERÇEK SIR içerir, commit'lenmez.
