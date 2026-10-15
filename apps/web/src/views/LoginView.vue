@@ -4,7 +4,7 @@
     <aside class="brand-panel">
       <span class="brand-mark" aria-hidden="true">▲</span>
       <p class="brand-name">Kuleplus</p>
-      <blockquote class="brand-headline">Patron için sade,<br />muhasebeci için derin.</blockquote>
+      <blockquote class="brand-headline">Şirketinizin tüm süreçleri tek bir merkezde.</blockquote>
       <p class="brand-sub">Türkiye mevzuatına uyumlu, modüler bulut ön muhasebe.</p>
       <ul class="brand-points">
         <li>e-Fatura · KDV · Tek Düzen Hesap Planı</li>
