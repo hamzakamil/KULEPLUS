@@ -55,9 +55,9 @@ const priceTone: Record<string, string> = {
             Bulut Ön Muhasebe &amp; ERP · Türkiye mevzuatına uyumlu
           </p>
           <h1 class="reveal" style="animation-delay: 0.12s">
-            Şirket yönetimi
+            Şirket yönetimi hiç bu kadar kolay olmamıştı,
             <br />
-            işte bu kadar <em class="accent">kolay</em>.
+            şirketiniz <em class="accent">elinizin altında</em>.
           </h1>
           <p class="lead reveal" style="animation-delay: 0.2s">
             e-Fatura, KDV, Tek Düzen Hesap Planı ve KVKK’ya uyumlu; modüler, çok şirketli bulut
@@ -83,46 +83,27 @@ const priceTone: Record<string, string> = {
         <div class="hero-visual reveal" style="animation-delay: 0.32s" aria-hidden="true">
           <div class="dash-card">
             <div class="dash-head">
-              <span class="dash-title">Finansal Durum</span>
+              <span class="dash-title">Yönetici Kokpiti</span>
               <span class="dash-live">
                 <span class="dot"></span>Canlı
               </span>
             </div>
-            <div class="dash-balance">
-              <span class="dash-balance-label">Net Pozisyon</span>
-              <span class="dash-balance-value">
-                248.750,00 <span class="cur">₺</span>
-              </span>
-              <span class="dash-delta">▲ 18.400,00 ₺ bu ay</span>
-            </div>
-            <div class="dash-divider"></div>
-            <ul class="dash-ledger">
-              <li>
-                <code>102</code>
-                <span>Bankalar</span>
-                <b class="pos">+112.400,00</b>
-              </li>
-              <li>
-                <code>120</code>
-                <span>Ticari Alacaklar</span>
-                <b class="pos">+84.200,00</b>
-              </li>
-              <li>
-                <code>191</code>
-                <span>İndirilecek KDV</span>
-                <b class="pos">+12.300,00</b>
-              </li>
-              <li>
-                <code>391</code>
-                <span>Hesaplanan KDV</span>
-                <b class="neg">−24.600,00</b>
-              </li>
-              <li>
-                <code>600</code>
-                <span>Yurtiçi Satışlar</span>
-                <b class="pos">+96.450,00</b>
-              </li>
-            </ul>
+            <!-- Ürünün gerçek ekranı: Yönetici Kokpiti (apps/web /yonetici-kokpiti) -->
+            <figure class="dash-shot">
+              <img
+                src="/screenshots/yonetici-kokpiti.webp"
+                alt=""
+                width="1280"
+                height="920"
+                loading="eager"
+                decoding="async"
+                fetchpriority="high"
+              />
+              <figcaption class="dash-shot-note">
+                Nakit pozisyonu, banka hareketleri, gecikmiş alacaklar ve şantiye kameraları —
+                yöneticinin gördüğü tek ekran.
+              </figcaption>
+            </figure>
             <div class="dash-foot">
               <span class="chip">e-Fatura</span>
               <span class="chip">e-Arşiv</span>
@@ -495,93 +476,28 @@ const priceTone: Record<string, string> = {
     animation: pulse 2s infinite;
   }
 
-  .dash-balance {
-    padding: 1.25rem 0 1.1rem;
+  /* Kokpit ekran görüntüsü — ürünün gerçek arayüzü, metin taklidi değil */
+  .dash-shot {
+    margin: 1.1rem 0 0;
+    border: 1px solid #2a3648;
+    border-radius: 0.65rem;
+    overflow: hidden;
+    background: #f5f7fa;
   }
 
-  .dash-balance-label {
+  .dash-shot img {
     display: block;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    width: 100%;
+    height: auto;
+  }
+
+  .dash-shot-note {
+    padding: 0.8rem 0.95rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
     color: #94a3b8;
-  }
-
-  .dash-balance-value {
-    display: block;
-    margin-top: 0.35rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 500;
-    font-size: clamp(1.9rem, 3.5vw, 2.6rem);
-    letter-spacing: -0.02em;
-    color: #f8fafc;
-  }
-
-  .dash-balance-value .cur {
-    color: #22d3ee;
-    font-size: 0.6em;
-    vertical-align: 0.35em;
-    margin-left: 0.15em;
-  }
-
-  .dash-delta {
-    display: inline-block;
-    margin-top: 0.4rem;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: #34d399;
-    background: rgba(52, 211, 153, 0.1);
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.4rem;
-  }
-
-  .dash-divider {
-    height: 1px;
-    background: #2a3648;
-    margin: 0 0 0.85rem;
-  }
-
-  .dash-ledger {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 0.55rem;
-  }
-
-  .dash-ledger li {
-    display: grid;
-    grid-template-columns: 2.5rem 1fr auto;
-    align-items: baseline;
-    gap: 0.75rem;
-    font-size: 0.8125rem;
-  }
-
-  .dash-ledger code {
-    font-family: 'IBM Plex Mono', monospace;
-    color: #64748b;
-    background: rgba(148, 163, 184, 0.1);
-    padding: 0.05rem 0.4rem;
-    border-radius: 0.3rem;
-    justify-self: start;
-  }
-
-  .dash-ledger span {
-    color: #cbd5e1;
-  }
-
-  .dash-ledger b {
-    font-family: 'IBM Plex Mono', monospace;
-    font-weight: 500;
-  }
-
-  .dash-ledger .pos {
-    color: #34d399;
-  }
-
-  .dash-ledger .neg {
-    color: #f87171;
+    background: #121a2a;
+    border-top: 1px solid #2a3648;
   }
 
   .dash-foot {
@@ -943,5 +859,15 @@ const priceTone: Record<string, string> = {
     background: #60a5fa;
     color: #fff;
     transform: translateY(-2px);
+  }
+</style>
+
+<!-- Scoped <style> içindeki `br` seçicisi Astro'nun kullanılmayan CSS elemesine takılıyor;
+     bu yüzden dar ekran kuralı global bloğa taşındı (bkz. build çıktısı dist/_astro/*.css). -->
+<style is:global>
+  @media (max-width: 40rem) {
+    .hero h1 br {
+      display: none;
+    }
   }
 </style>
