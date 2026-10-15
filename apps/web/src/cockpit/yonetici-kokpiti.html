@@ -35,7 +35,10 @@ section.card.closed{padding-top:12px;padding-bottom:12px}
 .brand{font:700 1.6rem var(--head);background:var(--sig);color:#141b24;padding:0 10px;border-radius:4px;line-height:1.3}
 .hi{flex:1;min-width:0}.hi b{display:block;font-size:1.05rem}
 .pill{font-size:.78rem;border:1px solid var(--line);border-radius:99px;padding:2px 10px;color:var(--mute);white-space:nowrap}
-.wx{font-size:.85rem;color:var(--mute);text-align:right}
+.wx{font-size:.85rem;color:var(--mute);text-align:right;line-height:1.45}
+.wx b{font-weight:600}
+.wx .sep{opacity:.45;padding:0 .3em}
+.wx .chg{opacity:.72}
 
 .grid{display:grid;align-items:start;gap:10px;padding:14px 12px 20px;max-width:1280px;margin:0 auto;grid-template-columns:minmax(0,1fr)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -170,7 +173,7 @@ body.free-on .grid>*.fdrag{z-index:50;opacity:.95}
 <header class="top">
   <div class="ident"><div class="pname"><svg class="tri" viewBox="0 0 12 10" aria-hidden="true"><polygon points="6,0 12,10 0,10" fill="#2563eb"/></svg>KulePlus</div><span class="brand">KOKPİT</span></div>
   <div class="hi"><b id="hello"></b><small id="date"></small></div>
-  <div class="wx" id="wx">Dolar 34,21 ₺<br>Euro 39,85 ₺ · Altın 2.910</div>
+  <div class="wx" id="wx">Dolar 49,38 ₺ · Euro 55,31 ₺ · Sterlin 65,06 ₺<br>Gram altın 6.564,61 ₺ · Ons altın 4.140,29 $ · Gümüş 83,22 ₺</div>
   <span class="pill" id="dataPill">Örnek veri</span><button class="b" id="refreshBtn" title="Verileri yenile">Yenile</button><button class="b" id="allToggle" aria-label="Tüm bölümleri aç veya kapat">Tümünü aç/kapat</button><button class="b" id="editBtn">Düzenle</button><button class="b" id="prevBtn">Öncekine dön</button><button class="b" id="resetBtn">Varsayılana sıfırla</button><button class="b" id="freeBtn">Serbest yerleşim: kapalı</button><button class="b" id="magBtn" aria-pressed="true">🧲 Mıknatıs: açık</button>
 </header>
 
@@ -971,16 +974,39 @@ function drawPill(err){
  pill.textContent='Canlı veri · '+(isNaN(t)?'':t.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}));
  pill.title='Örnek kalan bölümler: '+(LIVE.sections&&LIVE.sections.demo.length?LIVE.sections.demo.join(', '):'—');
 }
+/* Kur şeridi: canlı liste (Gramhane → TCMB yedeği) çizilir; satış fiyatı esas
+   alınır, alış/satış spread'i tooltip'te gösterilir. Kaynak + saat başlıkta. */
+const fmtr=(v,unit)=>(v==null||isNaN(v))?'—':v.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+(unit==='USD'?' $':' ₺');
+function rateRow(it){
+  const v=(it.sell==null?it.buy:it.sell);
+  const chg=(it.changePercent==null||isNaN(Number(it.changePercent)))
+    ?''
+    :' <span class="chg">'+(Number(it.changePercent)>0?'+':'')+Number(it.changePercent).toLocaleString('tr-TR',{maximumFractionDigits:2})+'%</span>';
+  return '<b>'+esc(it.label)+'</b> '+fmtr(v,it.unit)+chg;
+}
 function drawFx(){
- const wx=$('#wx');
- if(!wx)return;
- if(LIVE&&LIVE.fx&&LIVE.fx.length){
-  wx.innerHTML=LIVE.fx.map(f=>esc(f.code)+' '+f.rate.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₺').join('<br>');
-  wx.title='Kayıt: '+fmtD(LIVE.fx[0].date);
- }else if(LIVE){
-  wx.innerHTML='Kur verisi yok<br><span style="opacity:.65">Döviz Kurları › TCMB içe aktar</span>';
-  wx.title='exchange_rates boş — Döviz Kurları ekranından TCMB kurlarını çekin.';
- }
+  const wx=$('#wx');
+  if(!wx)return;
+  const rates=(LIVE&&Array.isArray(LIVE.rates))?LIVE.rates:[];
+  if(rates.length){
+    const meta=(LIVE&&LIVE.ratesMeta)||{};
+    const line=arr=>arr.map(rateRow).join('<span class="sep">·</span>');
+    const fx=rates.filter(r=>r.kind==='fx');
+    const met=rates.filter(r=>r.kind!=='fx');
+    wx.innerHTML='<div>'+line(fx)+'</div>'+(met.length?'<div>'+line(met)+'</div>':'');
+    const src=meta.source==='gramhane'?'Gramhane (canlı piyasa)':meta.source==='TCMB'?'TCMB (resmî kur)':'—';
+    wx.title='Kaynak: '+src+(meta.asOf?' · '+meta.asOf:'')+
+      (meta.error?'\nCanlı kaynak kullanılamadı: '+meta.error:'')+
+      '\n'+rates.map(r=>r.label+': alış '+fmtr(r.buy,r.unit)+' / satış '+fmtr(r.sell,r.unit)).join('\n');
+    return;
+  }
+  if(LIVE&&LIVE.fx&&LIVE.fx.length){
+    wx.innerHTML=LIVE.fx.map(f=>esc(f.code)+' '+f.rate.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₺').join('<br>');
+    wx.title='Kayıt: '+fmtD(LIVE.fx[0].date);
+  }else if(LIVE){
+    wx.innerHTML='Kur verisi yok<br><span style="opacity:.65">Döviz Kurları › TCMB içe aktar</span>';
+    wx.title='Gramhane erişilemedi ve exchange_rates boş — Döviz Kurları ekranından TCMB kurlarını çekin.';
+  }
 }
 function applyLive(d,ctx){
  LIVE=d||null;LIVE_ON=!!d;CTX=ctx||{};

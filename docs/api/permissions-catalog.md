@@ -124,6 +124,11 @@ Geçerli scope'lar (SPEC §6.2): `all`, `own_branch`, `own_department`, `assigne
 Not: Faz 7'nin diğer `management.*` izinleri (görev, takvim, randevu, onay, …) bu
 katalog tablosuna henüz taşınmadı; tek kaynak `packages/shared/src/permissions.ts`'tir.
 
+Not (ADR-0022): Kokpitin döviz + altın şeridi için eklenen `GET /management/rates` ucu
+**yeni izin gerektirmez** — kokpitle aynı `management.dashboard.read` iznini kullanır.
+Canlı fiyatlar (Gramhane) gösterim amaçlıdır; muhasebe kurları `cashbank` paketi içindeki
+Döviz Kurları ekranından (`exchange_rates` / TCMB) yönetilmeye devam eder.
+
 ## Delegatable = FALSE (kritik — SPEC §6.4)
 
 Bir yönetici yalnızca kendi sahip olduğu **ve** `delegatable = TRUE` olan izinleri başka role atayabilir.

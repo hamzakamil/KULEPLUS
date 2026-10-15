@@ -145,10 +145,30 @@ export interface CockpitPayload {
   banks: Array<{ id: string; name: string; transactions: CockpitTx[] }>;
   suppliers: Array<{ name: string; amount: number; share: number; nextDue: string | null }>;
   fx: Array<{ code: string; rate: number; date: string }>;
+  /**
+   * Kur şeridi — canlı (Gramhane: döviz + altın + gümüş) veya yedek (TCMB).
+   * `fx` resmî muhasebe kaydıdır; şerit `rates`i çizer.
+   */
+  rates: CockpitRate[];
+  /** Kur şeridinin kaynağı ve hata özeti. */
+  ratesMeta: { source: 'gramhane' | 'TCMB' | 'none'; asOf: string | null; error: string | null };
   /** Şantiyeler (saha kayıtları) — `sites` tablosu. */
   sites: CockpitSite[];
   /** Şantiye başına MGM (Meteoroloji) tahmini. */
   weather: CockpitWeather[];
+}
+
+/** Tek kur satırı — apps/api .../management/rates.service.ts ile birebir. */
+export interface CockpitRate {
+  code: string;
+  label: string;
+  kind: 'fx' | 'gold' | 'metal';
+  unit: 'TRY' | 'USD';
+  buy: number | null;
+  sell: number | null;
+  changePercent: number | null;
+  source: 'gramhane' | 'TCMB';
+  asOf: string | null;
 }
 
 export interface CockpitSite {

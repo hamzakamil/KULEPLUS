@@ -50,6 +50,19 @@ test.describe('Yönetici Kokpiti (canlı veri)', () => {
       await expect(kokpit.locator('#hava .site').first()).toContainText(/km\/s/);
     }
 
+    // Kur şeridi: canlı modda döviz + altın (Gramhane) ya da TCMB yedeği çizilir.
+    const fxText = (await kokpit.locator('#wx').textContent()) || '';
+    const fxTitle = (await kokpit.locator('#wx').getAttribute('title')) || '';
+    if (pill.startsWith('Canlı veri')) {
+      expect(fxText).toMatch(/Dolar|USD/);
+      expect(fxTitle).toMatch(/Kaynak: (Gramhane|TCMB)/);
+      // Altın yalnızca canlı kaynakta var (TCMB bülteni altın yayınlamıyor).
+      if (fxTitle.includes('Gramhane')) {
+        expect(fxText).toContain('Gram altın');
+        expect(fxText).toContain('Ons altın');
+      }
+    }
+
     // Banka kartları artık veriyle üretiliyor (sabit Garanti/İş/Akbank kartları yok).
     await expect(kokpit.locator('#banks section.card').first()).toBeVisible();
 

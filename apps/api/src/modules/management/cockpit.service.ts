@@ -2,6 +2,7 @@ import { getPool } from '@kuleplus/db';
 import type { Pool } from 'pg';
 import { SiteService } from './sites.service';
 import { WeatherService, type SiteWeather } from './weather.service';
+import { ratesService, type RatesService, type RateItem } from './rates.service';
 import { buildDashboardSummary, type DashboardIndicator, type RowQuery } from '@kuleplus/shared';
 
 /**
@@ -169,6 +170,13 @@ export interface CockpitPayload {
   banks: Array<{ id: string; name: string; transactions: CockpitTx[] }>;
   suppliers: Array<{ name: string; amount: number; share: number; nextDue: string | null }>;
   fx: Array<{ code: string; rate: number; date: string }>;
+  /**
+   * Kokpit kur şeridi — canlı (Gramhane: döviz + altın + gümüş) veya yedek
+   * (TCMB `exchange_rates`). `fx` muhasebe kaydı için durur; şerit bunu çizer.
+   */
+  rates: RateItem[];
+  /** Kur şeridinin kaynağı: `gramhane` | `TCMB` | `none` (+ hata özeti). */
+  ratesMeta: { source: 'gramhane' | 'TCMB' | 'none'; asOf: string | null; error: string | null };
   /** Şantiyeler (saha kayıtları) — `sites` tablosu. */
   sites: CockpitSite[];
   /** Şantiye başına MGM tahmini (il/ilçe → istasyon). */
@@ -300,16 +308,19 @@ export class ManagementCockpitService {
   private readonly providedPool: Pool | null;
   private readonly providedSiteService: SiteService | null;
   private readonly providedWeatherService: WeatherService | null;
+  private readonly providedRatesService: RatesService | null;
 
   constructor(options?: {
     pool?: Pool;
-    /** Test/DI: şantiye ve hava durumu servisleri dışarıdan verilebilir. */
+    /** Test/DI: şantiye, hava durumu ve kur servisleri dışarıdan verilebilir. */
     siteService?: SiteService;
     weatherService?: WeatherService;
+    ratesService?: RatesService;
   }) {
     this.providedPool = options?.pool ?? null;
     this.providedSiteService = options?.siteService ?? null;
     this.providedWeatherService = options?.weatherService ?? null;
+    this.providedRatesService = options?.ratesService ?? null;
   }
 
   private getSiteService(): SiteService {
@@ -318,6 +329,11 @@ export class ManagementCockpitService {
 
   private getWeatherService(): WeatherService {
     return this.providedWeatherService ?? new WeatherService();
+  }
+
+  /** Kur servisi modül tekil örneğini kullanır → önbellek tüm isteklerde ortak. */
+  private getRatesService(): RatesService {
+    return this.providedRatesService ?? ratesService;
   }
 
   private getPoolInstance(): Pool {
@@ -578,13 +594,14 @@ export class ManagementCockpitService {
             AND COALESCE(balance, 0) > 0
             AND COALESCE(due_date, issue_date) < CURRENT_DATE`,
       ),
-      // 17) Döviz kurları (başlık şeridi) — tenant'ın son çektiği kur
+      // 17) Döviz kurları (başlık şeridi) — tenant'ın son çektiği resmî TCMB kuru
+      //     (canlı gösterim Gramhane'den gelir; bu liste yalnızca yedektir).
       pool.query(
         `SELECT DISTINCT ON (target_currency) target_currency AS code,
                 rate::float8 AS rate, rate_date::text AS date
            FROM exchange_rates
           WHERE tenant_id = current_tenant_id() AND base_currency = 'TRY'
-            AND target_currency IN ('USD', 'EUR', 'GBP')
+            AND target_currency IN ('USD', 'EUR', 'GBP', 'CHF')
           ORDER BY target_currency, rate_date DESC`,
       ),
       // 18) Kural motoru uyarıları — Patron Paneli ile tek kaynak
@@ -853,17 +870,29 @@ export class ManagementCockpitService {
     // --- Şantiyeler + MGM hava durumu (şantiyenin il/ilçesine göre tahmin) ---
     // Şantiye ya da MGM kaynaklı hata kokpiti düşürmez: ilgili kart örnek veriye
     // düşer ve `sections.demo` bunu açıkça bildirir.
-    let cockpitSites: CockpitSite[] = [];
-    let weather: SiteWeather[] = [];
-    try {
-      cockpitSites = await this.getSiteService().listSitesForCockpit(options.tenantId);
-      if (cockpitSites.length > 0) {
-        weather = await this.getWeatherService().forecastForSites(cockpitSites);
-      }
-    } catch {
-      cockpitSites = [];
-      weather = [];
-    }
+    const sitesAndWeather = await (async (): Promise<{
+      sites: CockpitSite[];
+      weather: SiteWeather[];
+    }> => {
+      const list = await this.getSiteService().listSitesForCockpit(options.tenantId);
+      const forecast =
+        list.length > 0 ? await this.getWeatherService().forecastForSites(list) : [];
+      return { sites: list, weather: forecast };
+    })().catch(() => ({ sites: [] as CockpitSite[], weather: [] as SiteWeather[] }));
+    const cockpitSites = sitesAndWeather.sites;
+    const weather = sitesAndWeather.weather;
+
+    // --- Döviz + altın kurları (Gramhane canlı · TCMB yedek) ---
+    // `fx` tenant'ın resmî TCMB kaydıdır (muhasebe), `rates` ise şeridin
+    // göstereceği canlı listedir (dolar/euro/sterlin/frank + gram/ons altın +
+    // gümüş). Ağ hatası kokpiti düşürmez: RatesService hata döner, kart önce
+    // TCMB satırlarına, o da yoksa örnek veriye düşer.
+    const fxList = fxRows.rows.map((row) => ({
+      code: String(row.code),
+      rate: num(row.rate),
+      date: String(row.date),
+    }));
+    const rates = await this.getRatesService().ratesForCockpit(fxList);
 
     // Canlı beslenen bölümler ile örnek veri kalan bölümler (arayüz etiketler).
     const live = [
@@ -882,7 +911,7 @@ export class ManagementCockpitService {
       'gunun-ozeti',
     ];
     const demo = ['guvenlik-kamerasi', 'arac-filosu', 'personel', 'belge-beyan'];
-    if (fxRows.rows.length > 0) live.push('doviz-kuru');
+    if (rates.items.length > 0) live.push('doviz-kuru');
     else demo.push('doviz-kuru');
     if (cockpitSites.length > 0) live.push('santiye');
     else demo.push('santiye');
@@ -933,11 +962,9 @@ export class ManagementCockpitService {
       finance,
       banks,
       suppliers,
-      fx: fxRows.rows.map((row) => ({
-        code: String(row.code),
-        rate: num(row.rate),
-        date: String(row.date),
-      })),
+      fx: fxList,
+      rates: rates.items,
+      ratesMeta: { source: rates.source, asOf: rates.asOf, error: rates.error },
       sites: cockpitSites,
       weather,
     };

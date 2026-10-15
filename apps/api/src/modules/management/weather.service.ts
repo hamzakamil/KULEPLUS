@@ -1,4 +1,3 @@
-import { AppError } from '@kuleplus/shared';
 import { z } from 'zod';
 
 /**

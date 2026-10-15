@@ -828,6 +828,9 @@ Görev tamamlandı ≠ hatırlatıcı tetiklendi ≠ bildirim teslim edildi: ü�
   "Şantiyeler" kartı bu kayıtlardan beslenir (`/management/sites` ekranı).
 □ Hava durumu: MGM (Meteoroloji) tahmini şantiyenin il/ilçesine göre; vinç rüzgâr kararı
   (30/40 km/s eşikleri) tahminden üretilir. ADR-0021. Kamera yayını entegrasyonu kapsam dışı.
+□ Döviz + altın şeridi: canlı fiyatlar Gramhane API'den (USD/EUR/GBP/CHF + gram & ons altın +
+  gümüş), erişilemezse `exchange_rates` (TCMB) son kuruna düşer; gösterim amaçlıdır, muhasebe
+  kuruna (`exchange_rates`, Faz 6.2) dokunmaz. ADR-0022.
 □ Kural bazlı uyarılar: vadesi geçen alacak, kritik stok, olağandışı gider, çek vadesi.
 □ Vergi/SGK takvimi (şirket türüne göre).
 □ Web Push (PWA), bildirim tercihleri ve sessiz saatler.

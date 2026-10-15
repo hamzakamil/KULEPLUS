@@ -67,6 +67,7 @@ import {
 } from './sites.service';
 import type { SiteListQuery } from './sites.service';
 import { WeatherService, weatherDistrictsQuerySchema } from './weather.service';
+import { ratesService, latestExchangeRateRows } from './rates.service';
 
 const router = Router();
 
@@ -717,6 +718,23 @@ router.delete(
   canDeviceManage,
   handle(async (req, res) => {
     res.json(await service.deleteDevice(req.params.id, tenant(req)));
+  }),
+);
+
+// ======================= Döviz + Altın Kurları (kokpit şeridi) =======================
+
+/**
+ * Canlı kur listesi — Gramhane (döviz + altın + gümüş), erişilemezse tenant'ın
+ * TCMB satırları. Kokpit aynı servisi payload içinde gönderir; bu uç kartı
+ * bağımsız yenilemek (ve test etmek) içindir.
+ */
+router.get(
+  '/rates',
+  canDashboardRead,
+  handle(async (req, res) => {
+    // TCMB yedeği okunamazsa (RLS/bağlantı) yalnızca canlı kaynak kullanılır.
+    const fallback = await latestExchangeRateRows(tenant(req)).catch(() => []);
+    res.json(await ratesService.ratesForCockpit(fallback));
   }),
 );
 
