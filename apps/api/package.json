@@ -11,6 +11,7 @@
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts"
   },
   "dependencies": {
+    "@kuleplus/db": "*",
     "@kuleplus/shared": "*",
     "@node-rs/argon2": "^2.0.0",
     "cookie-parser": "^1.4.7",
