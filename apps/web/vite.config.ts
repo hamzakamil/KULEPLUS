@@ -39,7 +39,9 @@ export default defineConfig({
       // Uygulama kabuğu önbelleğe alınır, API GET yanıtları kısa süreli NetworkFirst tutulur.
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        navigateFallback: '/offline.html',
+        // SPA: önbelleğe alınmamış her sayfa yenilemesi (F5, doğrudan URL) uygulama kabuğunu
+        // açmalı. offline.html burada olsaydı her yenileme çevrimdışı ekranına düşerdi.
+        navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         // Web Push olay işleyicileri (push/notificationclick) üretilen SW'ye enjekte edilir.
         importScripts: ['/push-sw.js'],
