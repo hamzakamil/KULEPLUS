@@ -222,12 +222,14 @@ describe('E2E akış — Kayıt → Başvuru → Onay → Davet → Rol → Kili
       acceptTerms: true,
     });
     expect(registerRes.status).toBe(201);
-    expect(registerRes.body.userId).toBeTruthy();
+    // Kayıt yanıtı girişle birebir aynı oturum sözleşmesidir (ADR-0023)
+    expect(registerRes.body.user.id).toBeTruthy();
+    expect(registerRes.body.accessToken).toBeTruthy();
     expect(registerRes.body.tenantId).toBeTruthy();
     // KVKK kabulü yazıldı
     expect(tables.legal_acceptances.length).toBe(1);
     expect(tables.legal_acceptances[0].legal_text_id).toBe('legal-kvkk');
-    const ownerUserId = registerRes.body.userId as string;
+    const ownerUserId = registerRes.body.user.id as string;
     const pendingTenantId = registerRes.body.tenantId as string;
 
     // 2) ŞİRKET BAŞVURUSU

@@ -82,6 +82,14 @@
             {{ loading ? 'Giriş yapılıyor…' : 'Giriş Yap' }}
           </button>
         </form>
+
+        <!-- Google ile giriş: yapılandırma `enabled` dönmezse hiç render edilmez -->
+        <GoogleAuthButton :remember-me="rememberMe" @done="handleGoogleDone" />
+
+        <p class="signup-hint">
+          Hesabınız yok mu?
+          <RouterLink to="/register" class="forgot-link">Ücretsiz kayıt olun</RouterLink>
+        </p>
       </div>
     </div>
   </div>
@@ -90,7 +98,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '@/stores/auth';
+import type { AxiosError } from 'axios';
+import { useAuthStore, apiErrorMessage, type SessionResponse } from '@/stores/auth';
+import GoogleAuthButton from '@/components/GoogleAuthButton.vue';
 
 const LAST_EMAIL_KEY = 'last_email';
 
@@ -133,15 +143,30 @@ const handleLogin = async () => {
       await authStore.fetchMe();
       await router.push({ name: authStore.landingRoute });
     }
-  } catch (err: any) {
-    const status = err.response?.status;
+  } catch (err) {
+    // 423 → hesap kilidi (bilinen durum), gerisini sunucu söyler (ADR-0017 sözleşmesi)
+    const status = (err as AxiosError)?.response?.status;
     error.value =
       status === 423
         ? 'Hesabınız geçici olarak kilitlendi. Lütfen daha sonra tekrar deneyin.'
-        : err.response?.data?.message || 'Giriş başarısız. Lütfen tekrar deneyin.';
+        : apiErrorMessage(err, 'Giriş başarısız. Lütfen tekrar deneyin.');
   } finally {
     loading.value = false;
   }
+};
+
+/**
+ * Google ile giriş tamamlandı — varış kuralı parolalı girişle birebir aynıdır
+ * (2FA açık → doğrulama ekranı, değilse role göre panel/kokpit).
+ */
+const handleGoogleDone = async (session: SessionResponse) => {
+  error.value = '';
+  if (session.user?.totpEnabled) {
+    await router.push('/2fa/verify');
+    return;
+  }
+  await authStore.fetchMe();
+  await router.push({ name: authStore.landingRoute });
 };
 </script>
 
@@ -308,6 +333,12 @@ const handleLogin = async () => {
   outline: 2px solid var(--c-primary);
   outline-offset: 2px;
   border-radius: 0.25rem;
+}
+.signup-hint {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--c-muted);
 }
 .login-error {
   padding: 0.625rem 0.75rem;

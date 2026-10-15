@@ -21,6 +21,10 @@ export const envSchema = z.object({
   IYZICO_BASE_URL: z.string().url().optional(),
   IYZICO_PRICING_PLAN_REF: z.string().optional(),
   IYZICO_MERCHANT_ID: z.string().optional(),
+  // Google ile giriş (ADR-0023). Tanımsızsa sosyal giriş KAPALI kalır: uç 404 döner,
+  // frontend butonu gizler — yani eksik yapılandırma uygulmayı kırmaz.
+  // Yalnızca client id yeterlidir (ID token akışı); client secret kullanılmaz.
+  GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

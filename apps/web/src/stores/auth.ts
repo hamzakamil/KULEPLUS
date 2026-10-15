@@ -39,6 +39,49 @@ export interface MeResponse {
   permissions: string[];
 }
 
+/**
+ * Oturum yanıtı sözleşmesi — `POST /v1/auth/login`, `/register` ve `/google`
+ * BİREBİR aynı yapıyı döner (ADR-0023). Bu yüzden üçü de `applySession`'dan geçer.
+ */
+export interface SessionResponse {
+  accessToken: string;
+  tenantId: string;
+  user: { id: string; email: string; name: string; totpEnabled: boolean };
+  /** Yalnızca Google ile ilk girişte: yeni çalışma alanı mı açıldı? */
+  isNewUser?: boolean;
+}
+
+/** Kayıt formu alanları — backend `registerSchema` ile birebir. */
+export interface SignupInput {
+  email: string;
+  password: string;
+  name: string;
+  companyName?: string;
+  startingModule?: 'contacts' | 'stock';
+  /** KVKK aydınlatma kabulü — backend'de `z.literal(true)`, kabul edilmeden kayıt olmaz. */
+  acceptTerms: true;
+}
+
+/** `GET /v1/auth/google/config` — buton yalnızca `enabled: true` ise basılır. */
+export interface GoogleAuthConfig {
+  enabled: boolean;
+  clientId: string | null;
+}
+
+/**
+ * Axios hatasından gösterilecek mesajı çıkarır.
+ *
+ * Hata sözleşmesi iki biçim taşıyabiliyor: merkezi hata middleware'i
+ * `{ error: { code, message } }` üretir (ADR-0017), bazı uçlar ise düz `{ message }`
+ * döner (ör. doğrulama yanıtları). İkisi de okunur; hiçbiri yoksa temele düşülür —
+ * kullanıcı "bilinmeyen hata" yerine sunucunun söylediğini görmelidir.
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  const data = (err as AxiosError)?.response?.data as
+    { message?: string; error?: { message?: string } } | undefined;
+  return data?.message || data?.error?.message || fallback;
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // Oturumu saklama yerinden geri yükle (localStorage: beni hatırla, sessionStorage: tek sekme)
   const token = ref<string | null>(getAccessToken());
@@ -46,6 +89,11 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null);
   const loading = ref(false);
   const rememberMe = ref<boolean>(isRemembered());
+  /**
+   * Google ile giriş yapılandırması — `fetchGoogleConfig()` ile dolar. Varsayılan
+   * KAPALI: istek dönmeden veya hata verirse buton basılmaz (ADR-0023).
+   */
+  const googleConfig = ref<GoogleAuthConfig>({ enabled: false, clientId: null });
 
   /**
    * RBAC durumu. JWT rol TAŞIMAZ (yalnızca sub/email/jti/tenantId/authVersion),
@@ -69,34 +117,106 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Oturum yanıtını uygular (ADR-0023).
+   *
+   * Giriş, kayıt ve Google girişi aynı yanıt sözleşmesini döner; token'ın nereye
+   * yazıldığı ("beni hatırla" → localStorage, değilse sessionStorage) burada tek
+   * kez kararlaştırılır. Üç ayrı yol olsaydı sosyal giriş saklama kuralını
+   * atlayabilir ve sekme kapanınca oturum sessizce kaybolurdu.
+   */
+  const applySession = (data: SessionResponse, remember: boolean) => {
+    clearProfile();
+    token.value = data.accessToken;
+    company.value = { id: data.tenantId, name: data.user?.name ?? '', taxNumber: '' };
+    rememberMe.value = remember;
+    saveSession(data.accessToken, data.tenantId, remember);
+  };
+
   const login = async (email: string, password: string, remember = true, totpCode?: string) => {
     loading.value = true;
     error.value = null;
     // Önceki hesabın rol/izinleri yeni oturuma taşınmasın.
     clearProfile();
     try {
-      const response = await api.post('/v1/auth/login', {
+      const response = await api.post<SessionResponse>('/v1/auth/login', {
         email: email.trim().toLowerCase(),
         password,
         rememberMe: remember,
         // 2FA etkinse ikinci adımda gönderilir (backend alan adı: totpCode)
         ...(totpCode ? { totpCode } : {}),
       });
-      token.value = response.data.accessToken;
-      company.value = { id: response.data.tenantId, name: response.data.user.name, taxNumber: '' };
-      rememberMe.value = remember;
-      saveSession(response.data.accessToken, response.data.tenantId, remember);
+      applySession(response.data, remember);
       return response.data;
     } catch (err) {
-      const axiosError = err as AxiosError;
-      const data = axiosError.response?.data;
-      const message =
-        typeof data === 'object' && data ? (data as { message?: string }).message : undefined;
-      error.value = message || 'Giriş sırasında bir hata oluştu.';
+      error.value = apiErrorMessage(err, 'Giriş sırasında bir hata oluştu.');
       throw err;
     } finally {
       loading.value = false;
     }
+  };
+
+  /**
+   * Kendi kendine kayıt (ADR-0023): kullanıcı + şirket backend'de tek transaction'da
+   * açılır, yanıtta oturum hemen geldiği için kullanıcı ikinci kez giriş yapmaz.
+   */
+  const signup = async (input: SignupInput, remember = true) => {
+    loading.value = true;
+    error.value = null;
+    clearProfile();
+    try {
+      const response = await api.post<SessionResponse>('/v1/auth/register', {
+        ...input,
+        email: input.email.trim().toLowerCase(),
+      });
+      applySession(response.data, remember);
+      return response.data;
+    } catch (err) {
+      error.value = apiErrorMessage(err, 'Kayıt sırasında bir hata oluştu.');
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  /**
+   * Google ile giriş — GIS butonunun ID token'ı sunucuya gönderilir; doğrulama ve
+   * hesap eşleştirme backend'dedir (`identity/service.ts` → `loginWithGoogle`).
+   */
+  const loginWithGoogle = async (credential: string, remember = true) => {
+    loading.value = true;
+    error.value = null;
+    clearProfile();
+    try {
+      const response = await api.post<SessionResponse>('/v1/auth/google', {
+        credential,
+        rememberMe: remember,
+      });
+      applySession(response.data, remember);
+      return response.data;
+    } catch (err) {
+      error.value = apiErrorMessage(err, 'Google ile giriş başarısız oldu.');
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  /**
+   * Google giriş yapılandırmasını okur. Hata → `enabled: false`: sosyal giriş
+   * kurulu olmayan ortamda ölü buton göstermeyiz, parola akışı çalışmaya devam eder.
+   */
+  const fetchGoogleConfig = async (): Promise<GoogleAuthConfig> => {
+    try {
+      const response = await api.get<GoogleAuthConfig>('/v1/auth/google/config');
+      googleConfig.value = {
+        enabled: response.data?.enabled === true,
+        clientId: response.data?.clientId ?? null,
+      };
+    } catch {
+      googleConfig.value = { enabled: false, clientId: null };
+    }
+    return googleConfig.value;
   };
 
   const logout = async () => {
@@ -221,6 +341,7 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     loading,
     rememberMe,
+    googleConfig,
     roles,
     permissions,
     isOwner,
@@ -231,6 +352,9 @@ export const useAuthStore = defineStore('auth', () => {
     fetchMe,
     clearProfile,
     login,
+    signup,
+    loginWithGoogle,
+    fetchGoogleConfig,
     logout,
     get2FASetup,
     verify2FA,

@@ -1,8 +1,10 @@
 # Kuleplus API Sözleşmesi (OpenAPI 3.1)
 #
-# ÜRETİLEN DOSYA — elle düzenlenmez. Tek doğruluk kaynağı Zod şemalarıdır
-# (packages/shared + apps/api/src/**/schemas.ts); bu dosya ADR-0013 gereği
-# onlardan üretilir. Drift kontrolü: `npm run openapi:generate` (Faz 1 CI).
+# HEDEF: üretilen dosya — tek doğruluk kaynağı Zod şemalarıdır
+# (packages/shared + apps/api/src/**/schemas.ts); ADR-0013 gereği bu dosya
+# onlardan üretilmeli ve `npm run openapi:generate` ile drift denetlenmelidir.
+# Üretici script Faz 1 CI açık işi olduğundan dosya ŞİMDİLİK elle bakılır;
+# son senkron: ADR-0023 (auth/register, auth/google, RATE_LIMITED, Session).
 #
 # Kapsam: Faz 1 — Kimlik (auth), Şirket (company), Yetki (authorization),
 # Entitlement, Denetim (audit). Diğer modüller ilgili fazlarda eklenir (SPEC §22).
@@ -71,7 +73,11 @@ paths:
   /api/v1/auth/register:
     post:
       tags: [auth]
-      summary: Kayıt (e-posta + parola), e-posta doğrulama gönderir
+      summary: Kendi kendine kayıt — kullanıcı + şirket tek transaction'da açılır (ADR-0023)
+      description: >-
+        KVKK aydınlatma kabulü zorunludur (ADR-0011). Karşılama e-postası outbox'a
+        yazılır (SPEC §19.1); doğrulama bağlantısı gönderilmez. Oturum hemen kurulur —
+        kullanıcı ikinci kez giriş yapmaz. IP başına 10 istek/saat.
       security: []
       requestBody:
         required: true
@@ -79,16 +85,89 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password, firstName, lastName]
+              required: [email, password, name, acceptTerms]
               properties:
                 email: { type: string, format: email }
-                password: { type: string, minLength: 12 }
-                firstName: { type: string }
-                lastName: { type: string }
+                password: { type: string, minLength: 8, maxLength: 128 }
+                name: { type: string, minLength: 2, maxLength: 100 }
+                companyName:
+                  type: string
+                  maxLength: 200
+                  description: "Boş bırakılırsa ad soyad şirket adı olur"
+                startingModule: { type: string, enum: [contacts, stock] }
+                acceptTerms: { type: boolean, const: true, description: "KVKK kabulü" }
       responses:
-        '201': { description: Kayıt başarılı }
+        '201':
+          description: Oturum kuruldu; refresh token HttpOnly cookie olarak verilir
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: "refreshToken (HttpOnly, Secure, SameSite=Lax)"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
         '400': { $ref: '#/components/responses/ValidationError' }
-        '409': { description: "E-posta zaten kayıtlı (VALIDATION_ERROR)" }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /api/v1/auth/google/config:
+    get:
+      tags: [auth]
+      summary: Google ile giriş yapılandırması — özellik anahtarı (ADR-0023)
+      description: >-
+        `GOOGLE_CLIENT_ID` tanımlı değilse `enabled: false` döner; istemci Google
+        butonunu hiç basmaz ve üçüncü taraf script'ini yüklemez.
+      security: []
+      responses:
+        '200':
+          description: Yapılandırma
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, clientId]
+                properties:
+                  enabled: { type: boolean }
+                  clientId: { type: string, nullable: true }
+  /api/v1/auth/google:
+    post:
+      tags: [auth]
+      summary: Google ID token ile giriş/kayıt (ADR-0023)
+      description: >-
+        Kimlik zinciri: `user_identities(provider, sub)` → doğrulanmış e-posta ile
+        mevcut hesaba bağlama → yeni kullanıcı + şirket. `email_verified` olmayan
+        claim reddedilir. 2FA açık hesaplarda Google tek faktör sayılmaz → 403.
+        IP başına 15 dk'da 30 istek.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential:
+                  type: string
+                  minLength: 20
+                  description: "Google Identity Services ID token'ı (JWT)"
+                rememberMe: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Oturum kuruldu (yanıt sözleşmesi parola girişiyle birebir aynıdır)
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: "refreshToken (HttpOnly, Secure, SameSite=Lax)"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403':
+          description: "Hesap 2FA istiyor (FORBIDDEN) — parola + kod ile giriş yapılmalı"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /api/v1/auth/login:
     post:
       tags: [auth]
@@ -111,7 +190,10 @@ paths:
           headers:
             Set-Cookie:
               schema: { type: string }
-              description: "refreshToken (HttpOnly, Secure, SameSite=Strict)"
+              description: "refreshToken (HttpOnly, Secure, SameSite=Lax)"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
   /api/v1/auth/refresh:
     post:
@@ -155,10 +237,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [token, newPassword]
+              required: [token, password]
               properties:
                 token: { type: string }
-                newPassword: { type: string, minLength: 12 }
+                password: { type: string, minLength: 8, maxLength: 128 }
       responses:
         '200': { description: Parola güncellendi }
         '400': { $ref: '#/components/responses/ValidationError' }
@@ -175,7 +257,7 @@ paths:
               required: [currentPassword, newPassword]
               properties:
                 currentPassword: { type: string }
-                newPassword: { type: string, minLength: 12 }
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
       responses:
         '200': { description: Parola değiştirildi }
         '401': { $ref: '#/components/responses/Unauthenticated' }
@@ -602,10 +684,6 @@ components:
       name: tenantId
       in: query
       schema: { type: string, format: uuid }
-    TenantIdQuery:
-      name: tenantId
-      in: query
-      schema: { type: string, format: uuid }
   responses:
     ValidationError:
       description: Zod doğrulama hatası
@@ -649,6 +727,15 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: CONFLICT, message: "Bu kayıt zaten mevcut." } }
+    RateLimited:
+      description: İstek sınırı aşıldı (ADR-0023) — `Retry-After` başlığında beklenecek saniye
+      headers:
+        Retry-After:
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: RATE_LIMITED, message: "Çok fazla deneme yaptınız. Lütfen biraz bekleyip tekrar deneyin." } }
   schemas:
     Error:
       type: object
@@ -675,9 +762,33 @@ components:
                 - SUPPORT_ACCESS_REQUIRED
                 - PRECONDITION_REQUIRED
                 - PERIOD_LOCKED
+                - RATE_LIMITED
                 - INTERNAL_ERROR
             message: { type: string }
         requestId: { type: string, format: uuid }
+    Session:
+      type: object
+      description: >-
+        Oturum sözleşmesi — /auth/login, /auth/register ve /auth/google BİREBİR aynı
+        yapıyı döner (ADR-0023). Refresh token gövdede değil HttpOnly cookie'dedir.
+      required: [accessToken, user, tenantId]
+      properties:
+        accessToken: { type: string }
+        tenantId: { type: string, format: uuid }
+        user:
+          type: object
+          required: [id, email, name, totpEnabled]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string, format: email }
+            name: { type: string, description: "users.display_name; yoksa e-posta öneki" }
+            totpEnabled: { type: boolean }
+        isNewUser:
+          type: boolean
+          description: "Yalnızca Google girişi: yeni kullanıcı + şirket mi açıldı"
+        message:
+          type: string
+          description: "Yalnızca /auth/register: karşılama mesajı"
 
 security:
   - bearerAuth: []

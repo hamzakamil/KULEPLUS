@@ -3,8 +3,13 @@ import argon2 from '@node-rs/argon2';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { appUrl, queueEmailTemplate } from '../../services/email-templates.js';
+import {
+  createGoogleCredentialVerifier,
+  type GoogleCredentialVerifier,
+  type GoogleClaims,
+} from './google.js';
 
 /** JWT secret'ler */
 const ACCESS_SECRET = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET!);
@@ -30,7 +35,13 @@ const LOCKOUT_DURATION_MINUTES = 15;
 export type UserRow = {
   id: string;
   email: string;
-  password_hash: string;
+  /**
+   * Google ile açılmış hesaplarda NULL (ADR-0023) — parola girişi bu hesaplarda
+   * yapılamaz, kullanıcı "Şifremi unuttum" ile parola edinebilir.
+   */
+  password_hash: string | null;
+  /** Kayıt formunda veya Google profilinde gelen ad (ADR-0023). */
+  display_name: string | null;
   email_verified_at: Date | null;
   password_changed_at: Date;
   failed_login_attempts: number;
@@ -41,6 +52,27 @@ export type UserRow = {
   created_at: Date;
   updated_at: Date;
   version: number;
+};
+
+/**
+ * Oturum kurmak için gereken asgari kullanıcı alanları (ADR-0023).
+ *
+ * Giriş/yenileme yolunda tam satır çekmek yerine bu demet taşınır; `status` ve
+ * `totp_secret` oturum kapıları için zorunludur.
+ */
+export type SessionUser = Pick<UserRow, 'id' | 'email' | 'display_name' | 'totp_secret' | 'status'>;
+
+/**
+ * Oturum sözleşmesi — parola ile giriş, kendi kendine kayıt ve Google girişi
+ * BİREBİR aynı çıktıyı üretir (ADR-0023). Rotanın çerez kuralları da tek yerde.
+ */
+export type LoginSession = {
+  accessToken: string;
+  refreshToken: string;
+  /** Refresh çerezi için max-age (ms). rememberMe=false ise undefined → oturum çerezi */
+  refreshCookieMaxAgeMs: number | undefined;
+  user: { id: string; email: string; name: string; totpEnabled: boolean };
+  tenantId: string;
 };
 
 export type SessionRow = {
@@ -158,7 +190,15 @@ export class IdentityService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  /** Kullanıcı kaydı - tenant oluşturulur (manual onboarding) */
+  /**
+   * Kendi kendine kayıt (self-servis) — ADR-0023.
+   *
+   * Kullanıcı, şirketi (tenant) ve owner üyeliği TEK transaction'da doğar; şirket
+   * `active` açılır ve oturum hemen verilir. Onay kuyruğu YOK (ürün kararı) —
+   * `company_applications` akışı yalnızca platformun işlediği özel başvurular içindir.
+   *
+   * Oturum commit SONRASI açılır: rollback olan bir hesap için geçerli token üretilmez.
+   */
   async register(input: {
     email: string;
     password: string;
@@ -168,10 +208,57 @@ export class IdentityService {
     acceptTerms?: boolean;
     ipAddress?: string;
     userAgent?: string;
-  }): Promise<{ userId: string; tenantId: string }> {
+  }): Promise<{ userId: string; tenantId: string; session: LoginSession }> {
+    const email = input.email.toLowerCase();
+    const displayName = input.name.trim();
+    const tenantName = input.companyName?.trim() || displayName;
     const passwordHash = await this.hashPassword(input.password);
-    const now = new Date();
 
+    const { userId, tenantId } = await this.persistSignup({
+      email,
+      displayName,
+      tenantName,
+      passwordHash,
+      startingModule: input.startingModule,
+      acceptTerms: input.acceptTerms,
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent,
+    });
+
+    // Oturum, kayıtta üretilen kullanıcıyla kurulur — kullanıcı az önce yazıldı,
+    // yeniden okumaya gerek yok (2FA yeni hesapta yoktur).
+    const session = await this.issueSessionForUser(
+      {
+        id: userId,
+        email,
+        display_name: displayName,
+        totp_secret: null,
+        status: 'active',
+      },
+      {
+        ipAddress: input.ipAddress,
+        userAgent: input.userAgent,
+      },
+    );
+
+    return { userId, tenantId, session };
+  }
+
+  /**
+   * Kaydın yazım kısmı: kullanıcı + şirket + KVKK kabulü tek transaction'da.
+   * Oturum token üretimi bilinçli olarak DIŞARIDA (bkz. `register`).
+   */
+  private async persistSignup(input: {
+    email: string;
+    displayName: string;
+    tenantName: string;
+    passwordHash: string;
+    startingModule?: 'contacts' | 'stock';
+    acceptTerms?: boolean;
+    ipAddress?: string;
+    userAgent?: string;
+  }): Promise<{ userId: string; tenantId: string }> {
+    const now = new Date();
     const client = await this.getPoolInstance().connect();
     try {
       await client.query('BEGIN');
@@ -179,43 +266,20 @@ export class IdentityService {
       // Kullanıcı oluştur
       const userId = newId();
       await client.query(
-        `INSERT INTO users (id, email, password_hash, password_changed_at, status, created_at, updated_at, version)
-         VALUES ($1, $2, $3, $4, 'active', $5, $5, 1)`,
-        [userId, input.email.toLowerCase(), passwordHash, now, now],
+        `INSERT INTO users (id, email, password_hash, display_name, password_changed_at, status, created_at, updated_at, version)
+         VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, 1)`,
+        [userId, input.email, input.passwordHash, input.displayName, now, now],
       );
 
-      // Tenant oluştur (manual onboarding - tek transaction)
-      const tenantId = newId();
-      const tenantName = input.companyName ?? input.name;
-      await client.query(
-        `INSERT INTO tenants (id, name, status, created_at, updated_at, version)
-         VALUES ($1, $2, 'pending', $3, $3, 1)`,
-        [tenantId, tenantName, now],
-      );
-
-      // Kullanıcıyı tenant'a owner olarak bağla
-      await client.query(
-        `INSERT INTO tenant_users (tenant_id, user_id, is_owner, created_at)
-         VALUES ($1, $2, true, $3)`,
-        [tenantId, userId, now],
-      );
-
-      // Ücretsiz plan entitlement'ını ver (core modülü herkes için)
-      await client.query(
-        `INSERT INTO tenant_entitlements (tenant_id, module_code, status, granted_at)
-         VALUES ($1, 'core', 'active', $2)`,
-        [tenantId, now],
-      );
-
-      // Başlangıç modülü seçildiyse entitlement ver
-      if (input.startingModule) {
-        await client.query(
-          `INSERT INTO tenant_entitlements (tenant_id, module_code, status, granted_at)
-           VALUES ($1, $2, 'active', $3)
-           ON CONFLICT (tenant_id, module_code) DO NOTHING`,
-          [tenantId, input.startingModule, now],
-        );
-      }
+      // Şirket + owner üyeliği + ücretsiz yetkiler + varsayılan ayarlar
+      const tenantId = await this.bootstrapTenant(client, {
+        userId,
+        email: input.email,
+        displayName: input.displayName,
+        tenantName: input.tenantName,
+        startingModule: input.startingModule,
+        now,
+      });
 
       // KVKK aydınlatma kabulü kaydı — user bazlı, global (ADR-0011, SPEC §27.2)
       if (input.acceptTerms) {
@@ -245,6 +309,84 @@ export class IdentityService {
   }
 
   /**
+   * Şirketin doğum anı (ADR-0023): tenant + owner üyeliği + ücretsiz çekirdek
+   * yetkileri + varsayılan `tenant_settings` + karşılama e-postası.
+   *
+   * Neden ortak metot? Kendi kendine kayıt ve sosyal giriş, platform onayının
+   * (`company/service.ts` → `processApplication`) tohumlamasıyla aynı şemayı
+   * üretmeli. Eski `register()` `tenant_settings` yazmıyordu; kendi kendine açılan
+   * hesaplarda Ayarlar ekranı eksik anahtarlarla doğuyordu.
+   *
+   * Şirket `active` açılır (self-servis ürün kararı). E-posta, iş transaction'ı
+   * içinde yalnızca `email_outbox` satırı olarak yazılır (SPEC §19.1); gönderim
+   * worker'dadır — outbox yazılamazsa kayıt da rollback olur.
+   */
+  private async bootstrapTenant(
+    client: PoolClient,
+    opts: {
+      userId: string;
+      email: string;
+      displayName?: string | null;
+      tenantName: string;
+      startingModule?: 'contacts' | 'stock';
+      now: Date;
+    },
+  ): Promise<string> {
+    const tenantId = newId();
+
+    await client.query(
+      `INSERT INTO tenants (id, name, status, created_at, updated_at, version)
+       VALUES ($1, $2, 'active', $3, $3, 1)`,
+      [tenantId, opts.tenantName, opts.now],
+    );
+
+    // Kaydı yapan kişi şirketin sahibidir (SPEC §6.6 — owner tüm izinlere sahiptir)
+    await client.query(
+      `INSERT INTO tenant_users (tenant_id, user_id, is_owner, created_at)
+       VALUES ($1, $2, true, $3)`,
+      [tenantId, opts.userId, opts.now],
+    );
+
+    // Ücretsiz çekirdek herkes için (SPEC §6.5); seçilen başlangıç modülü de eklenir
+    const moduleCodes = ['core', ...(opts.startingModule ? [opts.startingModule] : [])];
+    for (const moduleCode of moduleCodes) {
+      await client.query(
+        `INSERT INTO tenant_entitlements (tenant_id, module_code, status, granted_at)
+         VALUES ($1, $2, 'active', $3)
+         ON CONFLICT (tenant_id, module_code) DO NOTHING`,
+        [tenantId, moduleCode, opts.now],
+      );
+    }
+
+    // Onay akışının tohumladığı varsayılan ayarlar — eksikleri Ayarlar'ı bozar
+    await client.query(
+      `INSERT INTO tenant_settings (tenant_id, key, value, locked, updated_at)
+       VALUES ($1, 'onboarding_mode', '"manual"'::jsonb, true, $2)
+       ON CONFLICT (tenant_id, key) DO NOTHING`,
+      [tenantId, opts.now],
+    );
+    await client.query(
+      `INSERT INTO tenant_settings (tenant_id, key, value, locked, updated_at)
+       VALUES ($1, 'company_profile', '{}'::jsonb, false, $2)
+       ON CONFLICT (tenant_id, key) DO NOTHING`,
+      [tenantId, opts.now],
+    );
+
+    await queueEmailTemplate(
+      'core.welcome',
+      opts.email,
+      {
+        user_name: opts.displayName || opts.email.split('@')[0] || '',
+        tenant_name: opts.tenantName,
+        checklist_url: `${appUrl()}/settings?group=company`,
+      },
+      client,
+    );
+
+    return tenantId;
+  }
+
+  /**
    * Yeni access token üretir — şirket seçici (Faz 2) tenant bağlamı değişince
    * istemci eski token'ı kullanamaz; SPEC §6.4 auth_version bu token'a gömülür.
    */
@@ -263,14 +405,7 @@ export class IdentityService {
     userAgent?: string,
     ipAddress?: string,
     rememberMe = true,
-  ): Promise<{
-    accessToken: string;
-    refreshToken: string;
-    /** Refresh çerezi için max-age (ms). rememberMe=false ise undefined → oturum çerezi */
-    refreshCookieMaxAgeMs: number | undefined;
-    user: { id: string; email: string; name: string; totpEnabled: boolean };
-    tenantId: string;
-  }> {
+  ): Promise<LoginSession> {
     const user = await this.getUserByEmail(email.toLowerCase());
     if (!user) {
       throw new AppError('UNAUTHENTICATED', 'Geçersiz e-posta veya parola');
@@ -281,6 +416,15 @@ export class IdentityService {
       throw new AppError(
         'UNAUTHENTICATED',
         'Hesap geçici olarak kilitli. Daha sonra tekrar deneyin.',
+      );
+    }
+
+    // Parola taşımayan hesap (yalnızca Google ile açılmış — ADR-0023): argon2
+    // doğrulaması yapılamaz; kullanıcı "Şifremi unuttum" akışıyla parola edinebilir.
+    if (!user.password_hash) {
+      throw new AppError(
+        'UNAUTHENTICATED',
+        'Bu hesap Google ile oluşturulmuş. Parola belirlemek için "Şifremi unuttum" bağlantısını kullanın.',
       );
     }
 
@@ -308,8 +452,39 @@ export class IdentityService {
     // Başarılı giriş - failed attempts sıfırla
     await this.resetFailedLogin(user.id);
 
+    return this.issueSessionForUser(user, { rememberMe, userAgent, ipAddress });
+  }
+
+  /**
+   * Oturum sözleşmesi (ADR-0023): tenant'ı çözer, access + refresh üretir ve
+   * `user_sessions` satırı yazar.
+   *
+   * Parola / 2FA / Google doğrulaması BİTTİKTEN sonra çağrılır — parola ile giriş,
+   * kendi kendine kayıt ve sosyal giriş BİREBİR aynı oturumu üretir. Tek kapı
+   * olmasaydı sosyal giriş, hesabın askıda olup olmadığına bakmayan ayrı bir token
+   * üretim yolu kazanırdı.
+   *
+   * Kullanıcı satırı PARAMETRE olarak alınır: çağıranlar (login/register/google)
+   * kullanıcıyı zaten doğrulamıştır; burada yeniden okumak sıcak yolda (her girişte)
+   * gereksiz bir sorgu demekti. `status` denetimi yine burada yapılır — hangi yoldan
+   * gelirse gelsin askıdaki hesap oturum alamaz.
+   */
+  async issueSessionForUser(
+    user: SessionUser,
+    opts: { rememberMe?: boolean; userAgent?: string; ipAddress?: string } = {},
+  ): Promise<LoginSession> {
+    const rememberMe = opts.rememberMe ?? true;
+
+    // Askıya alınmış / silinmiş hesap oturum alamaz (SPEC §4.5 yaşam döngüsü)
+    if (user.status !== 'active') {
+      throw new AppError(
+        'FORBIDDEN',
+        'Hesabınız devre dışı bırakılmış. Lütfen destek ile iletişime geçin.',
+      );
+    }
+
     // Kullanıcının tenant'ını bul (owner olduğu tenant)
-    const tenantResult = await this.getPoolInstance().query(
+    const tenantResult = await this.getPoolInstance().query<{ tenant_id: string }>(
       `SELECT tenant_id FROM tenant_users WHERE user_id = $1 AND is_owner = true LIMIT 1`,
       [user.id],
     );
@@ -337,7 +512,14 @@ export class IdentityService {
     await this.getPoolInstance().query(
       `INSERT INTO user_sessions (id, user_id, refresh_token_hash, user_agent, ip_address, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [newId(), user.id, refreshTokenHash, userAgent ?? null, ipAddress ?? null, expiresAt],
+      [
+        newId(),
+        user.id,
+        refreshTokenHash,
+        opts.userAgent ?? null,
+        opts.ipAddress ?? null,
+        expiresAt,
+      ],
     );
 
     return {
@@ -347,7 +529,8 @@ export class IdentityService {
       user: {
         id: user.id,
         email: user.email,
-        name: user.email.split('@')[0], // users tablosunda name kolonu yok, e-posta prefix'i kullan
+        // `display_name` ADR-0023 ile eklendi; ondan önce açılan hesaplarda boştur.
+        name: user.display_name || user.email.split('@')[0],
         totpEnabled: !!user.totp_secret,
       },
       tenantId,
@@ -502,7 +685,10 @@ export class IdentityService {
       throw new AppError('NOT_FOUND', 'Kullanıcı bulunamadı');
     }
 
-    // Parola doğrula
+    // Parola doğrula — parolasız (Google ile açılmış) hesapta bu deneme anlamsızdır
+    if (!user.password_hash) {
+      throw new AppError('UNAUTHENTICATED', 'Bu hesapta parola tanımlı değil.');
+    }
     const validPassword = await this.verifyPassword(password, user.password_hash);
     if (!validPassword) {
       throw new AppError('UNAUTHENTICATED', 'Geçersiz parola');
@@ -535,6 +721,144 @@ export class IdentityService {
       `UPDATE users SET totp_secret = NULL, recovery_codes = '{}', updated_at = now(), version = version + 1 WHERE id = $1`,
       [userId],
     );
+  }
+
+  /**
+   * Google ile giriş (ADR-0023) — doğrulanmış ID token'dan oturum.
+   *
+   * Karar sırası (hesap çoğaltmamak için):
+   *   1) `(google, sub)` kayıtlı mı? → aynı kullanıcı. Kimliği e-posta DEĞİL `sub`
+   *      taşır; Google tarafında e-posta değişse de aynı hesaba düşer.
+   *   2) Kimlik kaydı yok ama Google'ın DOĞRULANMIŞ e-postası mevcut hesapla
+   *      eşleşiyor → kimliği o hesaba BAĞLA (ikinci hesap açılmaz).
+   *   3) Hiçbiri yok → yeni kullanıcı + şirket (kendi kendine kayıtla aynı tohumlama).
+   *
+   * Güvenlik: e-posta eşleştirmesi YALNIZCA Google'ın `email_verified = true`
+   * dediği claim'lerle yapılır (`mapGoogleClaims`). Aksi halde doğrulanmamış bir
+   * e-posta ile başkasının hesabı devralınabilirdi.
+   */
+  async loginWithGoogle(
+    credential: string,
+    opts: { rememberMe?: boolean; userAgent?: string; ipAddress?: string } = {},
+    verifier: GoogleCredentialVerifier = createGoogleCredentialVerifier(),
+  ): Promise<{ session: LoginSession; isNewUser: boolean }> {
+    const claims = await verifier.verify(credential);
+    const { user, isNewUser } = await this.resolveGoogleIdentity(claims);
+
+    // 2FA açık hesapta Google TEK faktördür: sosyal giriş, kullanıcının bilerek
+    // açtığı ikinci faktör kapısını baypas edemez. Kod `login()`'de parola ile
+    // birlikte istendiği için burada tek faktörlük kalır → yönlendir.
+    if (user.totp_secret) {
+      throw new AppError(
+        'FORBIDDEN',
+        'Bu hesapta iki faktörlü doğrulama açık. Lütfen e-posta + parola ile giriş yapın.',
+      );
+    }
+
+    // Oturum commit SONRASI kurulur: rollback olan hesap için geçerli token üretilmez.
+    // Askıdaki hesap denetimi `issueSessionForUser`'dadır — her yol için tek kapı.
+    const session = await this.issueSessionForUser(user, opts);
+    return { session, isNewUser };
+  }
+
+  /** `loginWithGoogle`'ın yazım kısmı — tek transaction. */
+  private async resolveGoogleIdentity(
+    claims: GoogleClaims,
+  ): Promise<{ user: SessionUser; isNewUser: boolean }> {
+    const now = new Date();
+    const client = await this.getPoolInstance().connect();
+    try {
+      await client.query('BEGIN');
+
+      // Oturum alanları (status/totp_secret) JOIN ile birlikte okunur: ayrı bir
+      // `SELECT users` daha atmak her sosyal girişte fazladan gidiş-dönüş demek.
+      const identityResult = await client.query<SessionUser>(
+        `SELECT u.id, u.email, u.display_name, u.totp_secret, u.status
+           FROM user_identities ui
+           JOIN users u ON u.id = ui.user_id
+          WHERE ui.provider = 'google' AND ui.provider_account_id = $1`,
+        [claims.providerAccountId],
+      );
+
+      if (identityResult.rows.length > 0) {
+        const user = identityResult.rows[0];
+        // Profil alanları değişebilir (isim, fotoğraf, e-posta) — tazele
+        await client.query(
+          `UPDATE user_identities
+              SET email = $1, display_name = $2, avatar_url = $3, updated_at = now()
+            WHERE provider = 'google' AND provider_account_id = $4`,
+          [claims.email, claims.displayName, claims.avatarUrl, claims.providerAccountId],
+        );
+
+        await client.query('COMMIT');
+        return { user, isNewUser: false };
+      }
+
+      // Kimlik kaydı yok: Google'ın DOĞRULANMIŞ e-postası mevcut bir hesabla
+      // eşleşiyorsa kimlik O hesaba bağlanır (ikinci hesap açılmaz).
+      const existingUser = await client.query<SessionUser>(
+        `SELECT id, email, display_name, totp_secret, status FROM users WHERE email = $1`,
+        [claims.email],
+      );
+
+      let user: SessionUser;
+      let isNewUser = false;
+
+      if (existingUser.rows.length > 0) {
+        user = existingUser.rows[0];
+      } else {
+        const userId = newId();
+        isNewUser = true;
+
+        // Parolasız hesap: `password_hash` NULL (ADR-0023 migration'ı bu yüzden gerekli)
+        await client.query(
+          `INSERT INTO users (id, email, password_hash, display_name, email_verified_at, password_changed_at, status, created_at, updated_at, version)
+           VALUES ($1, $2, NULL, $3, $4, $4, 'active', $4, $4, 1)`,
+          [userId, claims.email, claims.displayName, now],
+        );
+
+        await this.bootstrapTenant(client, {
+          userId,
+          email: claims.email,
+          displayName: claims.displayName,
+          // Şirket adı Google profilinden ödünç alınır — sosyal kayıtta şirket adı
+          // sorulmaz; kullanıcı Ayarlar → Firma Profilinden değiştirebilir.
+          tenantName: claims.displayName || claims.email.split('@')[0],
+          now,
+        });
+
+        user = {
+          id: userId,
+          email: claims.email,
+          display_name: claims.displayName,
+          totp_secret: null,
+          status: 'active',
+        };
+      }
+
+      await client.query(
+        `INSERT INTO user_identities (id, user_id, provider, provider_account_id, email, display_name, avatar_url, created_at, updated_at)
+         VALUES ($1, $2, 'google', $3, $4, $5, $6, $7, $7)
+         ON CONFLICT (provider, provider_account_id) DO NOTHING`,
+        [
+          newId(),
+          user.id,
+          claims.providerAccountId,
+          claims.email,
+          claims.displayName,
+          claims.avatarUrl,
+          now,
+        ],
+      );
+
+      await client.query('COMMIT');
+      return { user, isNewUser };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Şifre sıfırlama talebi */
@@ -641,6 +965,15 @@ export class IdentityService {
     const user = await this.getUserById(userId);
     if (!user) {
       throw new AppError('NOT_FOUND', 'Kullanıcı bulunamadı');
+    }
+
+    // Parolasız hesap (Google ile açılmış) mevcut parola doğrulayamaz — kullanıcı
+    // "Şifremi unuttum" akışıyla ilk parolasını belirler (ADR-0023).
+    if (!user.password_hash) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Bu hesapta parola tanımlı değil. "Şifremi unuttum" bağlantısıyla parola belirleyin.',
+      );
     }
 
     const valid = await this.verifyPassword(currentPassword, user.password_hash);

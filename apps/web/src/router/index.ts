@@ -42,6 +42,12 @@ declare module 'vue-router' {
 const routes: RouteRecordRaw[] = [
   { path: '/', name: 'home', component: HomeView },
   { path: '/login', name: 'login', component: LoginView },
+  // Kendi kendine kayıt (ADR-0023) — oturum açıksa guard varış yerine yönlendirir
+  {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/views/RegisterView.vue'),
+  },
   { path: '/2fa/verify', name: 'two-factor-verify', component: TwoFactorVerifyView },
   // E-posta bağlantıdan gelen kamu ekranları — oturum açıksa da erişilebilir olmalı
   {

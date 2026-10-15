@@ -1,12 +1,15 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { IdentityService } from './service.js';
+import { isGoogleLoginEnabled } from './google.js';
 import { validate } from '../../middleware/validate.js';
 import { authenticate, type AuthenticatedRequest } from '../../middleware/auth.js';
 import { tenantContext, type TenantRequest } from '../../middleware/tenant.js';
 import { loadPermissionGrants } from '../../middleware/permission-grants.js';
+import { rateLimit } from '../../middleware/rate-limit.js';
 import {
   registerSchema,
   loginSchema,
+  googleLoginSchema,
   changePasswordSchema,
   verifyTwoFactorSchema,
   disableTwoFactorSchema,
@@ -16,21 +19,48 @@ import { AppError, PERMISSIONS } from '@kuleplus/shared';
 const router = Router();
 const service = new IdentityService();
 
-/** Kayıt */
+/**
+ * Kayıt ve sosyal giriş için pencere (ADR-0023).
+ *
+ * Neden yalnızca bunlar? Her başarılı KAYIT bir şirket (tenant) doğurur ve bu
+ * uçlar kimlik doğrulamasızdır → bot ile toplu tenant üretimi riski. Parola
+ * girişinde ise hesap kilidi (5 deneme / 15 dk) zaten brute-force'u sınırlar;
+ * oraya ek limit koyup meşru çoklu oturumları (Playwright, ekip) reddetmek
+ * istemeyiz. Sayaç süreç içidir — bkz. `middleware/rate-limit.ts`.
+ */
+const signupRateLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, key: 'auth.register' });
+const googleRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, key: 'auth.google' });
+
+/**
+ * Kayıt (self-servis) — kullanıcı + şirket TEK transaction'da açılır, oturum
+ * hemen verilir (ADR-0023). Karşılama e-postası kuyruğa yazılır; e-posta
+ * doğrulama bağlantısı gönderilmez, bu yüzden mesaj da buna göre düzeltildi.
+ */
 router.post(
   '/register',
+  signupRateLimit,
   validate(registerSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = registerSchema.parse(req.body);
-      const result = await service.register({
+      const { session } = await service.register({
         ...input,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
-      res
-        .status(201)
-        .json({ message: 'Kayıt başarılı. E-posta doğrulama bağlantısı gönderildi.', ...result });
+
+      res.cookie(
+        'refreshToken',
+        session.refreshToken,
+        refreshCookieOptions(session.refreshCookieMaxAgeMs),
+      );
+
+      res.status(201).json({
+        message: 'Kayıt başarılı. Çalışma alanınız hazır.',
+        accessToken: session.accessToken,
+        user: session.user,
+        tenantId: session.tenantId,
+      });
     } catch (error) {
       next(error);
     }
@@ -77,6 +107,56 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     next(error);
   }
 });
+
+/**
+ * Google ile giriş yapılandırması (public) — ADR-0023.
+ *
+ * Frontend butonu YALNIZCA burada `enabled: true` görürse render eder; böylece
+ * `GOOGLE_CLIENT_ID` tanımlı olmayan kurulumlarda (yerel geliştirme, CI) ölü bir
+ * buton görünmez. `clientId` zaten public bir değerdir (tarayıcıya iner).
+ */
+router.get('/google/config', (_req: Request, res: Response) => {
+  const enabled = isGoogleLoginEnabled();
+  res.json({ enabled, clientId: enabled ? process.env.GOOGLE_CLIENT_ID : null });
+});
+
+/**
+ * Google ile giriş — Google Identity Services butonunun ürettiği ID token doğrulanır
+ * ve parola girişiyle BİREBİR aynı oturum kurulur (ADR-0023).
+ *
+ * İlk kez gelen Google hesabı yeni bir kullanıcı + şirket doğurur; yanıtta
+ * `isNewUser: true` döner ki frontend "çalışma alanınız hazır" mesajını gösterebilsin.
+ */
+router.post(
+  '/google',
+  googleRateLimit,
+  validate(googleLoginSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const input = googleLoginSchema.parse(req.body);
+      const { session, isNewUser } = await service.loginWithGoogle(input.credential, {
+        rememberMe: input.rememberMe,
+        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip,
+      });
+
+      res.cookie(
+        'refreshToken',
+        session.refreshToken,
+        refreshCookieOptions(session.refreshCookieMaxAgeMs),
+      );
+
+      res.json({
+        accessToken: session.accessToken,
+        user: session.user,
+        tenantId: session.tenantId,
+        isNewUser,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Token yenileme */
 router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {

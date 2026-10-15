@@ -16,5 +16,6 @@
 | `TENANT_FORBIDDEN` | 403 | core | "Bu tenant'a erişim yetkiniz yok." | RLS/üyelik |
 | `SUPPORT_ACCESS_REQUIRED` | 403 | platform | "Destek erişim grantı gerekli." | Çapraz tenant |
 | `NOT_FOUND` | 404 | core | "İstenen kaynak bulunamadı." | Bulunamayan rota/kayıt |
+| `RATE_LIMITED` | 429 | core | "Çok fazla deneme yaptınız. Lütfen biraz bekleyip tekrar deneyin." | Oturum/kayıt uçlarında IP bazlı pencere aşımı (ADR-0023) |
 | `INTERNAL_ERROR` | 500 | core | "Beklenmeyen bir hata oluştu." | Beklenmeyen sunucu hatası (stack yalnızca log'da) |
 | ... | ... | ... | ... | ... |

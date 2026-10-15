@@ -79,6 +79,11 @@ export const ERROR_CODES = {
     module: 'core',
     message: 'Harici servis erişilemiyor.',
   },
+  RATE_LIMITED: {
+    httpStatus: 429,
+    module: 'core',
+    message: 'Çok fazla deneme yaptınız. Lütfen biraz bekleyip tekrar deneyin.',
+  },
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

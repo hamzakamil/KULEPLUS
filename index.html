@@ -1571,11 +1571,11 @@
                     name="password"
                     type="password"
                     autocomplete="new-password"
-                    minlength="12"
+                    minlength="8"
                     required
-                    placeholder="En az 12 karakter"
+                    placeholder="En az 8 karakter"
                   />
-                  <span class="form-hint">En az 12 karakter olmalıdır.</span>
+                  <span class="form-hint">En az 8 karakter olmalıdır.</span>
                 </div>
 
                 <div class="form-row">
@@ -1702,8 +1702,7 @@
           if (name.length < 2) return setStatus('error', 'Lütfen adınızı ve soyadınızı girin.');
           if (!email || email.indexOf('@') < 1)
             return setStatus('error', 'Lütfen geçerli bir e-posta adresi girin.');
-          if (password.length < 12)
-            return setStatus('error', 'Parola en az 12 karakter olmalıdır.');
+          if (password.length < 8) return setStatus('error', 'Parola en az 8 karakter olmalıdır.');
           if (!acceptTerms) return setStatus('error', 'KVKK aydınlatma metnini kabul etmelisiniz.');
 
           submit.disabled = true;
@@ -1732,18 +1731,25 @@
                 });
             })
             .then(function (result) {
+              const body = result.body || {};
               if (result.ok) {
                 form.reset();
+                // ADR-0023: kayıt artık doğrulama e-postası BEKLEMEZ — oturum anında
+                // kurulur ve cevapta `accessToken` + `tenantId` döner. Pazarlama sayfası
+                // SPA ile aynı origin'de olmadığı için token burada saklanmaz; HttpOnly
+                // refresh çerezinin alan adı paylaşıldığı için kullanıcı panele
+                // yönlendirildiğinde oturumu sessizce devralır.
                 setStatus(
                   'success',
-                  result.body && result.body.message
-                    ? result.body.message
-                    : 'Kayıt başarılı. E-posta doğrulama bağlantısı gönderildi.',
+                  (body.message || 'Kayıt başarılı. Çalışma alanınız hazır.') +
+                    ' Panele geçmek için Giriş bağlantısını kullanın.',
                 );
                 return;
               }
+              // Hata sözleşmesi: { error: { code, message } } (errors.ts)
               const msg =
-                (result.body && (result.body.message || result.body.error)) ||
+                (body.error && body.error.message) ||
+                body.message ||
                 'Kayıt tamamlanamadı (HTTP ' + result.status + ').';
               setStatus('error', msg);
             })

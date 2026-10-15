@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { IdentityService } from '../src/modules/identity/service';
+import { mapGoogleClaims, type GoogleClaims } from '../src/modules/identity/google';
 import { AppError } from '@kuleplus/shared';
 import type { Pool } from 'pg';
 
@@ -29,6 +30,25 @@ function makeMockPool(queryImpl: (sql: string, params?: unknown[]) => unknown): 
     connect: vi.fn(async () => client),
   } as unknown as Pool;
   return { pool, query, client };
+}
+
+/**
+ * Kayıt testleri için sahte Pool (ADR-0023).
+ *
+ * `register()` artık oturum da üretiyor; oturum kurulumu `tenant_users` sorgusunu
+ * çalıştırır. Bu sorgu boş dönerse kayıt "tenant bulunamadı" ile patlar ve testin
+ * asıl amacı (transaction içeriği) görünmez olur — yüzden şirket bağlantısı
+ * tohumlanır. Yazımlar yine `executed` listesinde izlenir.
+ */
+function makeSignupPool(executed: string[]): { pool: Pool; client: MockClient } {
+  const { pool, client } = makeMockPool((sql: string) => {
+    executed.push(sql);
+    if (sql.includes('FROM tenant_users')) {
+      return { rows: [{ tenant_id: 'tenant-1' }] };
+    }
+    return { rows: [] };
+  });
+  return { pool, client };
 }
 
 describe('IdentityService (birim)', () => {
@@ -80,10 +100,7 @@ describe('IdentityService (birim)', () => {
   describe('register — tek transaction (SPEC §4.3)', () => {
     it('kullanıcı + tenant + owner bağlantısı + core entitlement oluşturur', async () => {
       const executed: string[] = [];
-      const { pool, client } = makeMockPool((sql: string) => {
-        executed.push(sql);
-        return { rows: [] };
-      });
+      const { pool, client } = makeSignupPool(executed);
       const svc = new IdentityService(pool);
 
       const result = await svc.register({
@@ -108,14 +125,16 @@ describe('IdentityService (birim)', () => {
       expect(executed.some((s) => s.includes('INSERT INTO tenant_users'))).toBe(true);
       expect(executed.some((s) => s.includes('tenant_entitlements'))).toBe(true);
       expect(executed.some((s) => s === 'COMMIT')).toBe(true);
+      // Kayıt oturumu hemen kurar (ADR-0023): kullanıcı ikinci kez giriş yapmaz
+      expect(result.session.accessToken).toBeTruthy();
+      expect(result.session.user.id).toBe(result.userId);
+      expect(result.session.user.name).toBe('Yeni Kullanıcı');
+      expect(executed.some((s) => s.includes('INSERT INTO user_sessions'))).toBe(true);
     });
 
     it("acceptTerms true ise KVKK kabulü legal_acceptances'e yazılır (ADR-0011)", async () => {
       const executed: string[] = [];
-      const { pool } = makeMockPool((sql: string) => {
-        executed.push(sql);
-        return { rows: [] };
-      });
+      const { pool } = makeSignupPool(executed);
       const svc = new IdentityService(pool);
 
       await svc.register({
@@ -134,10 +153,7 @@ describe('IdentityService (birim)', () => {
 
     it('acceptTerms verilmezse kabul kaydı yazılmaz', async () => {
       const executed: string[] = [];
-      const { pool } = makeMockPool((sql: string) => {
-        executed.push(sql);
-        return { rows: [] };
-      });
+      const { pool } = makeSignupPool(executed);
       const svc = new IdentityService(pool);
 
       await svc.register({
@@ -292,6 +308,156 @@ describe('IdentityService (birim)', () => {
       await expect(
         svc.confirmPasswordReset('gecersiz-token', 'yeni-parola-1234'),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  describe('Google ile giriş — kimlik çözümleme zinciri (ADR-0023)', () => {
+    /** İmza denetimi `google.ts`'nin işi; burada doğrulanmış claim doğrudan verilir. */
+    const verifierFor = (value: GoogleClaims) => ({ verify: async () => value });
+
+    const claims: GoogleClaims = {
+      providerAccountId: 'google-sub-1',
+      email: 'mehmet@example.com',
+      displayName: 'Mehmet Yılmaz',
+      avatarUrl: 'https://example.com/avatar.png',
+    };
+
+    const activeUser = {
+      id: 'user-9',
+      email: 'mehmet@example.com',
+      display_name: 'Mehmet Yılmaz',
+      totp_secret: null,
+      status: 'active',
+    };
+
+    /**
+     * Kimlik zincirinin üç sorgusu sahtelenir: `user_identities` (sub), `users`
+     * (e-posta) ve oturumun şirket bağlantısı (`tenant_users`).
+     */
+    function makeGooglePool(responses: { identity?: unknown[]; userByEmail?: unknown[] } = {}) {
+      const executed: { sql: string; params: unknown[] }[] = [];
+      const { pool } = makeMockPool((sql: string, params?: unknown[]) => {
+        executed.push({ sql, params: params ?? [] });
+        if (sql.includes('FROM user_identities ui')) {
+          return { rows: responses.identity ?? [] };
+        }
+        if (sql.includes('FROM users WHERE email')) {
+          return { rows: responses.userByEmail ?? [] };
+        }
+        if (sql.includes('FROM tenant_users')) {
+          return { rows: [{ tenant_id: 'tenant-1' }] };
+        }
+        return { rows: [] };
+      });
+      return { pool, executed, sqls: () => executed.map((c) => c.sql) };
+    }
+
+    it('kayıtlı Google kimliği AYNI kullanıcıya düşer — yeni hesap açmaz', async () => {
+      const { pool, sqls } = makeGooglePool({ identity: [activeUser] });
+      const svc = new IdentityService(pool);
+
+      const result = await svc.loginWithGoogle('credential', {}, verifierFor(claims));
+
+      expect(result.isNewUser).toBe(false);
+      expect(result.session.user.id).toBe('user-9');
+      expect(sqls().some((s) => s.includes('INSERT INTO users'))).toBe(false);
+      expect(sqls().some((s) => s.includes('INSERT INTO user_identities'))).toBe(false);
+      // İsim/fotoğraf Google tarafında değişebilir → kimlik kaydı tazelenir
+      expect(sqls().some((s) => s.includes('UPDATE user_identities'))).toBe(true);
+      // Oturum normal yoldan kurulur: üç giriş yolu aynı oturumu üretir
+      expect(sqls().some((s) => s.includes('INSERT INTO user_sessions'))).toBe(true);
+    });
+
+    it('doğrulanmış e-posta mevcut hesaba KİMLİK BAĞLAR — ikinci hesap açılmaz', async () => {
+      const { pool, executed, sqls } = makeGooglePool({ userByEmail: [activeUser] });
+      const svc = new IdentityService(pool);
+
+      const result = await svc.loginWithGoogle('credential', {}, verifierFor(claims));
+
+      expect(result.isNewUser).toBe(false);
+      expect(result.session.user.id).toBe('user-9');
+      expect(sqls().some((s) => s.includes('INSERT INTO users'))).toBe(false);
+      expect(sqls().some((s) => s.includes('INSERT INTO tenants'))).toBe(false);
+
+      const link = executed.find((c) => c.sql.includes('INSERT INTO user_identities'));
+      expect(link?.params[1]).toBe('user-9'); // user_id → mevcut hesap
+      expect(link?.params[2]).toBe('google-sub-1'); // provider_account_id = sub
+    });
+
+    it('hiçbir eşleşme yoksa parolasız kullanıcı + şirket açılır', async () => {
+      const { pool, executed, sqls } = makeGooglePool();
+      const svc = new IdentityService(pool);
+
+      const result = await svc.loginWithGoogle('credential', {}, verifierFor(claims));
+
+      expect(result.isNewUser).toBe(true);
+      expect(result.session.user.name).toBe('Mehmet Yılmaz');
+
+      const insertUser = executed.find((c) => c.sql.includes('INSERT INTO users'));
+      // `password_hash` parametre olarak BİLE verilmez: hesap parolasız doğar
+      expect(insertUser?.sql).toContain('VALUES ($1, $2, NULL');
+      expect(insertUser?.params[1]).toBe('mehmet@example.com');
+
+      // Kendi kendine kayıtla aynı tohumlama: şirket + owner + ücretsiz çekirdek
+      expect(sqls().some((s) => s.includes('INSERT INTO tenants'))).toBe(true);
+      expect(sqls().some((s) => s.includes('INSERT INTO tenant_users'))).toBe(true);
+      expect(sqls().some((s) => s.includes('tenant_entitlements'))).toBe(true);
+      // Şirket adı Google profilinden ödünç alınır
+      const insertTenant = executed.find((c) => c.sql.includes('INSERT INTO tenants'));
+      expect(insertTenant?.params[1]).toBe('Mehmet Yılmaz');
+    });
+
+    it('2FA açık hesapta Google girişi reddedilir — tek faktör oturum açmaz', async () => {
+      const { pool, sqls } = makeGooglePool({
+        identity: [{ ...activeUser, totp_secret: 'totp-secret' }],
+      });
+      const svc = new IdentityService(pool);
+
+      await expect(
+        svc.loginWithGoogle('credential', {}, verifierFor(claims)),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(sqls().some((s) => s.includes('INSERT INTO user_sessions'))).toBe(false);
+    });
+
+    it('askıya alınmış hesap oturum alamaz', async () => {
+      const { pool, sqls } = makeGooglePool({
+        identity: [{ ...activeUser, status: 'suspended' }],
+      });
+      const svc = new IdentityService(pool);
+
+      await expect(
+        svc.loginWithGoogle('credential', {}, verifierFor(claims)),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(sqls().some((s) => s.includes('INSERT INTO user_sessions'))).toBe(false);
+    });
+  });
+
+  describe('mapGoogleClaims — claim denetimleri (ADR-0023)', () => {
+    it('doğrulanmamış e-postayı reddeder (hesap devralma kapısı)', () => {
+      expect(() =>
+        mapGoogleClaims({ sub: 'sub-1', email: 'a@b.com', email_verified: false }),
+      ).toThrow(AppError);
+      // Bayrak hiç gelmemesi de doğrulanmamış sayılır
+      expect(() => mapGoogleClaims({ sub: 'sub-1', email: 'a@b.com' })).toThrow(AppError);
+    });
+
+    it('e-postayı normalize eder, eksik profil alanlarını null yapar', () => {
+      const result = mapGoogleClaims({
+        sub: ' sub-1 ',
+        email: ' Ali@Ornek.COM ',
+        email_verified: true,
+        name: '  Ali Veli ',
+      });
+      expect(result).toEqual({
+        providerAccountId: 'sub-1',
+        email: 'ali@ornek.com',
+        displayName: 'Ali Veli',
+        avatarUrl: null,
+      });
+    });
+
+    it('kalıcı kimlik (`sub`) yoksa reddeder — e-posta tek başına anahtar olamaz', () => {
+      expect(() => mapGoogleClaims({ email: 'a@b.com', email_verified: true })).toThrow(AppError);
     });
   });
 });
