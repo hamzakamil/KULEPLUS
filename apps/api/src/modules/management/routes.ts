@@ -59,6 +59,14 @@ import { ManagementCockpitService } from './cockpit.service';
 import { ApprovalService } from './approval.service';
 import { loadPermissionGrants } from '../../middleware/permission-grants';
 import { ruleUpsertSchema, type RuleUpsertInput } from './rules';
+import {
+  SiteService,
+  createSiteSchema,
+  siteListQuerySchema,
+  updateSiteSchema,
+} from './sites.service';
+import type { SiteListQuery } from './sites.service';
+import { WeatherService, weatherDistrictsQuerySchema } from './weather.service';
 
 const router = Router();
 
@@ -69,6 +77,8 @@ const service = new ManagementService();
 const dashboardService = new ManagementDashboardService();
 const cockpitService = new ManagementCockpitService();
 const approvalService = new ApprovalService();
+const siteService = new SiteService();
+const weatherService = new WeatherService();
 
 const canTaskRead = requirePermission('management.task.read');
 const canTaskCreate = requirePermission('management.task.create');
@@ -97,6 +107,11 @@ const canRuleManage = requirePermission('management.rule.manage');
 const canApprovalRead = requirePermission('management.approval.read');
 const canApprovalCreate = requirePermission('management.approval.create');
 const canApprovalDecide = requirePermission('management.approval.decide');
+// Şantiye (saha) kayıtları — Faz 7.6: kokpit hava durumunun şehir kaynağı.
+const canSiteRead = requirePermission('management.site.read');
+const canSiteCreate = requirePermission('management.site.create');
+const canSiteUpdate = requirePermission('management.site.update');
+const canSiteDelete = requirePermission('management.site.delete');
 
 /** Kısa yol: try/catch + next(error) sarmalayıcısı (cheque deseni). */
 type Handler = (req: AuthenticatedRequest, res: Response) => Promise<void>;
@@ -147,6 +162,108 @@ router.get(
   }),
 );
 
+
+// ======================= Şantiyeler (Faz 7.6) =======================
+
+/**
+ * Şantiye kayıtları: ad + il/ilçe + durum. Kokpitteki "Şantiyeler" kartı ve
+ * hava durumu bölümü (MGM tahmini) bu kayıtlardan beslenir.
+ */
+router.get(
+  '/sites',
+  canSiteRead,
+  validate(siteListQuerySchema, 'query'),
+  handle(async (req, res) => {
+    res.json(await siteService.listSites(req.query as unknown as SiteListQuery, tenant(req)));
+  }),
+);
+
+router.get(
+  '/sites/:id',
+  canSiteRead,
+  handle(async (req, res) => {
+    const site = await siteService.getSite(req.params.id, tenant(req));
+    if (!site) throw new AppError('NOT_FOUND', 'Şantiye bulunamadı');
+    res.json(site);
+  }),
+);
+
+router.post(
+  '/sites',
+  canSiteCreate,
+  validate(createSiteSchema, 'body'),
+  handle(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        await siteService.createSite(
+          req.body as Parameters<SiteService['createSite']>[0],
+          userId(req),
+          tenant(req),
+        ),
+      );
+  }),
+);
+
+router.patch(
+  '/sites/:id',
+  canSiteUpdate,
+  validate(updateSiteSchema, 'body'),
+  handle(async (req, res) => {
+    res.json(
+      await siteService.updateSite(
+        req.params.id,
+        req.body as Parameters<SiteService['updateSite']>[1],
+        userId(req),
+        tenant(req),
+      ),
+    );
+  }),
+);
+
+router.delete(
+  '/sites/:id',
+  canSiteDelete,
+  handle(async (req, res) => {
+    res.json(await siteService.deleteSite(req.params.id, tenant(req)));
+  }),
+);
+
+// MGM proxy uçları: tarayıcı `servis.mgm.gov.tr`yi doğrudan çağıramaz (CORS yok
+// ve istek `Referer`/`Origin` başlıkları gerektirir) — şantiye formundaki il/ilçe
+// seçenekleri buradan gelir.
+
+router.get(
+  '/weather/provinces',
+  canSiteRead,
+  handle(async (_req, res) => {
+    try {
+      res.json({ items: await weatherService.listProvinces() });
+    } catch (error) {
+      throw new AppError(
+        'EXTERNAL_SERVICE_ERROR',
+        `MGM il listesi alınamadı: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }),
+);
+
+router.get(
+  '/weather/districts',
+  canSiteRead,
+  validate(weatherDistrictsQuerySchema, 'query'),
+  handle(async (req, res) => {
+    const province = String((req.query as { province?: string }).province ?? '');
+    try {
+      res.json({ items: await weatherService.listDistricts(province) });
+    } catch (error) {
+      throw new AppError(
+        'EXTERNAL_SERVICE_ERROR',
+        `MGM ilçe listesi alınamadı: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }),
+);
 
 // Kural motoru ayarları (T-7.5: hazır kurallar kod + parametreler DB).
 

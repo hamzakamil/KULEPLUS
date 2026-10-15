@@ -112,6 +112,18 @@ Geçerli scope'lar (SPEC §6.2): `all`, `own_branch`, `own_department`, `assigne
 > `reports_plus`, `management`, `sms`, `integrations`) ilgili fazlarda `PERMISSIONS` dizisine
 > eklenir; bu doküman aynı PR'da güncellenir.
 
+### `management` — şantiye / saha kayıtları (ROADMAP Faz 7.6)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| management | `management.site.read` | all | ✅ |
+| management | `management.site.create` | all | ✅ |
+| management | `management.site.update` | all | ✅ |
+| management | `management.site.delete` | all | ✅ |
+
+Not: Faz 7'nin diğer `management.*` izinleri (görev, takvim, randevu, onay, …) bu
+katalog tablosuna henüz taşınmadı; tek kaynak `packages/shared/src/permissions.ts`'tir.
+
 ## Delegatable = FALSE (kritik — SPEC §6.4)
 
 Bir yönetici yalnızca kendi sahip olduğu **ve** `delegatable = TRUE` olan izinleri başka role atayabilir.

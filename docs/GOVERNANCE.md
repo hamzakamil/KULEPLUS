@@ -37,7 +37,7 @@ Aşağıdaki tablo **tek doğruluk kaynağıdır**. `permission_prefix`, klasör
 | `accounting` | `accounting.*` | `modules/accounting/` | 6 | `fiscal_periods`, `accounting_accounts`, `journal_entries`, `journal_lines`, `posting_rules`, `account_mappings`, `period_locks`, `cost_centers`, `project_tags`, `invoice_line_dimensions`, `journal_line_dimensions`, `expense_dimensions` |
 | `cheque` | `cheque.*` | `modules/cheque/` | 6 | `cheques`, `cheque_transactions`, `cheque_portfolio` |
 | `reports_plus` | `reports_plus.*` | `modules/reports_plus/` | 6 | `report_generations` (yalnızca view + konfigürasyon) |
-| `management` | `management.*` | `modules/management/` | 7 | `tasks`, `reminders`, `calendars`, `calendar_events`, `appointments`, `notes`, `activities`, `notifications`, `user_devices`, `notification_deliveries`, `notification_preferences`, `management_rule_settings`, `approval_requests` |
+| `management` | `management.*` | `modules/management/` | 7 | `tasks`, `reminders`, `calendars`, `calendar_events`, `appointments`, `notes`, `activities`, `notifications`, `user_devices`, `notification_deliveries`, `notification_preferences`, `management_rule_settings`, `approval_requests`, `sites` |
 | `sms` | `sms.*` | `modules/sms/` | 4 | `sms_credits`, `sms_messages` |
 | `integrations` | `integrations.*` | `modules/integrations/` | 8 | `integrations`, `integration_credentials`, `webhook_events`, `external_mappings`, `whatsapp_accounts`, `whatsapp_conversations`, `whatsapp_messages`, `message_status_events` |
 

@@ -824,6 +824,10 @@ Görev tamamlandı ≠ hatırlatıcı tetiklendi ≠ bildirim teslim edildi: ü�
 
 □ Onay kutusu: ödeme limiti, fatura iptali, fiş onayı.
 □ Günlük özet e-postası (sabah 08:00) ve haftalık özet.
+□ Şantiye (saha) kayıtları (sites, management.site.*): ad + il/ilçe + işveren + durum; kokpitteki
+  "Şantiyeler" kartı bu kayıtlardan beslenir (`/management/sites` ekranı).
+□ Hava durumu: MGM (Meteoroloji) tahmini şantiyenin il/ilçesine göre; vinç rüzgâr kararı
+  (30/40 km/s eşikleri) tahminden üretilir. ADR-0021. Kamera yayını entegrasyonu kapsam dışı.
 □ Kural bazlı uyarılar: vadesi geçen alacak, kritik stok, olağandışı gider, çek vadesi.
 □ Vergi/SGK takvimi (şirket türüne göre).
 □ Web Push (PWA), bildirim tercihleri ve sessiz saatler.

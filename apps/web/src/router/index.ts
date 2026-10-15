@@ -207,6 +207,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ManagementApprovalsView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/management/sites',
+    name: 'management-sites',
+    component: () => import('@/views/SitesView.vue'),
+    meta: { requiresAuth: true },
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 

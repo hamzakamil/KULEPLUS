@@ -490,35 +490,89 @@ $('#gprev').onclick=()=>openGCam(gcur-1);$('#gnext').onclick=()=>openGCam(gcur+1
 $('#gfs').onclick=()=>{try{$('#gdv').requestFullscreen()}catch(e){}};
 
 /* ---- Şantiyeler ---- */
-$('#stSaha').textContent=sant.reduce((s,x)=>s+x.w,0);
-$('#stTaseron').textContent=sant.reduce((s,x)=>s+x.t,0);
-$('#stKazasiz').textContent=Math.min(...sant.map(x=>x.sf));
-$('#santiyeler').innerHTML=sant.map(s=>`<div class="site"><div class="sh"><div><b>${s.n}</b><small>${s.l}</small></div><span class="tag ${s.c}">${s.tag}</span></div>
+/* Canlı modda kayıtlar `sites` tablosundan gelir (LIVE.sites + LIVE.weather);
+   veri yoksa aşağıdaki örnek şantiyeler ekranda kalır. Kamera kartı demo
+   kalır (gerçek yayın entegrasyonu yok) ve bunu "örnek veri" diye söyler. */
+let liveSites=null,liveWeather=null;
+function drawSant(){
+ const list=(liveSites||[]).filter(Boolean);
+ if(list.length){drawSantLive(list);return}
+ $('#stSaha').textContent=sant.reduce((s,x)=>s+x.w,0);
+ $('#stTaseron').textContent=sant.reduce((s,x)=>s+x.t,0);
+ $('#stKazasiz').textContent=Math.min(...sant.map(x=>x.sf));
+ $('#santSum').textContent='Örnek veri';
+ $('#santiyeler').innerHTML=sant.map(s=>`<div class="site"><div class="sh"><div><b>${s.n}</b><small>${s.l}</small></div><span class="tag ${s.c}">${s.tag}</span></div>
  <div class="bar" role="img" aria-label="İlerleme %${s.p}, plan %${s.plan}"><i style="width:${s.p}%"></i><u style="left:${s.plan}%"></u></div>
  <div class="sm"><span>İlerleme %${s.p} (plan %${s.plan})</span><span>Bütçe kullanımı %${s.b}</span><span>${s.w} kişi</span></div>
  <button class="lnk" data-gsite="${s.id}">Bu şantiyenin kameraları</button></div>`).join('');
+}
+/* Canlı şantiye satırı: ad + il/ilçe + durum, altında hava özeti (MGM).
+   İlerleme/personel alanları gösterilmez — bu veriler üretim modelinde yok. */
+const SSTAT={active:'good',paused:'warn',completed:'good',archived:''};
+function drawSantLive(list){
+ const wmap={};(liveWeather||[]).forEach(w=>{wmap[w.siteId]=w});
+ $('#stSaha').textContent='—';$('#stTaseron').textContent='—';$('#stKazasiz').textContent='—';
+ $('#santSum').textContent=list.length+' şantiye · canlı';
+ $('#santiyeler').innerHTML=list.map(s=>{
+  const w=wmap[s.id],y=w&&w.status=='ok';
+  const wc=y?(w.windRisk=='stop'?'bad':w.windRisk=='limit'?'warn':'good'):'';
+  const wt=y?(w.windKph==null?'Rüzgar verisi yok':(w.windKph+' km/s'+(w.windRisk=='stop'?' · vinç durmalı':w.windRisk=='limit'?' · sınırında':' · uygun'))):'Hava verisi yok';
+  return `<div class="site"><div class="sh"><div><b>${esc(s.name)}</b><small>${esc(locationLabel(s))}</small></div><span class="tag ${SSTAT[s.status]||''}">${esc(s.statusLabel)}</span></div>
+  <div class="sm"><span>${y?esc(w.conditionLabel||'—')+' · '+(w.temp==null?'—':w.temp+'°'):'MGM tahmini alınamadı'}</span><span class="tag ${wc}">${esc(wt)}</span></div></div>`;
+ }).join('');
+}
+function locationLabel(s){return s.district?s.province+' / '+s.district:s.province}
 $('#santiyeler').addEventListener('click',e=>{const b=e.target.closest('[data-gsite]');if(!b)return;
  gflt=b.dataset.gsite;drawGChips();drawGCams();setOpen($('.a-kam'),true);$('.a-kam').scrollIntoView({behavior:calm?'auto':'smooth',block:'start'})});
 
-/* ---- Hava durumu (örnek veri: hava durumu API'si ile değiştirin) ---- */
+/* ---- Hava durumu (canlı: MGM · LIVE.weather — şantiyenin il/ilçesine göre) ---- */
 const KOND={parcali:'⛅ Parçalı bulutlu',gunesli:'☀️ Güneşli',yagmurlu:'🌧 Yağmurlu',kapali:'☁️ Kapalı',ruzgarli:'💨 Rüzgârlı'};
+/* MGM hadise kodu → simge (kodlar backend'de Türkçe ada çevrilir). */
+const WICO={A:'☀️',AB:'🌤',PB:'⛅',CB:'☁️',HY:'🌦',Y:'🌧',KY:'🌧',KKY:'🌨',HKY:'🌨',K:'❄️',KYK:'❄️',YKY:'❄️',HSY:'🌦',SY:'🌧',KSY:'⛈',MSY:'🌦',DY:'🌨',GSY:'⛈',KGY:'⛈',SIS:'🌫',PUS:'🌫',DNM:'🌫',KF:'🌪',R:'💨',GKR:'💨',KKR:'💨',SCK:'🌡',SGK:'🥶',HHY:'🌧'};
+const wico=code=>WICO[String(code||'').toUpperCase()]||'🌡';
 const hava=[
  {l:'Başakşehir · Vadi Rezidans',t:14,wh:38,wd:'K',h:72,c:'parcali',f:[['Bugün',14,'⛅'],['Yarın',17,'☀️'],['Çar',12,'🌧']]},
  {l:'Kartal · Liman Ofis Kulesi',t:15,wh:22,wd:'KD',h:64,c:'gunesli',f:[['Bugün',15,'☀️'],['Yarın',16,'⛅'],['Per',14,'⛅']]},
  {l:'Çatalca · Çam Sitesi',t:11,wh:46,wd:'K',h:78,c:'yagmurlu',f:[['Bugün',11,'🌧'],['Yarın',10,'🌧'],['Per',13,'⛅']]}
 ];
+function havaRisk(w){return w>=40?['bad','Vinç durmalı']:w>=30?['warn','Vinç sınırında']:['good','Çalışma uygun']}
 function drawHava(){
+ const live=(liveWeather||[]).filter(Boolean);
+ if(live.length){drawHavaLive(live);return}
  const warn=hava.filter(x=>x.wh>=40).length;
  $('#havaSum').textContent=hava.length+' bölge · '+warn+' vinç riski · örnek veri';
  $('#hava').innerHTML=hava.map(x=>{
-  const wc=x.wh>=40?'bad':x.wh>=30?'warn':'good';
-  const wl=x.wh>=40?'Vinç durmalı':x.wh>=30?'Vinç sınırında':'Çalışma uygun';
+  const [wc,wl]=havaRisk(x.wh);
   return `<div class="site"><div class="sh"><div><b>${x.l}</b><small>${KOND[x.c]} · nem %${x.h}</small></div><span class="tag ${wc}">💨 ${x.wh} km/s · ${wl}</span></div>
    <div class="ha"><span class="ht">${x.t}°</span>
     <span class="fc">${x.f.map(d=>`<span><b>${d[0]}</b><i>${d[2]}</i><u>${d[1]}°</u></span>`).join('')}</span></div>
    <div class="sm"><span>Rüzgar ${x.wh} km/s (${x.wd} yönü)</span><span>Kule vinci rüzgar limiti: 45 km/s</span></div></div>`;
  }).join('');
 }
+/* Canlı MGM satırı: saatlik sıcaklık/rüzgâr + 3 günlük tahmin. Vinç kararı
+   backend'in `windRisk` alanından gelir (eşikler tek kaynakta: 30/40 km/s). */
+function drawHavaLive(list){
+ const ok=list.filter(x=>x.status=='ok');
+ const miss=list.length-ok.length;
+ const warn=ok.filter(x=>x.windRisk=='stop').length;
+ const upd=ok.find(x=>x.updatedAt);
+ $('#havaSum').textContent=ok.length+' şantiye · '+warn+' vinç riski · MGM'+((miss)?' · '+miss+' veri yok':'')+(upd?' · '+fmtDT(upd.updatedAt):'');
+ $('#hava').innerHTML=list.map(x=>{
+  const b=`<b>${esc(x.siteName)}</b><small>${esc(locationLabel(x))}</small>`;
+  if(x.status!='ok'){
+   return `<div class="site"><div class="sh"><div>${b}</div><span class="tag warn">${x.status=='unresolved'?'MGM istasyonu yok':'MGM erişilemedi'}</span></div>
+   <div class="sm"><span>${esc(x.message||'')}</span><span>Şantiyeler ekranından il/ilçeyi güncelleyin</span></div></div>`;
+  }
+  const [wc,wl]=havaRisk(x.windKph==null?-1:x.windKph);
+  const gust=x.windGustKph==null?'':' · hamle '+x.windGustKph;
+  return `<div class="site"><div class="sh"><div>${b}<small>${esc(x.conditionLabel||'—')} · nem %${x.humidity==null?'—':x.humidity}</small></div><span class="tag ${wc}">💨 ${x.windKph==null?'—':x.windKph} km/s · ${wl}</span></div>
+   <div class="ha"><span class="ht">${x.temp==null?'—':x.temp}°</span>
+    <span class="fc">${(x.daily||[]).map(d=>`<span><b>${esc(d.label)}</b><i>${wico(d.condition)}</i><u>${d.max==null?'—':d.max}°</u></span>`).join('')}</span></div>
+   <div class="sm"><span>Rüzgar ${x.windKph==null?'—':x.windKph} km/s (${esc(x.windDirLong||'—')})${gust}</span><span>MGM istasyonu: ${esc(stationLabel(x.station))}</span><span>Kule vinci rüzgar limiti: 45 km/s</span></div></div>`;
+ }).join('');
+}
+/* MGM istasyonu etiketi — ilçe bazlı istasyon yoksa il merkezine düşüldüğünü gösterir. */
+function stationLabel(st){return st?((st.ilce||st.il)+' · '+st.merkezId):'—'}
 
 /* ---- Nakit akışı ---- */
 function drawCash(){
@@ -747,7 +801,7 @@ function drawFin(){
 }
 $('#finTabs').addEventListener('click',e=>{const b=e.target.closest('[data-fin]');if(b){finTab=b.dataset.fin;drawFin()}});
 
-drawDec();drawChips();drawCams();drawGChips();drawGCams();drawHava();drawAra();drawFleet();drawExtra();drawFin();
+drawDec();drawChips();drawCams();drawGChips();drawGCams();drawSant();drawHava();drawAra();drawFleet();drawExtra();drawFin();
 
 /* ---- Bölüm aç/kapa: başlığa tıkla ----
    Delegasyon ile bağlanır: canlı veriyle SONRADAN üretilen kartlar (banka
@@ -907,6 +961,7 @@ function send(msg){
 }
 function redrawAll(){
  drawHead();kpis();drawAlerts();drawDec();drawChips();drawCams();drawCari();
+ drawSant();drawHava();
  drawCash();drawDues();drawFleet();drawExtra();drawFin();
 }
 function drawPill(err){
@@ -929,7 +984,10 @@ function drawFx(){
 }
 function applyLive(d,ctx){
  LIVE=d||null;LIVE_ON=!!d;CTX=ctx||{};
- if(!LIVE){redrawAll();drawPill(CTX.error);return}
+ if(!LIVE){liveSites=null;liveWeather=null;redrawAll();drawPill(CTX.error);return}
+ // Şantiyeler + MGM hava durumu (veri yoksa ilgili kart örnek veride kalır)
+ liveSites=Array.isArray(LIVE.sites)?LIVE.sites:null;
+ liveWeather=Array.isArray(LIVE.weather)?LIVE.weather:null;
  // Hesaplar + hesap detayındaki gerçek hareketler
  accounts=LIVE.accounts.map(a=>({n:a.name+(a.currency&&a.currency!=='TRY'?' · '+a.currency:''),g:a.group,b:a.balance,low:a.low,
   tx:(a.transactions||[]).map(t=>({t:fmtD(t.date),x:t.description,a:t.amount,tag:t.tag}))}));

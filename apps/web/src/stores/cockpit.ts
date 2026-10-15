@@ -145,6 +145,53 @@ export interface CockpitPayload {
   banks: Array<{ id: string; name: string; transactions: CockpitTx[] }>;
   suppliers: Array<{ name: string; amount: number; share: number; nextDue: string | null }>;
   fx: Array<{ code: string; rate: number; date: string }>;
+  /** Şantiyeler (saha kayıtları) — `sites` tablosu. */
+  sites: CockpitSite[];
+  /** Şantiye başına MGM (Meteoroloji) tahmini. */
+  weather: CockpitWeather[];
+}
+
+export interface CockpitSite {
+  id: string;
+  name: string;
+  province: string;
+  district: string | null;
+  status: string;
+  statusLabel: string;
+}
+
+export interface CockpitWeatherDay {
+  date: string;
+  label: string;
+  min: number | null;
+  max: number | null;
+  condition: string;
+  conditionLabel: string;
+  windKph: number | null;
+  windDirShort: string;
+}
+
+export interface CockpitWeather {
+  siteId: string;
+  siteName: string;
+  province: string;
+  district: string | null;
+  status: 'ok' | 'unresolved' | 'unavailable';
+  message: string | null;
+  station: { il: string; ilce: string | null; merkezId: number | null } | null;
+  updatedAt: string | null;
+  temp: number | null;
+  feelsLike: number | null;
+  humidity: number | null;
+  condition: string;
+  conditionLabel: string;
+  windKph: number | null;
+  windGustKph: number | null;
+  windDirDeg: number | null;
+  windDirShort: string;
+  windDirLong: string;
+  windRisk: 'ok' | 'limit' | 'stop';
+  daily: CockpitWeatherDay[];
 }
 
 export const useCockpitStore = defineStore('cockpit', () => {

@@ -39,8 +39,16 @@ test.describe('Yönetici Kokpiti (canlı veri)', () => {
       await expect(kokpit.locator('#camSum')).not.toBeEmpty();
     }
 
-    // Örnek veri kalan bölümler kullanıcıya açıkça etiketlenir.
-    await expect(kokpit.locator('#santSum')).toContainText('Örnek veri');
+    // Şantiye bölümü canlı (kayıtlı şantiye varsa) ya da örnek veri olduğunu söyler.
+    await expect(kokpit.locator('#santSum')).toContainText(/canlı|Örnek veri/);
+
+    // Hava durumu: canlı modda MGM tahmini, değilse örnek veri etiketi.
+    const havaSum = (await kokpit.locator('#havaSum').textContent()) || '';
+    expect(havaSum).toMatch(/MGM|örnek veri/);
+    if (havaSum.includes('MGM')) {
+      await expect(kokpit.locator('#hava .site').first()).toBeVisible();
+      await expect(kokpit.locator('#hava .site').first()).toContainText(/km\/s/);
+    }
 
     // Banka kartları artık veriyle üretiliyor (sabit Garanti/İş/Akbank kartları yok).
     await expect(kokpit.locator('#banks section.card').first()).toBeVisible();

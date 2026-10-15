@@ -190,6 +190,11 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   perm('management', 'approval', 'read', 'Onay taleplerini görüntüle'),
   perm('management', 'approval', 'create', 'Onay talebi oluştur'),
   perm('management', 'approval', 'decide', 'Onay talebini karara bağla'),
+  // --- management: şantiye (saha) kayıtları — kokpit hava durumu şehir kaynağı ---
+  perm('management', 'site', 'read', 'Şantiyeleri görüntüle'),
+  perm('management', 'site', 'create', 'Şantiye oluştur'),
+  perm('management', 'site', 'update', 'Şantiye güncelle'),
+  perm('management', 'site', 'delete', 'Şantiye sil'),
 
   // --- integrations (Faz 8 — webhook altyapısı) ---
   perm('integrations', 'integration', 'read', 'Entegrasyonları görüntüle'),

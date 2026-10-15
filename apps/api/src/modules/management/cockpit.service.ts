@@ -1,5 +1,7 @@
 import { getPool } from '@kuleplus/db';
 import type { Pool } from 'pg';
+import { SiteService } from './sites.service';
+import { WeatherService, type SiteWeather } from './weather.service';
 import { buildDashboardSummary, type DashboardIndicator, type RowQuery } from '@kuleplus/shared';
 
 /**
@@ -127,6 +129,15 @@ export interface CockpitWeek {
   outflow: number;
 }
 
+export interface CockpitSite {
+  id: string;
+  name: string;
+  province: string;
+  district: string | null;
+  status: string;
+  statusLabel: string;
+}
+
 export interface CockpitPayload {
   generatedAt: string;
   currency: string;
@@ -158,6 +169,10 @@ export interface CockpitPayload {
   banks: Array<{ id: string; name: string; transactions: CockpitTx[] }>;
   suppliers: Array<{ name: string; amount: number; share: number; nextDue: string | null }>;
   fx: Array<{ code: string; rate: number; date: string }>;
+  /** Şantiyeler (saha kayıtları) — `sites` tablosu. */
+  sites: CockpitSite[];
+  /** Şantiye başına MGM tahmini (il/ilçe → istasyon). */
+  weather: SiteWeather[];
 }
 
 const num = (value: unknown): number =>
@@ -283,9 +298,26 @@ function buildForecastWeeks(
 export class ManagementCockpitService {
   private pool: Pool | null = null;
   private readonly providedPool: Pool | null;
+  private readonly providedSiteService: SiteService | null;
+  private readonly providedWeatherService: WeatherService | null;
 
-  constructor(options?: { pool?: Pool }) {
+  constructor(options?: {
+    pool?: Pool;
+    /** Test/DI: şantiye ve hava durumu servisleri dışarıdan verilebilir. */
+    siteService?: SiteService;
+    weatherService?: WeatherService;
+  }) {
     this.providedPool = options?.pool ?? null;
+    this.providedSiteService = options?.siteService ?? null;
+    this.providedWeatherService = options?.weatherService ?? null;
+  }
+
+  private getSiteService(): SiteService {
+    return this.providedSiteService ?? new SiteService({ pool: this.getPoolInstance() });
+  }
+
+  private getWeatherService(): WeatherService {
+    return this.providedWeatherService ?? new WeatherService();
   }
 
   private getPoolInstance(): Pool {
@@ -818,6 +850,21 @@ export class ManagementCockpitService {
     const monthRevenue = num(monthRow.rows[0]?.revenue);
     const monthExpense = num(monthRow.rows[0]?.purchase) + num(monthRow.rows[0]?.expense);
 
+    // --- Şantiyeler + MGM hava durumu (şantiyenin il/ilçesine göre tahmin) ---
+    // Şantiye ya da MGM kaynaklı hata kokpiti düşürmez: ilgili kart örnek veriye
+    // düşer ve `sections.demo` bunu açıkça bildirir.
+    let cockpitSites: CockpitSite[] = [];
+    let weather: SiteWeather[] = [];
+    try {
+      cockpitSites = await this.getSiteService().listSitesForCockpit(options.tenantId);
+      if (cockpitSites.length > 0) {
+        weather = await this.getWeatherService().forecastForSites(cockpitSites);
+      }
+    } catch {
+      cockpitSites = [];
+      weather = [];
+    }
+
     // Canlı beslenen bölümler ile örnek veri kalan bölümler (arayüz etiketler).
     const live = [
       'kpi',
@@ -834,9 +881,13 @@ export class ManagementCockpitService {
       'tedarikci-odemeleri',
       'gunun-ozeti',
     ];
-    const demo = ['santiye', 'guvenlik-kamerasi', 'hava-durumu', 'arac-filosu', 'personel', 'belge-beyan'];
+    const demo = ['guvenlik-kamerasi', 'arac-filosu', 'personel', 'belge-beyan'];
     if (fxRows.rows.length > 0) live.push('doviz-kuru');
     else demo.push('doviz-kuru');
+    if (cockpitSites.length > 0) live.push('santiye');
+    else demo.push('santiye');
+    if (weather.some((item) => item.status === 'ok')) live.push('hava-durumu');
+    else demo.push('hava-durumu');
 
     return {
       generatedAt: new Date().toISOString(),
@@ -887,6 +938,8 @@ export class ManagementCockpitService {
         rate: num(row.rate),
         date: String(row.date),
       })),
+      sites: cockpitSites,
+      weather,
     };
   }
 }

@@ -164,6 +164,7 @@ const navGroups: {
     label: 'Yönetim',
     items: [
       { to: '/management/tasks', label: 'Görevler', module: 'management' },
+      { to: '/management/sites', label: 'Şantiyeler', module: 'management' },
       { to: '/management/appointments', label: 'Randevular', module: 'management' },
       { to: '/management/notifications', label: 'Bildirimler', module: 'management' },
       { to: '/management/approvals', label: 'Onay Kutusu', module: 'management' },
