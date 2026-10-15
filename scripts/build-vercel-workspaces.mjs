@@ -58,7 +58,10 @@ if (forVercel) {
     manifest.exports = Object.fromEntries(
       Object.entries(manifest.exports).map(([name, target]) => [
         name,
-        target.replace('./src/', './dist/').replace(/\.ts$/, '.js'),
+        {
+          types: target,
+          import: target.replace('./src/', './dist/').replace(/\.ts$/, '.js'),
+        },
       ]),
     );
     await writeFile(packageFile, `${JSON.stringify(manifest, null, 2)}\n`);
