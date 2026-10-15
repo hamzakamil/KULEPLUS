@@ -1,5 +1,21 @@
-import express, { type Express, type NextFunction, type Request, type Response } from 'express';
-import { default as helmet } from 'helmet';
+import express, {
+  type Express,
+  type NextFunction,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
+import { createRequire } from 'node:module';
+// helmet v8 sertleştirmesi: paketin `exports` alanında `types` koşulu yok.
+// Bazı TS çözümleyiciler (Vercel/Node10) default importu namespace tipine düşürüp
+// TS2349 ("has no call signatures") veriyor. Statik import tipine hiç bel
+// bağlamamak için createRequire ile yüklenir → `require` dönüşü `any`
+// olduğundan tip hatası imkânsız; runtime'da hem CJS fonksiyon hem
+// `{ default }` namespace formu desteklenir.
+const _require = createRequire(import.meta.url);
+type HelmetCallable = (options?: Record<string, unknown>) => RequestHandler;
+const _helmetMod = _require('helmet') as unknown as HelmetCallable | { default: HelmetCallable };
+const helmet: HelmetCallable = typeof _helmetMod === 'function' ? _helmetMod : _helmetMod.default;
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { pinoHttp } from 'pino-http';
