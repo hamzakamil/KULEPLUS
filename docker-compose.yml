@@ -1,6 +1,13 @@
 # Faz 0 — Altyapı iskeleti (README §12.2)
 # Kullanım: docker compose up -d
 # Servisler: PostgreSQL 16, Redis, MinIO (S3), Mailpit (dev e-posta)
+#
+# `name` AÇIKÇA sabitlenmiştir: Compose proje adını normalde dizin adından
+# türetir ("Muhasebe" → muhasebe). Dizin taşınıp yeniden adlandırılırsa proje
+# adı değişir ve `pgdata` → <yeni-ad>_pgdata diye BOŞ bir volume'e bakardı
+# (veri silinmez, ama uygulama boş şemaya bakar). Bu satır bugünkü davranışla
+# birebir aynı olduğu için hiçbir konteyner/volume yeniden oluşturulmaz.
+name: muhasebe
 services:
   postgres:
     image: postgres:16-alpine

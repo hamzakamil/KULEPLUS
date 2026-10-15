@@ -3,6 +3,12 @@ dist/
 .astro/
 .env
 .env.local
+# Üretim/önsahne ortam dosyaları — GERÇEK SIR içerir, commit'lenmez.
+# Şablonlar ayrı addır ve takip edilmeye devam eder: .env.example,
+# .env.production.example (ikisi de placeholder taşır, sır taşımaz).
+.env.production
+.env.staging
+.env.*.local
 *.log
 .DS_Store
 
