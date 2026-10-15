@@ -6,6 +6,7 @@
   "description": "Express API — modüler monolit (SPEC §1.2: src/modules/<modül>/…)",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "vercel-build": "node ../../scripts/build-vercel-workspaces.mjs --vercel",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts"
@@ -36,6 +37,7 @@
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.5",
     "@types/supertest": "^7.0.0",
+    "esbuild": "^0.21.5",
     "@vitest/coverage-v8": "^2.1.9",
     "pino-pretty": "^13.0.0",
     "supertest": "^7.0.0",

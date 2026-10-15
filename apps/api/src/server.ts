@@ -26,6 +26,7 @@ const logger = pino({
 });
 
 const app = createApp({ env, logger });
+export default app;
 
 // ---- Savunma hattı: süreç çöküşlerini engelle ----
 // Express 4, asenkron middleware/handler redlerini yakalamaz; tek bir
@@ -39,17 +40,19 @@ process.on('uncaughtException', (err) => {
   logger.error({ err }, 'Yakalanmamış istisna — süreç korunuyor');
 });
 
-const server = app.listen(env.PORT, () => {
-  logger.info(`API hazır: http://localhost:${env.PORT} (${env.NODE_ENV})`);
-});
-
-// Otomatik yedek zamanlayıcısı — ayarlanan sıklıkta DB yedeği alır (bkz. backup modülü).
-const backupScheduler = startBackupScheduler(logger);
-
-for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(signal, () => {
-    logger.info(`${signal} alındı, kapanıyor…`);
-    backupScheduler.stop();
-    server.close(() => process.exit(0));
+if (process.env.VERCEL !== '1') {
+  const server = app.listen(env.PORT, () => {
+    logger.info(`API hazır: http://localhost:${env.PORT} (${env.NODE_ENV})`);
   });
+
+  // Otomatik yedek zamanlayıcısı — ayarlanan sıklıkta DB yedeği alır (bkz. backup modülü).
+  const backupScheduler = startBackupScheduler(logger);
+
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      logger.info(`${signal} alındı, kapanıyor…`);
+      backupScheduler.stop();
+      server.close(() => process.exit(0));
+    });
+  }
 }
