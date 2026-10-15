@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getPool } from '@kuleplus/db';
+import type { PoolClient } from 'pg';
 import { AppError, newId } from '@kuleplus/shared';
 import { ensureChartOfAccountsOn } from '../accounting/chart.js';
 import {
@@ -239,7 +240,7 @@ export interface ExchangeRevaluationRow {
 }
 
 /** Havuzdan bağlantı alıp tenant bağlamını kurar (ortak yardımcı). */
-async function connectAsTenant(tenantId: string): Promise<import('pg').PoolClient> {
+async function connectAsTenant(tenantId: string): Promise<PoolClient> {
   const pool = getPool('app');
   const client = await pool.connect();
   await client.query('BEGIN');
@@ -339,7 +340,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Hesap planında kod ile hesap çözer (tenant planı; yoksa null). */
 async function resolveAccountByCodeLocal(
-  client: import('pg').PoolClient,
+  client: PoolClient,
   code: string,
 ): Promise<string | null> {
   const r = await client.query<{ id: string }>(
@@ -355,7 +356,7 @@ async function resolveAccountByCodeLocal(
  * Tahsilat/ödeme fişlerindeki `account_mappings` ('cash'/'bank') → TDHP fallback.
  */
 async function resolveCashBankAccountForType(
-  client: import('pg').PoolClient,
+  client: PoolClient,
   accountType: string,
 ): Promise<string | null> {
   const sourceType = accountType === 'bank' ? 'bank' : 'cash';

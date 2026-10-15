@@ -901,9 +901,11 @@ class ReportService {
 
     const [contact, invoices, payments, ageing] = await Promise.all([
       pool.query(
-        `SELECT id, code, name, tax_no, tax_office, email, phone, address FROM contacts
-         WHERE id = $3 AND tenant_id = current_tenant_id()`,
-        [from, to, input.contactId],
+        // contacts: telefon/adres/e-posta ayrı tablolardadır (contact_phones/…);
+        // mektup başlığı için temel + vergi bilgisi yeterlidir.
+        `SELECT id, code, name, tax_number, tax_office FROM contacts
+         WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [input.contactId],
       ),
       pool.query(
         `SELECT number, issue_date, due_date, COALESCE(total,0) AS total,
@@ -926,7 +928,7 @@ class ReportService {
       pool.query(
         `SELECT COUNT(*) AS overdue_count, COALESCE(SUM(balance),0) AS overdue_amount
          FROM invoices
-         WHERE tenant_id = current_tenant_id() AND contact_id = $3
+         WHERE tenant_id = current_tenant_id() AND contact_id = $1
            AND status <> 'cancelled' AND COALESCE(balance,0) > 0
            AND COALESCE(due_date, issue_date) < CURRENT_DATE`,
         [input.contactId],
@@ -1002,7 +1004,7 @@ class ReportService {
          WHERE i.tenant_id = current_tenant_id() AND i.type = 'sales'
            AND i.status <> 'cancelled' AND COALESCE(i.balance,0) > 0
          ORDER BY COALESCE(i.due_date, i.issue_date)`,
-        [to],
+        [],
       ),
       pool.query(
         `SELECT COALESCE(i.balance,0) AS balance, COALESCE(i.due_date, i.issue_date) AS due_date,
@@ -1012,7 +1014,7 @@ class ReportService {
          WHERE i.tenant_id = current_tenant_id() AND i.type = 'purchase'
            AND i.status <> 'cancelled' AND COALESCE(i.balance,0) > 0
          ORDER BY COALESCE(i.due_date, i.issue_date)`,
-        [to],
+        [],
       ),
       pool.query(
         `SELECT COALESCE(e.amount,0) AS balance, e.expense_date AS due_date,
@@ -1022,7 +1024,7 @@ class ReportService {
          WHERE e.tenant_id = current_tenant_id() AND e.status <> 'cancelled'
            AND e.payment_status <> 'paid'
          ORDER BY e.expense_date`,
-        [to],
+        [],
       ),
     ]);
 

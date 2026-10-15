@@ -111,9 +111,23 @@ router.get(
 );
 
 // Faz 6.5 — cari mutabakat mektubu verisi
+// Not: `live()` sarmalayıcısı yalnızca query taşır; contactId route param'ından
+// gelir, burada query'ye enjekte edilir.
 router.get(
   '/contacts/:contactId/reconciliation',
-  live((q) => reportService.contactReconciliationLetter(q)),
+  (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const query = parseRange(req);
+    if (!query) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'Geçersiz tarih aralığı (YYYY-AA-GG).' },
+      });
+      return;
+    }
+    reportService
+      .contactReconciliationLetter({ ...query, contactId: req.params.contactId })
+      .then((data) => res.json(data))
+      .catch(next);
+  },
 );
 
 // Faz 6.10 — vade bazlı nakit akış tahmini (haftalık kovalar)

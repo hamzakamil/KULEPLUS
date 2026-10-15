@@ -30,7 +30,11 @@ export type LiveReportKey =
   | 'profit-loss'
   | 'tax-summary'
   | 'aged-receivable'
-  | 'aged-payable';
+  | 'aged-payable'
+  | 'vat'
+  | 'babs'
+  | 'reconciliation'
+  | 'cash-flow-forecast';
 
 export interface ReportRange {
   from: string;
@@ -122,6 +126,26 @@ export const LIVE_REPORTS: { key: LiveReportKey; label: string; hint: string }[]
   { key: 'cash-bank', label: 'Kasa & Banka', hint: 'Bakiyeler, krediler, kartlar, POS' },
   { key: 'aged-receivable', label: 'Alacak Yaşlandırma', hint: 'Vadesi geçen alacaklar' },
   { key: 'aged-payable', label: 'Borç Yaşlandırma', hint: 'Vadesi geçen borçlar' },
+  {
+    key: 'vat',
+    label: 'KDV Hazırlık',
+    hint: 'Hesaplanan/indirilecek/devreden KDV ve tevkifat — beyanname öncesi (Faz 6.4)',
+  },
+  {
+    key: 'babs',
+    label: 'Ba-Bs Bildirim',
+    hint: 'Banka ve cari hesap dökümü; eşik üstü satırlar (Faz 6.5)',
+  },
+  {
+    key: 'reconciliation',
+    label: 'Cari Mutabakat',
+    hint: 'Cari bazlı mutabakat mektubu dökümü (Faz 6.5)',
+  },
+  {
+    key: 'cash-flow-forecast',
+    label: 'Nakit Akış Tahmini',
+    hint: 'Vade bazlı nakit akış planı, haftalık kovalar (Faz 6.10)',
+  },
 ];
 
 export const useReportStore = defineStore('report', () => {
@@ -207,6 +231,47 @@ export const useReportStore = defineStore('report', () => {
     await Promise.all(keys.map((k) => fetchLive(k)));
   };
 
+  /** Ba-Bs raporu — bildirim eşiği parametrelidir (mevzuat varsayılanı 5.000 TL). */
+  const fetchBabs = async (threshold?: number) => {
+    liveLoading.value = true;
+    liveError.value = null;
+    try {
+      const params = new URLSearchParams({
+        dateFrom: range.value.dateFrom,
+        dateTo: range.value.dateTo,
+      });
+      if (threshold !== undefined) params.set('threshold', String(threshold));
+      const response = await api.get(`/v1/reports/babs?${params.toString()}`);
+      liveData.value.babs = response.data;
+    } catch (err) {
+      liveError.value = errorMessage(err, 'Ba-Bs raporu hesaplanamadı');
+      throw err;
+    } finally {
+      liveLoading.value = false;
+    }
+  };
+
+  /** Cari mutabakat mektubu verisi — contactId zorunludur. */
+  const fetchReconciliation = async (contactId: string) => {
+    liveLoading.value = true;
+    liveError.value = null;
+    try {
+      const params = new URLSearchParams({
+        dateFrom: range.value.dateFrom,
+        dateTo: range.value.dateTo,
+      });
+      const response = await api.get(
+        `/v1/reports/contacts/${contactId}/reconciliation?${params.toString()}`,
+      );
+      liveData.value.reconciliation = response.data;
+    } catch (err) {
+      liveError.value = errorMessage(err, 'Mutabakat dökümü yüklenemedi');
+      throw err;
+    } finally {
+      liveLoading.value = false;
+    }
+  };
+
   /**
    * Modüllerde değişiklik var mı? — son bilinen zaman damgalarını tazeler ve
    * fark varsa `true` döner. Rapor ekranı bu sinyalle otomatik yenilenir.
@@ -256,6 +321,8 @@ export const useReportStore = defineStore('report', () => {
     getReportById,
     fetchLive,
     fetchLiveMany,
+    fetchBabs,
+    fetchReconciliation,
     refreshIfStale,
     generateReport,
   };

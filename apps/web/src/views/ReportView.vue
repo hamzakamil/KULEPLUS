@@ -755,8 +755,352 @@
       </article>
     </section>
 
-    <p v-if="store.liveLoading" class="state-msg">Hesaplanıyor…</p>
-    <p v-else-if="!currentData" class="state-msg">Bu rapor için henüz veri yok.</p>
+    <p v-if="store.liveLoading && active !== 'reconciliation'" class="state-msg">Hesaplanıyor…</p>
+    <p v-else-if="active !== 'reconciliation' && !currentData" class="state-msg">
+      Bu rapor için henüz veri yok.
+    </p>
+
+    <!-- ── KDV Hazırlık (Faz 6.4) ── -->
+    <section v-else-if="active === 'vat' && vatReport" class="report-body">
+      <div class="kpi-grid compact">
+        <article class="kpi">
+          <p class="kpi-label">Hesaplanan KDV (satış)</p>
+          <p class="kpi-value">{{ money(vatReport.calculatedVat) }}</p>
+          <p class="kpi-sub">Tevkifat sonrası {{ money(vatReport.calculatedVatAfterWithholding) }}</p>
+        </article>
+        <article class="kpi">
+          <p class="kpi-label">İndirilecek KDV (alış)</p>
+          <p class="kpi-value">{{ money(vatReport.deductibleVat) }}</p>
+          <p class="kpi-sub">Tevkifat sonrası {{ money(vatReport.deductibleVatAfterWithholding) }}</p>
+        </article>
+        <article class="kpi">
+          <p class="kpi-label">Devreden KDV</p>
+          <p class="kpi-value">{{ money(vatReport.carriedForwardVat) }}</p>
+          <p class="kpi-sub">Dönem öncesi birikmiş</p>
+        </article>
+        <article class="kpi" :class="vatReport.finalBalance >= 0 ? 'warn' : 'pos'">
+          <p class="kpi-label">Beyan Farkı</p>
+          <p class="kpi-value">{{ money(vatReport.finalBalance) }}</p>
+          <p class="kpi-sub">
+            {{ vatReport.finalBalance >= 0 ? 'Ödenecek KDV' : 'Devreden KDV' }}
+          </p>
+        </article>
+      </div>
+
+      <div class="two-col">
+        <article class="card">
+          <h3 class="card-title">Satış — KDV Oranına Göre</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Oran</th>
+                <th scope="col" class="num">Matrah</th>
+                <th scope="col" class="num">KDV</th>
+                <th scope="col" class="num">Belge</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in vatReport.salesByRate" :key="row.tax_rate">
+                <td class="strong">%{{ number(row.tax_rate, 2) }}</td>
+                <td class="num">{{ money(row.base) }}</td>
+                <td class="num strong">{{ money(row.tax) }}</td>
+                <td class="num muted">{{ row.doc_count }}</td>
+              </tr>
+              <tr v-if="!vatReport.salesByRate.length">
+                <td colspan="4" class="empty-cell">Bu dönemde satış satırı yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card">
+          <h3 class="card-title">Alış — KDV Oranına Göre</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Oran</th>
+                <th scope="col" class="num">Matrah</th>
+                <th scope="col" class="num">KDV</th>
+                <th scope="col" class="num">Belge</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in vatReport.purchaseByRate" :key="row.tax_rate">
+                <td class="strong">%{{ number(row.tax_rate, 2) }}</td>
+                <td class="num">{{ money(row.base) }}</td>
+                <td class="num strong">{{ money(row.tax) }}</td>
+                <td class="num muted">{{ row.doc_count }}</td>
+              </tr>
+              <tr v-if="!vatReport.purchaseByRate.length">
+                <td colspan="4" class="empty-cell">Bu dönemde alış satırı yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
+
+      <article class="card">
+        <h3 class="card-title">Tevkifat (Stopaj) Özeti</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Yön</th>
+              <th scope="col" class="num">Tevkifat Tutarı</th>
+              <th scope="col" class="num">Belge</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Satış (hesaplanan)</td>
+              <td class="num strong">{{ money(vatReport.withholding.sales.tax) }}</td>
+              <td class="num muted">{{ vatReport.withholding.sales.docCount }}</td>
+            </tr>
+            <tr>
+              <td>Alış (indirilecek)</td>
+              <td class="num strong">{{ money(vatReport.withholding.purchases.tax) }}</td>
+              <td class="num muted">{{ vatReport.withholding.purchases.docCount }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
+
+    <!-- ── Ba-Bs Bildirim (Faz 6.5) ── -->
+    <section v-else-if="active === 'babs' && babsReport" class="report-body">
+      <div class="card filter-bar">
+        <label class="field">
+          <span>Bildirim Eşiği (TL)</span>
+          <input
+            v-model.number="babsThreshold"
+            type="number"
+            class="input"
+            min="0"
+            step="1"
+            @change="loadBabs"
+          />
+        </label>
+        <p class="muted" style="font-size: 0.8rem; margin: 0">
+          Sadece tutarı eşiği aşan satırlar listelenir. Mevzuat varsayılanı 5.000 TL.
+        </p>
+      </div>
+
+      <div class="kpi-grid compact">
+        <article class="kpi">
+          <p class="kpi-label">Banka Hesapları (10)</p>
+          <p class="kpi-value">{{ money(babsReport.banks.closing) }}</p>
+          <p class="kpi-sub">{{ babsReport.banks.accounts.length }} hesap</p>
+        </article>
+        <article class="kpi">
+          <p class="kpi-label">Cari Hesapları (120)</p>
+          <p class="kpi-value">{{ money(babsReport.clients.closing) }}</p>
+          <p class="kpi-sub">{{ babsReport.clients.accounts.length }} hesap</p>
+        </article>
+        <article class="kpi warn">
+          <p class="kpi-label">Eşik Üstü Satır</p>
+          <p class="kpi-value">{{ babsReport.lineCount }}</p>
+          <p class="kpi-sub">Eşik {{ number(babsReport.threshold) }} TL</p>
+        </article>
+      </div>
+
+      <div class="two-col">
+        <article class="card">
+          <h3 class="card-title">Banka Hesap Dökümü</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Kod</th>
+                <th scope="col">Hesap</th>
+                <th scope="col" class="num">Hareket</th>
+                <th scope="col" class="num">Fiş</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in babsReport.banks.accounts" :key="row.id">
+                <td class="mono">{{ row.code }}</td>
+                <td>{{ row.name }}</td>
+                <td class="num strong">{{ money(row.movement) }}</td>
+                <td class="num muted">{{ row.entry_count }}</td>
+              </tr>
+              <tr v-if="!babsReport.banks.accounts.length">
+                <td colspan="4" class="empty-cell">Bu dönemde banka hareketi yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card">
+          <h3 class="card-title">Cari (120) Hesap Dökümü</h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Kod</th>
+                <th scope="col">Hesap</th>
+                <th scope="col" class="num">Hareket</th>
+                <th scope="col" class="num">Fiş</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in babsReport.clients.accounts" :key="row.id">
+                <td class="mono">{{ row.code }}</td>
+                <td>{{ row.name }}</td>
+                <td class="num strong">{{ money(row.movement) }}</td>
+                <td class="num muted">{{ row.entry_count }}</td>
+              </tr>
+              <tr v-if="!babsReport.clients.accounts.length">
+                <td colspan="4" class="empty-cell">Bu dönemde cari hareketi yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
+
+      <article class="card">
+        <h3 class="card-title">Eşik Üstü Satırlar</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Fiş No</th>
+              <th scope="col">Tarih</th>
+              <th scope="col">Hesap</th>
+              <th scope="col">Açıklama</th>
+              <th scope="col" class="num">Tutar</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in babsReport.lines" :key="`${row.entry_no}-${i}`">
+              <td class="mono">{{ row.entry_no }}</td>
+              <td class="nowrap">{{ date(row.entry_date) }}</td>
+              <td class="mono">
+                {{ row.code }} · {{ row.name }}
+              </td>
+              <td class="muted">{{ row.description ?? '—' }}</td>
+              <td class="num strong">{{ money(row.amount) }}</td>
+            </tr>
+            <tr v-if="!babsReport.lines.length">
+              <td colspan="5" class="empty-cell">Eşiği aşan satır yok.</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
+
+    <!-- ── Cari Mutabakat (Faz 6.5) ── -->
+    <section v-else-if="active === 'reconciliation'" class="report-body">
+      <div class="card filter-bar">
+        <label class="field">
+          <span>Cari</span>
+          <select v-model="selectedContactId" class="input" @change="loadReconciliation">
+            <option value="" disabled>Cari seçin…</option>
+            <option v-for="c in contactStore.contacts" :key="c.id" :value="c.id">
+              {{ c.code }} — {{ c.name }}
+            </option>
+          </select>
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!selectedContactId"
+          @click="loadReconciliation"
+        >
+          Dökümü Getir
+        </button>
+      </div>
+
+      <template v-if="reconciliation">
+        <div class="kpi-grid compact">
+          <article class="kpi" :class="reconciliation.closingBalance >= 0 ? 'pos' : 'neg'">
+            <p class="kpi-label">Kapanış Bakiyesi</p>
+            <p class="kpi-value">{{ money(reconciliation.closingBalance) }}</p>
+            <p class="kpi-sub">
+              {{ reconciliation.closingBalance >= 0 ? 'Bize borçlu' : 'Biz borçluyuz' }}
+            </p>
+          </article>
+          <article class="kpi warn">
+            <p class="kpi-label">Vadesi Geçmiş</p>
+            <p class="kpi-value">{{ money(reconciliation.overdue.overdue_amount) }}</p>
+            <p class="kpi-sub">{{ reconciliation.overdue.overdue_count }} belge</p>
+          </article>
+        </div>
+
+        <article class="card">
+          <h3 class="card-title">
+            {{ reconciliation.contact.name }}
+            <span class="muted" style="font-weight: 400">
+              · {{ reconciliation.contact.code }}
+              <template v-if="reconciliation.contact.tax_number"> · VKN {{ reconciliation.contact.tax_number }}</template>
+            </span>
+          </h3>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Tarih</th>
+                <th scope="col">Tür</th>
+                <th scope="col">Belge</th>
+                <th scope="col" class="num">Borç</th>
+                <th scope="col" class="num">Alacak</th>
+                <th scope="col" class="num">Bakiye</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(m, i) in reconciliation.movements" :key="`${m.document}-${i}`">
+                <td class="nowrap">{{ date(m.date) }}</td>
+                <td class="strong">{{ m.type }}</td>
+                <td class="mono">{{ m.document }}</td>
+                <td class="num">{{ m.debit ? money(m.debit) : '—' }}</td>
+                <td class="num">{{ m.credit ? money(m.credit) : '—' }}</td>
+                <td class="num strong">{{ money(m.balance) }}</td>
+              </tr>
+              <tr v-if="!reconciliation.movements.length">
+                <td colspan="6" class="empty-cell">Bu dönemde hareket yok.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </template>
+    </section>
+
+    <!-- ── Nakit Akış Tahmini (Faz 6.10) ── -->
+    <section v-else-if="active === 'cash-flow-forecast' && cashFlowForecast" class="report-body">
+      <div class="kpi-grid compact">
+        <article class="kpi pos">
+          <p class="kpi-label">Beklenen Giriş</p>
+          <p class="kpi-value">{{ money(cashFlowForecast.totals.inflow) }}</p>
+          <p class="kpi-sub">Vadesi gelen satış faturaları</p>
+        </article>
+        <article class="kpi neg">
+          <p class="kpi-label">Beklenen Çıkış</p>
+          <p class="kpi-value">{{ money(cashFlowForecast.totals.outflow) }}</p>
+          <p class="kpi-sub">Alış faturaları + giderler</p>
+        </article>
+        <article class="kpi" :class="cashFlowForecast.totals.net >= 0 ? 'pos' : 'neg'">
+          <p class="kpi-label">Net Nakit Etkisi</p>
+          <p class="kpi-value">{{ money(cashFlowForecast.totals.net) }}</p>
+          <p class="kpi-sub">{{ cashFlowForecast.totals.net >= 0 ? 'Pozitif' : 'Negatif' }}</p>
+        </article>
+      </div>
+
+      <article class="card">
+        <h3 class="card-title">Haftalık Kovalar</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Dönem</th>
+              <th scope="col" class="num">Giriş</th>
+              <th scope="col" class="num">Çıkış</th>
+              <th scope="col" class="num">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="b in cashFlowForecast.buckets" :key="b.label">
+              <td class="nowrap">{{ b.label }}</td>
+              <td class="num">{{ money(b.inflow) }}</td>
+              <td class="num">{{ money(b.outflow) }}</td>
+              <td class="num strong" :class="b.net >= 0 ? '' : 'neg'">
+                {{ money(b.net) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
 
     <!-- ── Arşiv ── -->
     <section class="archive" aria-labelledby="arsiv">
@@ -807,6 +1151,7 @@ import {
   type ReportStatus,
   type ReportType,
 } from '@/stores/report';
+import { useContactStore } from '@/stores/contacts';
 
 interface InvoiceSummaryRow {
   total: number;
@@ -910,6 +1255,95 @@ interface AgedReportData {
   }[];
 }
 
+/** KDV hazırlık raporu — Faz 6.4 (`GET /v1/reports/vat`). */
+interface VatReportData {
+  range: { from: string; to: string };
+  calculatedVat: number;
+  calculatedVatAfterWithholding: number;
+  deductibleVat: number;
+  deductibleVatAfterWithholding: number;
+  carriedForwardVat: number;
+  vatPayable: number;
+  finalBalance: number;
+  withholding: {
+    sales: { tax: number; docCount: number };
+    purchases: { tax: number; docCount: number };
+  };
+  salesByRate: { tax_rate: number; tax: number; base: number; doc_count: number }[];
+  purchaseByRate: { tax_rate: number; tax: number; base: number; doc_count: number }[];
+}
+
+/** Ba-Bs bildirim raporu — Faz 6.5 (`GET /v1/reports/babs`). */
+interface BabsReportData {
+  range: { from: string; to: string };
+  threshold: number;
+  banks: {
+    closing: number;
+    accounts: {
+      id: string;
+      code: string;
+      name: string;
+      movement: number;
+      entry_count: number;
+    }[];
+  };
+  clients: {
+    closing: number;
+    accounts: {
+      id: string;
+      code: string;
+      name: string;
+      movement: number;
+      entry_count: number;
+    }[];
+  };
+  lines: {
+    code: string;
+    name: string;
+    entry_date: string;
+    entry_no: number | string;
+    description: string | null;
+    amount: number;
+  }[];
+  lineCount: number;
+}
+
+/** Cari mutabakat mektubu sekmesi için tek bir hareket satırı. */
+interface ReconciliationMovement {
+  date: string;
+  type: string;
+  document: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+/** Cari mutabakat mektubu — Faz 6.5 (`GET /v1/reports/contacts/:id/reconciliation`). */
+interface ContactReconciliationData {
+  range: { from: string; to: string };
+  contact: {
+    id: string;
+    code: string;
+    name: string;
+    tax_number: string | null;
+    tax_office: string | null;
+  };
+  movements: ReconciliationMovement[];
+  closingBalance: number;
+  overdue: { overdue_count: number; overdue_amount: number };
+}
+
+/** Vade bazlı nakit akış tahmini — Faz 6.10 (`GET /v1/reports/cash-flow-forecast`). */
+interface CashFlowForecastData {
+  buckets: { label: string; inflow: number; outflow: number; net: number }[];
+  totals: { inflow: number; outflow: number; net: number };
+  detail: {
+    receivable: { due_date: string; balance: number; number: string; contact_name: string | null }[];
+    payable: { due_date: string; balance: number; number: string; contact_name: string | null }[];
+    expenses: { due_date: string; balance: number; number: string; contact_name: string | null }[];
+  };
+}
+
 const store = useReportStore();
 const active = ref<LiveReportKey>('overview');
 const autoRefresh = ref(true);
@@ -936,6 +1370,14 @@ const agedReport = computed(() => {
   const key: LiveReportKey = active.value === 'aged-payable' ? 'aged-payable' : 'aged-receivable';
   return store.liveData[key] as AgedReportData | undefined;
 });
+const vatReport = computed(() => store.liveData.vat as VatReportData | undefined);
+const babsReport = computed(() => store.liveData.babs as BabsReportData | undefined);
+const reconciliation = computed(
+  () => store.liveData.reconciliation as ContactReconciliationData | undefined,
+);
+const cashFlowForecast = computed(
+  () => store.liveData['cash-flow-forecast'] as CashFlowForecastData | undefined,
+);
 
 /** Aktif sekmenin verisi yüklendi mi? */
 const currentData = computed(() => {
@@ -956,6 +1398,14 @@ const currentData = computed(() => {
       return stockReport.value;
     case 'cash-bank':
       return cashBankReport.value;
+    case 'vat':
+      return vatReport.value;
+    case 'babs':
+      return babsReport.value;
+    case 'reconciliation':
+      return reconciliation.value;
+    case 'cash-flow-forecast':
+      return cashFlowForecast.value;
     default:
       return agedReport.value;
   }
@@ -967,13 +1417,32 @@ const totalOpenDocs = computed(() => {
   return c.quotes + c.orders + c.purchase_orders + c.deliveries;
 });
 
-// ── Yükleme ──
-
+// ── Aktif sekmenin verisi yüklendi mi? (özel parametreli sekmeler dahil) ──
 /** Özet kartları için gerekli sekmeler (arşiv değil, canlı). */
 const OVERVIEW_DEPS: LiveReportKey[] = ['overview'];
 
-const loadActive = async () => {
+const contactStore = useContactStore();
+/** Ba-Bs bildirim eşiği (TL) — mevzuat varsayılanı 5.000. */
+const babsThreshold = ref(5000);
+/** Cari mutabakat sekmesinde seçilen cari. */
+const selectedContactId = ref('');
+
+const loadBabs = async () => {
+  await store.fetchBabs(babsThreshold.value);
+};
+const loadReconciliation = async () => {
+  if (!selectedContactId.value) return;
+  await store.fetchReconciliation(selectedContactId.value);
+};
+/** Aktif sekmeyi kendi parametreleriyle yeniden yükler. */
+const reloadActive = async () => {
+  if (active.value === 'babs') return loadBabs();
+  if (active.value === 'reconciliation') return loadReconciliation();
   await store.fetchLive(active.value);
+};
+
+const loadActive = async () => {
+  await reloadActive();
   if (active.value === 'overview') {
     // Özet sekmesi için de güncel hazırlık verisi
     await store.fetchLive('sales');
@@ -981,18 +1450,24 @@ const loadActive = async () => {
 };
 
 const reloadAll = async () => {
-  await store.fetchLiveMany([...new Set([active.value, ...OVERVIEW_DEPS])]);
+  // Ba-Bs (eşik) ve Cari Mutabakat (cari) özel parametre taşır; fetchLiveMany'e sığmaz.
+  const generic = [...new Set([active.value, ...OVERVIEW_DEPS])].filter(
+    (k) => k !== 'babs' && k !== 'reconciliation',
+  );
+  await store.fetchLiveMany(generic);
+  await reloadActive();
   await store.fetchReports();
 };
 
 const selectTab = async (key: LiveReportKey) => {
   active.value = key;
-  await store.fetchLive(key);
+  if (key === 'babs' || key === 'reconciliation') await reloadActive();
+  else await store.fetchLive(key);
 };
 
 const onRangeChange = async () => {
   store.setRange(rangeFrom.value, rangeTo.value);
-  await store.fetchLive(active.value);
+  await reloadActive();
   if (active.value !== 'overview') await store.fetchLive('overview');
 };
 
@@ -1041,7 +1516,7 @@ let timer: ReturnType<typeof setInterval> | null = null;
 const tick = async () => {
   const changed = await store.refreshIfStale();
   if (!changed) return;
-  await store.fetchLive(active.value);
+  await reloadActive();
   if (active.value !== 'overview') await store.fetchLive('overview');
   lastAutoRefresh.value = new Date().toLocaleTimeString('tr-TR', {
     hour: '2-digit',
@@ -1059,6 +1534,7 @@ watch(autoRefresh, (on) => {
 
 onMounted(async () => {
   await reloadAll();
+  if (!contactStore.contacts.length) await contactStore.fetchContacts();
   if (autoRefresh.value) timer = setInterval(() => void tick(), 10_000);
 });
 
@@ -1394,5 +1870,12 @@ const exportCsv = () => {
 .section-title {
   font-size: 1.0625rem;
   margin: 0;
+}
+
+/* ── Cari seçici (Cari Mutabakat) ── */
+select.input {
+  min-width: 16rem;
+  padding-block: 0.375rem;
+  background: #fff;
 }
 </style>
