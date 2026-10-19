@@ -154,6 +154,16 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   perm('accounting', 'entry', 'update', 'Yevmiye fişi güncelle'),
   perm('accounting', 'entry', 'delete', 'Yevmiye fişi sil'),
   perm('accounting', 'entry', 'approve', 'Yevmiye fişi onayla (post)'),
+  perm('accounting', 'account', 'read', 'Hesap planını görüntüle'),
+  perm('accounting', 'account', 'manage', 'Hesap planını yönet (ekle/düzenle/pasife al/kur)'),
+  perm('accounting', 'period', 'read', 'Mali dönem ve kilitleri görüntüle'),
+  perm('accounting', 'period', 'manage', 'Mali dönem tanımla/düzenle'),
+  perm('accounting', 'period', 'close', 'Dönemi kapat/aç ve dönem kilidi koy/kaldır', {
+    delegatable: false,
+  }),
+  perm('accounting', 'mapping', 'read', 'Hesap eşleme ve posting kurallarını görüntüle'),
+  perm('accounting', 'mapping', 'manage', 'Hesap eşleme ve posting kurallarını yönet'),
+  perm('accounting', 'report', 'read', 'Mizan, bilanço, gelir tablosu raporlarını görüntüle'),
 
   // --- cheque (ROADMAP Faz 6 — çek/senet) ---
   perm('cheque', 'cheque', 'read', 'Çek/senet görüntüle'),

@@ -108,7 +108,27 @@ Geçerli scope'lar (SPEC §6.2): `all`, `own_branch`, `own_department`, `assigne
 | einvoice | `einvoice.document.send` | all | ✅ |
 | einvoice | `einvoice.document.cancel` | all | ✅ |
 
-> Faz 2+ modülleri (`cashbank`, `accounting`,
+### `accounting` — SPEC §15 (Faz 5, Muhasebe)
+
+| Modül | Permission | Scope geçerli | Delegatable |
+|-------|-----------|---------------|-------------|
+| accounting | `accounting.entry.read` | all | ✅ |
+| accounting | `accounting.entry.create` | all | ✅ |
+| accounting | `accounting.entry.update` | all | ✅ |
+| accounting | `accounting.entry.delete` | all | ✅ |
+| accounting | `accounting.entry.approve` | all | ❌ |
+| accounting | `accounting.account.read` | all | ✅ |
+| accounting | `accounting.account.manage` | all | ✅ |
+| accounting | `accounting.period.read` | all | ✅ |
+| accounting | `accounting.period.manage` | all | ✅ |
+| accounting | `accounting.period.close` | all | ❌ |
+| accounting | `accounting.mapping.read` | all | ✅ |
+| accounting | `accounting.mapping.manage` | all | ✅ |
+| accounting | `accounting.report.read` | all | ✅ |
+
+> Dönem durumunu değiştirmek (kapat/aç) ve dönem kilidi koymak/kaldırmak `accounting.period.close` ister (devredilemez); dönem tanımlamak `period.manage`.
+
+> Faz 2+ modülleri (`cashbank`,
 > `reports_plus`, `management`, `sms`, `integrations`) ilgili fazlarda `PERMISSIONS` dizisine
 > eklenir; bu doküman aynı PR'da güncellenir.
 
