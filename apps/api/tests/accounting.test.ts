@@ -113,6 +113,7 @@ describe('AccountingService - Unit Tests', () => {
     } as const;
 
     it('draft fis olusturur (fis numarasi atanmaz)', async () => {
+      mockQuery.mockImplementation(() => Promise.resolve({ rows: [] }));
       const result = await accountingService.createEntry(balancedInput as never, 'user1');
 
       expect(result.id).toBeDefined();
@@ -159,15 +160,18 @@ describe('AccountingService - Unit Tests', () => {
     it('kapali doneme onayli fis yazamaz (PERIOD_LOCKED)', async () => {
       mockQuery.mockImplementation((sql: string) => {
         const s = String(sql);
+        if (s.includes('period_locks')) {
+          return Promise.resolve({ rows: [{ lock_date: null }] });
+        }
         if (s.includes('fiscal_periods')) {
-          return Promise.resolve({ rows: [{ status: 'closed', locked: null }] });
+          return Promise.resolve({ rows: [{ id: 'period-1', status: 'closed', locked: null }] });
         }
         return Promise.resolve({ rows: [] });
       });
 
       await expect(
         accountingService.createEntry({ ...balancedInput, status: 'posted' } as never, 'user1'),
-      ).rejects.toThrow('Bu mali dönem kapatilmis');
+      ).rejects.toThrow('Bu mali dönem kapatılmış.');
     });
   });
 

@@ -3,6 +3,23 @@ import { AppError } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { newId } from '@kuleplus/shared';
 import { z } from 'zod';
+import {
+  allocateEntryNo,
+  isAccountingActive,
+  openPeriodFor,
+  round2,
+  toKurus,
+  toIsoDate,
+  todayIso,
+} from '../accounting/ledger.js';
+import { ensureChartOfAccountsOn } from '../accounting/chart.js';
+import {
+  cashBankLedgerAccount,
+  creditCardLedgerAccount,
+  expenseCategoryLedgerAccount,
+} from '../accounting/subledger.js';
+import { accountingService } from '../accounting/service.js';
+import { assertNoDuplicateDocument } from '../trade/duplicate-document.js';
 
 /** Gider kategorisi grup anahtarları — web tarafındaki EXPENSE_GROUPS ile eşleşir. */
 export const EXPENSE_CATEGORY_GROUPS = [
@@ -23,6 +40,11 @@ export const createExpenseCategorySchema = z.object({
   /** Öne çıkan (hızlı girişte kutucuk olarak gösterilir). */
   is_favorite: z.boolean().default(false),
   status: z.enum(['active', 'inactive']).default('active'),
+  /**
+   * Kategorinin muhasebe hesabı (Faz 7-2). Boşsa ilk fişte 770 altında alt hesap açılır;
+   * kullanıcı 760.xx / 740.xx gibi başka bir 6xx/7xx detay hesabına bağlayabilir.
+   */
+  account_id: z.string().uuid().nullish(),
 });
 
 export const updateExpenseCategorySchema = createExpenseCategorySchema.partial();
@@ -40,7 +62,18 @@ export const createExpenseSchema = z.object({
   category_id: z.string().uuid(),
   contact_id: z.string().uuid().optional(),
   description: z.string().min(1),
-  amount: z.number().nonnegative(),
+  /** KDV dahil toplam. `net_amount` verilirse sunucu matrah + KDV'den hesaplar. */
+  amount: z.number().nonnegative().optional(),
+  /** Matrah (KDV hariç) — Faz 7-5. */
+  net_amount: z.number().nonnegative().optional(),
+  /** KDV oranı (%): 0, 1, 10, 20 … */
+  tax_rate: z.number().min(0).max(100).optional(),
+  /** Carisiz (peşin) gider: satıcı unvanı + isteğe bağlı VKN/TCKN — kesinleşmede zorunlu. */
+  counterparty_name: z.string().trim().max(255).optional(),
+  counterparty_tax_number: z.string().trim().max(20).optional(),
+  /** Carisiz (peşin) gider: ödemenin yapıldığı kasa/banka kartı veya şirket kredi kartı. */
+  payment_source_type: z.enum(['cash_bank', 'credit_card']).optional(),
+  payment_source_id: z.string().uuid().optional(),
   currency: z.string().length(3).default('TRY'),
   exchange_rate: z.number().positive().default(1),
   payment_status: z.enum(['unpaid', 'partial', 'paid']).default('unpaid'),
@@ -50,6 +83,23 @@ export const createExpenseSchema = z.object({
 });
 
 export const updateExpenseSchema = createExpenseSchema.partial();
+
+/** Matrah/KDV/toplam: `net_amount` öncelikli; yalnız `amount` verilirse KDV dahil sayılır. */
+function computeExpenseAmounts(input: {
+  amount?: number;
+  net_amount?: number;
+  tax_rate?: number;
+}): { net: number; taxRate: number; tax: number; gross: number } {
+  const taxRate = Number(input.tax_rate ?? 0);
+  if (input.net_amount !== undefined) {
+    const net = round2(input.net_amount);
+    const tax = round2((net * taxRate) / 100);
+    return { net, taxRate, tax, gross: (toKurus(net) + toKurus(tax)) / 100 };
+  }
+  const gross = round2(input.amount ?? 0);
+  const net = round2(gross / (1 + taxRate / 100));
+  return { net, taxRate, tax: (toKurus(gross) - toKurus(net)) / 100, gross };
+}
 
 export const expenseListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -75,7 +125,9 @@ export const expenseListQuerySchema = z.object({
 });
 
 export const expensePaymentSchema = z.object({
-  amount: z.number().nonnegative(),
+  amount: z.number().positive(),
+  /** Ödemenin çıktığı kasa/banka kartı (fiş bu kartın 100.xx/102.xx alt hesabına). */
+  cash_bank_account_id: z.string().uuid(),
   payment_date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -314,32 +366,46 @@ export class ExpenseService {
   }
 
   async createExpense(input: CreateExpenseInput, userId: string) {
+    if (input.amount === undefined && input.net_amount === undefined) {
+      throw new AppError('VALIDATION_ERROR', 'Tutar (amount) veya matrah (net_amount) zorunludur.');
+    }
     const pool = this.getPoolInstance();
     const expenseId = newId();
+    const amounts = computeExpenseAmounts(input);
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
       await client.query(
-        `INSERT INTO expenses (id, tenant_id, invoice_number, invoice_date, expense_date, category_id, contact_id, description, amount, currency, exchange_rate, payment_status, status, notes, receipt_file_url, created_by, updated_by, version, created_at, updated_at)
-         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, 1, now(), now())`,
+        `INSERT INTO expenses (id, tenant_id, invoice_number, invoice_date, expense_date, category_id, contact_id, description,
+                               amount, net_amount, tax_rate, tax_amount, counterparty_name, counterparty_tax_number,
+                               payment_source_type, payment_source_id, currency, exchange_rate, payment_status, status,
+                               notes, receipt_file_url, created_by, updated_by, version, created_at, updated_at)
+         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                 'draft', $19, $20, $21, $21, 1, now(), now())`,
         [
           expenseId,
-          input.invoice_number,
-          input.invoice_date,
+          input.invoice_number || null,
+          input.invoice_date ?? null,
           // `expense_date` DB'de NOT NULL; API'de optional → verilmezse bugünün tarihi (Europe/Istanbul).
           input.expense_date ?? this.todayIso(),
           input.category_id,
-          input.contact_id,
+          input.contact_id ?? null,
           input.description,
-          input.amount,
+          amounts.gross,
+          amounts.net,
+          amounts.taxRate,
+          amounts.tax,
+          input.counterparty_name || null,
+          input.counterparty_tax_number || null,
+          input.payment_source_type ?? null,
+          input.payment_source_id ?? null,
           input.currency,
           input.exchange_rate,
           input.payment_status,
-          input.status,
-          input.notes,
-          input.receipt_file_url,
+          input.notes ?? null,
+          input.receipt_file_url ?? null,
           userId,
         ],
       );
@@ -350,10 +416,20 @@ export class ExpenseService {
         entityId: expenseId,
         newValues: {
           invoice_number: input.invoice_number,
-          amount: input.amount,
+          amount: amounts.gross,
+          net_amount: amounts.net,
+          tax_amount: amounts.tax,
           status: input.status,
         },
       });
+
+      if (input.status === 'posted') await this.postExpenseOn(client, expenseId, userId);
+      if (input.status === 'cancelled') {
+        await client.query(
+          `UPDATE expenses SET status = 'cancelled' WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [expenseId],
+        );
+      }
 
       await client.query('COMMIT');
     } catch (err) {
@@ -365,55 +441,117 @@ export class ExpenseService {
     return this.getExpenseById(expenseId);
   }
 
+  /**
+   * Gider güncelleme. Kesinleşmiş (posted) gider değişmez (SPEC §10.1): yalnızca not
+   * güncellenir veya iptal edilir (fiş ters kayıtla düzeltilir). Taslakta `status: 'posted'`
+   * kesinleştirir (fiş + mükerrer kontrolü).
+   */
   async updateExpense(id: string, input: UpdateExpenseInput, userId: string) {
     const pool = this.getPoolInstance();
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
-      await client.query(
-        `UPDATE expenses
-         SET invoice_number = COALESCE($1, invoice_number),
-             invoice_date = COALESCE($2, invoice_date),
-             expense_date = COALESCE($3, expense_date),
-             category_id = COALESCE($4, category_id),
-             contact_id = COALESCE($5, contact_id),
-             description = COALESCE($6, description),
-             amount = COALESCE($7, amount),
-             currency = COALESCE($8, currency),
-             exchange_rate = COALESCE($9, exchange_rate),
-             payment_status = COALESCE($10, payment_status),
-             status = COALESCE($11, status),
-             notes = COALESCE($12, notes),
-             receipt_file_url = COALESCE($13, receipt_file_url),
-             updated_by = $14, updated_at = now()
-         WHERE id = $15 AND tenant_id = current_tenant_id()`,
-        [
-          input.invoice_number,
-          input.invoice_date,
-          input.expense_date,
-          input.category_id,
-          input.contact_id,
-          input.description,
-          input.amount,
-          input.currency,
-          input.exchange_rate,
-          input.payment_status,
-          input.status,
-          input.notes,
-          input.receipt_file_url,
-          userId,
-          id,
-        ],
+      const found = await client.query(
+        `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
+        [id],
       );
+      const cur = found.rows[0];
+      if (!cur) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
+      if (cur.status === 'cancelled') {
+        throw new AppError('FORBIDDEN', 'İptal edilmiş gider değiştirilemez.');
+      }
+      if (cur.status === 'posted') {
+        const changed = Object.entries(input).filter(
+          ([k, v]) => v !== undefined && !['notes', 'status'].includes(k),
+        );
+        if (changed.length > 0 || (input.status !== undefined && input.status !== 'cancelled')) {
+          throw new AppError(
+            'FORBIDDEN',
+            'Kesinleşmiş gider değiştirilemez; yalnızca not güncellenir veya gider iptal edilir.',
+          );
+        }
+        if (input.notes !== undefined) {
+          await client.query(
+            `UPDATE expenses SET notes = $1, updated_by = $2, updated_at = now()
+              WHERE id = $3 AND tenant_id = current_tenant_id()`,
+            [input.notes, userId, id],
+          );
+        }
+        if (input.status === 'cancelled') await this.cancelExpenseOn(client, cur, userId);
+      } else {
+        const amountsChanged =
+          input.amount !== undefined ||
+          input.net_amount !== undefined ||
+          input.tax_rate !== undefined;
+        const amounts = amountsChanged
+          ? computeExpenseAmounts({
+              amount: input.amount,
+              net_amount:
+                input.net_amount ??
+                (input.amount === undefined ? Number(cur.net_amount ?? cur.amount) : undefined),
+              tax_rate: input.tax_rate ?? Number(cur.tax_rate ?? 0),
+            })
+          : null;
+        await client.query(
+          `UPDATE expenses
+           SET invoice_number = COALESCE($1, invoice_number),
+               invoice_date = COALESCE($2, invoice_date),
+               expense_date = COALESCE($3, expense_date),
+               category_id = COALESCE($4, category_id),
+               contact_id = COALESCE($5, contact_id),
+               description = COALESCE($6, description),
+               amount = COALESCE($7, amount),
+               net_amount = COALESCE($8, net_amount),
+               tax_rate = COALESCE($9, tax_rate),
+               tax_amount = COALESCE($10, tax_amount),
+               counterparty_name = COALESCE($11, counterparty_name),
+               counterparty_tax_number = COALESCE($12, counterparty_tax_number),
+               payment_source_type = COALESCE($13, payment_source_type),
+               payment_source_id = COALESCE($14, payment_source_id),
+               currency = COALESCE($15, currency),
+               exchange_rate = COALESCE($16, exchange_rate),
+               payment_status = COALESCE($17, payment_status),
+               notes = COALESCE($18, notes),
+               receipt_file_url = COALESCE($19, receipt_file_url),
+               updated_by = $20, updated_at = now()
+           WHERE id = $21 AND tenant_id = current_tenant_id()`,
+          [
+            input.invoice_number ?? null,
+            input.invoice_date ?? null,
+            input.expense_date ?? null,
+            input.category_id ?? null,
+            input.contact_id ?? null,
+            input.description ?? null,
+            amounts?.gross ?? null,
+            amounts?.net ?? null,
+            amounts?.taxRate ?? null,
+            amounts?.tax ?? null,
+            input.counterparty_name ?? null,
+            input.counterparty_tax_number ?? null,
+            input.payment_source_type ?? null,
+            input.payment_source_id ?? null,
+            input.currency ?? null,
+            input.exchange_rate ?? null,
+            input.payment_status ?? null,
+            input.notes ?? null,
+            input.receipt_file_url ?? null,
+            userId,
+            id,
+          ],
+        );
+        if (input.status === 'posted') await this.postExpenseOn(client, id, userId);
+        if (input.status === 'cancelled') await this.cancelExpenseOn(client, cur, userId);
+      }
 
       await this.writeAudit(client, {
         userId,
         action: 'update',
         entityId: id,
+        oldValues: { amount: cur.amount, status: cur.status },
         newValues: {
           amount: input.amount,
+          net_amount: input.net_amount,
           status: input.status,
           payment_status: input.payment_status,
         },
@@ -429,30 +567,25 @@ export class ExpenseService {
     return this.getExpenseById(id);
   }
 
+  /** Silme = iptal (finansal kayıt fiziksel silinmez); kesinleşmişse fiş ters kayıtla düzeltilir. */
   async deleteExpense(id: string, userId: string) {
     const pool = this.getPoolInstance();
-    const expense = await pool.query(
-      `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id()`,
-      [id],
-    );
-    if (expense.rows.length === 0) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
-
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
-      await client.query(
-        `UPDATE expenses SET status = 'cancelled', updated_at = now() WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      const found = await client.query(
+        `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
         [id],
       );
-
+      const cur = found.rows[0];
+      if (!cur) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
+      if (cur.status !== 'cancelled') await this.cancelExpenseOn(client, cur, userId);
       await this.writeAudit(client, {
         userId,
         action: 'delete',
         entityId: id,
-        oldValues: { amount: expense.rows[0].amount, status: expense.rows[0].status },
+        oldValues: { amount: cur.amount, status: cur.status },
       });
-
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -462,20 +595,343 @@ export class ExpenseService {
     }
     return { success: true };
   }
+
+  /**
+   * Gideri kesinleştirir (Faz 7-5):
+   *  - carisiz gider peşindir: belge no + satıcı unvanı + ödeme kaynağı (kasa/banka/kredi kartı) zorunlu,
+   *  - mükerrer belge engeli (aynı cari/VKN + aynı belge no — gider veya alış faturası),
+   *  - muhasebe aktifse fiş: 7xx (kategori hesabı, matrah) + 191 (KDV) B /
+   *    320 (cari) veya 100.xx/102.xx/309.xx (peşin) A.
+   */
+  private async postExpenseOn(client: PoolClient, id: string, userId: string): Promise<void> {
+    const r = await client.query(
+      `SELECT e.*, ec.name AS category_name, co.name AS contact_name
+         FROM expenses e
+         LEFT JOIN expense_categories ec ON ec.id = e.category_id
+         LEFT JOIN contacts co ON co.id = e.contact_id
+        WHERE e.id = $1 AND e.tenant_id = current_tenant_id()`,
+      [id],
+    );
+    const e = r.rows[0];
+    if (!e) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
+    if (e.status !== 'draft')
+      throw new AppError('FORBIDDEN', 'Yalnızca taslak gider kesinleştirilebilir.');
+    if (!e.category_id) throw new AppError('VALIDATION_ERROR', 'Gider kategorisi zorunludur.');
+
+    const cash = !e.contact_id;
+    if (cash) {
+      const missing: string[] = [];
+      if (!String(e.invoice_number ?? '').trim()) missing.push('belge no');
+      if (!String(e.counterparty_name ?? '').trim()) missing.push('satıcı unvanı');
+      if (!e.payment_source_type || !e.payment_source_id) {
+        missing.push('ödeme kaynağı (kasa/banka/kredi kartı)');
+      }
+      if (missing.length > 0) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Cari seçilmeyen gider peşin sayılır; zorunlu alanlar: ${missing.join(', ')}.`,
+        );
+      }
+    }
+    await assertNoDuplicateDocument(client, {
+      documentNo: e.invoice_number,
+      contactId: e.contact_id,
+      taxNumber: e.counterparty_tax_number,
+      excludeExpenseId: id,
+    });
+
+    let journalEntryId: string | null = null;
+    if (await isAccountingActive(client)) {
+      await ensureChartOfAccountsOn(client);
+      const rate = Number(e.exchange_rate) || 1;
+      const total = round2(Number(e.amount) * rate);
+      const vat = round2(Number(e.tax_amount ?? 0) * rate);
+      const net = (toKurus(total) - toKurus(vat)) / 100;
+      const expenseAccount = await expenseCategoryLedgerAccount(client, String(e.category_id));
+      const vatAccount = await this.accountByCode(client, '191');
+      let creditAccount: string | null;
+      if (cash) {
+        creditAccount =
+          e.payment_source_type === 'credit_card'
+            ? await creditCardLedgerAccount(client, String(e.payment_source_id))
+            : await cashBankLedgerAccount(client, String(e.payment_source_id));
+        if (!creditAccount)
+          throw new AppError('NOT_FOUND', 'Ödeme kaynağı (kasa/banka/kart) bulunamadı.');
+      } else {
+        creditAccount = await this.accountByCode(client, '320');
+      }
+      if (!expenseAccount || !creditAccount) {
+        throw new AppError('VALIDATION_ERROR', 'Muhasebe hesabı çözülemedi (gider/cari hesabı).');
+      }
+      const party = cash ? String(e.counterparty_name) : String(e.contact_name ?? '');
+      const description = [e.invoice_number, party, e.description].filter(Boolean).join(' – ');
+      const entryDate = toIsoDate(e.expense_date);
+      const lines = [
+        { accountId: expenseAccount, debit: net, credit: 0 },
+        ...(vat > 0 && vatAccount ? [{ accountId: vatAccount, debit: vat, credit: 0 }] : []),
+        { accountId: creditAccount, debit: 0, credit: total },
+      ];
+      journalEntryId = await this.writeJournal(client, {
+        entryDate,
+        description,
+        sourceType: 'expense',
+        sourceId: id,
+        entryType: cash ? 'tediye' : 'mahsup',
+        lines,
+        userId,
+      });
+    }
+
+    await client.query(
+      `UPDATE expenses SET status = 'posted', posted_at = now(),
+              payment_status = CASE WHEN contact_id IS NULL THEN 'paid' ELSE payment_status END,
+              updated_by = $2, updated_at = now()
+        WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [id, userId],
+    );
+    await this.writeAudit(client, {
+      userId,
+      action: 'post',
+      entityId: id,
+      newValues: { status: 'posted', journal_entry_id: journalEntryId },
+    });
+  }
+
+  /** Gideri iptal eder; kesinleşmişse fişi ters kayıtla düzeltir. Ödemesi olan carili gider iptal edilemez. */
+  private async cancelExpenseOn(
+    client: PoolClient,
+    cur: Record<string, unknown>,
+    userId: string,
+  ): Promise<void> {
+    if (cur.status === 'posted') {
+      const paid = await client.query(
+        `SELECT 1 FROM expense_payments WHERE expense_id = $1 AND tenant_id = current_tenant_id() LIMIT 1`,
+        [cur.id],
+      );
+      if ((paid.rowCount ?? 0) > 0) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Ödemesi olan gider iptal edilemez; önce ödeme kayıtlarını düzeltin.',
+        );
+      }
+      const entries = await client.query(
+        `SELECT je.id FROM journal_entries je
+          WHERE je.tenant_id = current_tenant_id() AND je.source_type = 'expense' AND je.source_id = $1
+            AND je.status = 'posted' AND je.entry_type <> 'ters'
+            AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = je.id)`,
+        [cur.id],
+      );
+      for (const row of entries.rows) {
+        await accountingService.reverseEntryOn(client, String(row.id), userId, undefined, {
+          allowSource: true,
+        });
+      }
+    }
+    await client.query(
+      `UPDATE expenses SET status = 'cancelled', updated_by = $2, updated_at = now()
+        WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [cur.id, userId],
+    );
+  }
+
+  /** Carili giderin ödemesi: 320 B / kasa-banka (kartın alt hesabı) A + ödeme durumu. */
+  async createPayment(expenseId: string, input: ExpensePaymentInput, userId: string) {
+    const pool = this.getPoolInstance();
+    const client = await pool.connect();
+    const paymentId = newId();
+    try {
+      await client.query('BEGIN');
+      const found = await client.query(
+        `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
+        [expenseId],
+      );
+      const e = found.rows[0];
+      if (!e) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
+      if (e.status === 'cancelled')
+        throw new AppError('VALIDATION_ERROR', 'İptal edilmiş gidere ödeme girilemez.');
+      if (!e.contact_id) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Carisiz gider peşin ödenmiş sayılır; ayrıca ödeme girilmez.',
+        );
+      }
+      const accountingActive = await isAccountingActive(client);
+      if (accountingActive && e.status !== 'posted') {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Muhasebe aktifken ödeme yalnızca kesinleşmiş gidere girilebilir.',
+        );
+      }
+      const paidSoFar = await client.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM expense_payments
+          WHERE expense_id = $1 AND tenant_id = current_tenant_id()`,
+        [expenseId],
+      );
+      const remainingK = toKurus(e.amount) - toKurus(paidSoFar.rows[0].total);
+      if (toKurus(input.amount) > remainingK) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Ödeme tutarı kalan borcu (${remainingK / 100}) aşamaz.`,
+        );
+      }
+      const account = await client.query(
+        `SELECT 1 FROM cash_bank_accounts WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [input.cash_bank_account_id],
+      );
+      if ((account.rowCount ?? 0) === 0)
+        throw new AppError('NOT_FOUND', 'Kasa/banka hesabı bulunamadı');
+      const paymentDate = input.payment_date ?? todayIso();
+
+      await client.query(
+        `INSERT INTO expense_payments (id, tenant_id, expense_id, account_id, movement_type, amount, currency,
+                                       transaction_date, payment_date, reference, description,
+                                       balance_before, balance_after, created_by, updated_by)
+         VALUES ($1, current_tenant_id(), $2, $3, 'withdrawal', $4, $5, $6, $6, $7, $8, 0, 0, $9, $9)`,
+        [
+          paymentId,
+          expenseId,
+          input.cash_bank_account_id,
+          input.amount,
+          input.currency,
+          paymentDate,
+          input.reference || null,
+          input.notes || null,
+          userId,
+        ],
+      );
+
+      if (accountingActive) {
+        const rate = Number(e.exchange_rate) || 1;
+        const amount = round2(input.amount * rate);
+        const payable = await this.accountByCode(client, '320');
+        const cash = await cashBankLedgerAccount(client, input.cash_bank_account_id);
+        if (!payable || !cash)
+          throw new AppError('VALIDATION_ERROR', 'Muhasebe hesabı çözülemedi (320/kasa-banka).');
+        await this.writeJournal(client, {
+          entryDate: paymentDate,
+          description: `Gider ödemesi ${[e.invoice_number, e.description].filter(Boolean).join(' – ')}`,
+          sourceType: 'expense_payment',
+          sourceId: paymentId,
+          entryType: 'tediye',
+          lines: [
+            { accountId: payable, debit: amount, credit: 0 },
+            { accountId: cash, debit: 0, credit: amount },
+          ],
+          userId,
+        });
+      }
+
+      const left = remainingK - toKurus(input.amount);
+      await client.query(
+        `UPDATE expenses SET payment_status = $2, updated_by = $3, updated_at = now()
+          WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        [expenseId, left <= 0 ? 'paid' : 'partial', userId],
+      );
+      await this.writeAudit(client, {
+        userId,
+        action: 'payment',
+        entityId: expenseId,
+        newValues: { payment_id: paymentId, amount: input.amount },
+      });
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return this.getExpenseById(expenseId);
+  }
+
+  private async accountByCode(client: PoolClient, code: string): Promise<string | null> {
+    const r = await client.query(
+      'SELECT id FROM accounting_accounts WHERE tenant_id = current_tenant_id() AND code = $1 LIMIT 1',
+      [code],
+    );
+    return r.rows[0]?.id ?? null;
+  }
+
+  /** Onaylı fiş yazar (dönem kapısı + gap-free numara; denge DB'de de zorlanır). */
+  private async writeJournal(
+    client: PoolClient,
+    input: {
+      entryDate: string;
+      description: string;
+      sourceType: string;
+      sourceId: string;
+      entryType: 'mahsup' | 'tediye';
+      lines: Array<{ accountId: string; debit: number; credit: number }>;
+      userId: string;
+    },
+  ): Promise<string> {
+    const periodId = await openPeriodFor(client, input.entryDate);
+    const entryNo = await allocateEntryNo(client);
+    const entryId = newId();
+    const debit = input.lines.reduce((sum, l) => sum + toKurus(l.debit), 0) / 100;
+    const credit = input.lines.reduce((sum, l) => sum + toKurus(l.credit), 0) / 100;
+    await client.query(
+      `INSERT INTO journal_entries
+         (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
+          source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, 'posted', $6, $7, $8, $9, $10, $11, now(), $11, $11)`,
+      [
+        entryId,
+        entryNo,
+        input.entryDate,
+        periodId,
+        input.entryType,
+        input.description,
+        input.sourceType,
+        input.sourceId,
+        debit,
+        credit,
+        input.userId,
+      ],
+    );
+    let lineNo = 1;
+    for (const l of input.lines) {
+      await client.query(
+        `INSERT INTO journal_lines
+           (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
+         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
+        [newId(), entryId, lineNo, l.accountId, input.description, l.debit, l.credit, input.userId],
+      );
+      lineNo++;
+    }
+    return entryId;
+  }
 }
 
 export const expenseService = new ExpenseService();
 
+/** Gider kategorisine bağlanacak hesap: tenant planında, 6xx/7xx gelir tablosu hesabı. */
+async function assertExpenseAccount(accountId: string | null | undefined) {
+  if (!accountId) return;
+  const r = await getPool('app').query(
+    `SELECT code FROM accounting_accounts WHERE id = $1 AND tenant_id = current_tenant_id()`,
+    [accountId],
+  );
+  const code = String(r.rows[0]?.code ?? '');
+  if (!code) throw new AppError('NOT_FOUND', 'Muhasebe hesabı bulunamadı');
+  if (!/^[67]/.test(code)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Gider kategorisi yalnızca 6xx/7xx (gider/maliyet) hesabına bağlanabilir.',
+    );
+  }
+}
+
 export async function createExpenseCategory(input: CreateExpenseCategoryInput, userId?: string) {
   const pool = getPool('app');
   const categoryId = newId();
+  await assertExpenseAccount(input.account_id);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     await client.query(
-      `INSERT INTO expense_categories (id, tenant_id, code, name, description, grup, is_favorite, status, created_by, updated_by, created_at, updated_at)
-       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8, now(), now())`,
+      `INSERT INTO expense_categories (id, tenant_id, code, name, description, grup, is_favorite, status, created_by, updated_by, created_at, updated_at, account_id)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8, now(), now(), $9)`,
       [
         categoryId,
         input.code.trim().toUpperCase(),
@@ -485,6 +941,7 @@ export async function createExpenseCategory(input: CreateExpenseCategoryInput, u
         input.is_favorite ?? false,
         input.status,
         userId || null,
+        input.account_id ?? null,
       ],
     );
 
@@ -506,6 +963,7 @@ export async function updateExpenseCategory(
   const pool = getPool('app');
   const existing = await getExpenseCategoryById(id);
   if (!existing) throw new AppError('NOT_FOUND', 'Gider kategorisi bulunamadı');
+  await assertExpenseAccount(input.account_id);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -518,6 +976,7 @@ export async function updateExpenseCategory(
            grup = CASE WHEN $9::boolean THEN NULL WHEN $4 = '__KEEP__' THEN grup ELSE $4 END,
            is_favorite = COALESCE($5, is_favorite),
            status = COALESCE($6, status),
+           account_id = CASE WHEN $10::boolean THEN $11::uuid ELSE account_id END,
            updated_by = $7, updated_at = now()
        WHERE id = $8 AND tenant_id = current_tenant_id()`,
       [
@@ -530,6 +989,8 @@ export async function updateExpenseCategory(
         userId || null,
         id,
         input.grup === null,
+        input.account_id !== undefined,
+        input.account_id ?? null,
       ],
     );
 
@@ -569,7 +1030,10 @@ export async function deleteExpenseCategory(id: string) {
 export async function getExpenseCategoryById(id: string) {
   const pool = getPool('app');
   const result = await pool.query(
-    `SELECT * FROM expense_categories WHERE id = $1 AND tenant_id = current_tenant_id()`,
+    `SELECT ec.*, aa.code AS account_code, aa.name AS account_name
+       FROM expense_categories ec
+       LEFT JOIN accounting_accounts aa ON aa.id = ec.account_id
+      WHERE ec.id = $1 AND ec.tenant_id = current_tenant_id()`,
     [id],
   );
   if (result.rows.length === 0) return null;
@@ -579,22 +1043,26 @@ export async function getExpenseCategoryById(id: string) {
 export async function listExpenseCategories(query?: { category_id?: string; status?: string }) {
   const pool = getPool('app');
   const { category_id, status } = query || {};
-  const conditions: string[] = ['tenant_id = current_tenant_id()'];
+  const conditions: string[] = ['ec.tenant_id = current_tenant_id()'];
   const values: unknown[] = [];
   let paramIdx = 1;
 
   if (category_id) {
-    conditions.push(`id = $${paramIdx}`);
+    conditions.push(`ec.id = $${paramIdx}`);
     values.push(category_id);
     paramIdx++;
   }
   if (status) {
-    conditions.push(`status = $${paramIdx}`);
+    conditions.push(`ec.status = $${paramIdx}`);
     values.push(status);
   }
 
+  // Muhasebe hesabı (kod/ad) da döner — kategori ekranında hesap eşlemesi gösterilir.
   const result = await pool.query(
-    `SELECT * FROM expense_categories WHERE ${conditions.join(' AND ')}`,
+    `SELECT ec.*, aa.code AS account_code, aa.name AS account_name
+       FROM expense_categories ec
+       LEFT JOIN accounting_accounts aa ON aa.id = ec.account_id
+      WHERE ${conditions.join(' AND ')}`,
     values,
   );
 
@@ -624,67 +1092,7 @@ export async function deleteExpense(id: string, userId: string) {
 export async function createExpensePayment(
   expenseId: string,
   input: ExpensePaymentInput,
-  userId?: string,
+  userId: string,
 ) {
-  const pool = getPool('app');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
-    const expense = await pool.query(
-      `SELECT * FROM expenses WHERE id = $1 AND tenant_id = current_tenant_id()`,
-      [expenseId],
-    );
-    if (expense.rows.length === 0) throw new AppError('NOT_FOUND', 'Gider bulunamadı');
-
-    const movementId = newId();
-    // Referans bir kasa/banka hesabına işaret ediyorsa varlığını doğrula.
-    await pool.query(
-      `SELECT 1 FROM cash_bank_accounts WHERE id = $1 AND tenant_id = current_tenant_id()`,
-      [input.reference || null],
-    );
-
-    let accountId: string;
-    if (input.payment_method === 'cash') {
-      // Find cash account
-      const cashAcct = await pool.query(
-        `SELECT * FROM cash_bank_accounts WHERE account_type = 'cash' AND tenant_id = current_tenant_id()`,
-        [],
-      );
-      accountId = cashAcct.rows[0]?.id || '';
-    } else {
-      accountId = input.reference || '';
-    }
-
-    // Calculate balance changes
-    // Mevcut ödemeler toplamı ileride bakiye hesabı için kullanılacak.
-    await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) as total FROM expense_payments WHERE expense_id = $1`,
-      [expenseId],
-    );
-
-    await client.query(
-      `INSERT INTO expense_payments (id, tenant_id, expense_id, account_id, movement_type, amount, currency, transaction_date, payment_date, reference, description, balance_before, balance_after, created_by, updated_by)
-       VALUES ($1, current_tenant_id(), $2, $3, 'withdrawal', $4, $5, now(), $6, $7, $8, 0, 0, $9, $9)`,
-      [
-        movementId,
-        expenseId,
-        accountId,
-        input.amount,
-        input.currency,
-        input.payment_date,
-        input.reference || null,
-        input.notes || null,
-        userId || null,
-      ],
-    );
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-  return { success: true };
+  return expenseService.createPayment(expenseId, input, userId);
 }

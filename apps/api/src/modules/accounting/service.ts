@@ -2,6 +2,8 @@ import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { ensureChartOfAccountsOn } from './chart';
+import { linkAllSubledgers } from './subledger';
+import { allocateEntryNo, openPeriodFor, round2, toIsoDate, toKurus, todayIso } from './ledger';
 import type {
   CreateAccountInput,
   UpdateAccountInput,
@@ -12,6 +14,7 @@ import type {
   CreateJournalEntryInput,
   UpdateJournalEntryInput,
   JournalLineInput,
+  UpdateJournalLineInput,
   CreatePostingRuleInput,
   UpdatePostingRuleInput,
   CreateAccountMappingInput,
@@ -33,6 +36,16 @@ import type {
  *  - Gap-free yevmiye numarasi (onayda, advisory lock ile),
  *  - Kaynak iliskisi: ayni kaynak ikinci kez otomatik fis üretemez (kismi UNIQUE).
  */
+/** Kaynak belgeden otomatik üretilen fiş türleri — doğrudan düzenlenemez/ters çevrilemez. */
+const AUTO_SOURCE_TYPES = [
+  'invoice',
+  'invoice_payment',
+  'cheque',
+  'revaluation',
+  'expense',
+  'expense_payment',
+];
+
 export class AccountingService {
   private pool: Pool | null = null;
   private readonly providedPool: Pool | null;
@@ -63,6 +76,10 @@ export class AccountingService {
       return result;
     } catch (err) {
       await client.query('ROLLBACK');
+      // Tekil kısıt ihlali (ör. aynı hesap kodu / aynı yıl dönemi) → 500 yerine 409.
+      if ((err as { code?: string }).code === '23505') {
+        throw new AppError('CONFLICT', 'Bu kayıt zaten mevcut (tekil kısıt).');
+      }
       throw err;
     } finally {
       client.release();
@@ -80,45 +97,25 @@ export class AccountingService {
       userId?: string;
       action: string;
       entityId: string;
+      /** Varsayılan: journal_entries. Dönem/kilit gibi diğer muhasebe tabloları için belirtilir. */
+      entityType?: string;
       oldValues?: Record<string, unknown> | null;
       newValues?: Record<string, unknown> | null;
     },
   ): Promise<void> {
     await client.query(
       `INSERT INTO audit_logs (id, tenant_id, user_id, action, entity_type, entity_id, old_values, new_values, created_at)
-       VALUES ($1, current_tenant_id(), $2, $3, 'journal_entries', $4, $5, $6, now())`,
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, now())`,
       [
         newId(),
         entry.userId ?? null,
-        `journal_entries.${entry.action}`,
+        `${entry.entityType ?? 'journal_entries'}.${entry.action}`,
+        entry.entityType ?? 'journal_entries',
         entry.entityId,
         entry.oldValues ? JSON.stringify(entry.oldValues) : null,
         entry.newValues ? JSON.stringify(entry.newValues) : null,
       ],
     );
-  }
-
-  /** Kapali dönem kontrolü - dönem kilidi varsa ve tarih kilidin öncesindeyse engel. */
-  private async assertPeriodOpen(client: PoolClient, entryDate: string): Promise<void> {
-    const period = await client.query(
-      `SELECT fp.status,
-              (SELECT TRUE FROM period_locks pl
-                 WHERE pl.period_id = fp.id AND pl.lock_date > $1
-                 LIMIT 1) AS locked
-         FROM fiscal_periods fp
-        WHERE fp.tenant_id = current_tenant_id()
-          AND $1 BETWEEN fp.start_date AND fp.end_date
-        LIMIT 1`,
-      [entryDate],
-    );
-    const row = period.rows[0];
-    if (!row) return;
-    if (row.status === 'closed') {
-      throw new AppError('PERIOD_LOCKED', 'Bu mali dönem kapatilmis.');
-    }
-    if (row.locked) {
-      throw new AppError('PERIOD_LOCKED', 'Bu tarih dönem kilidinin gerisinde.');
-    }
   }
 
   /** Hesap ekstresi toplamini hesaplar (varsa hareket oldugunu anlamak için). */
@@ -135,7 +132,12 @@ export class AccountingService {
 
   /** TDHP sablonunu tenant'a bootstrap eder (ROADMAP T-5.1); idempotent. */
   async ensureChartOfAccounts(tenantId?: string): Promise<number> {
-    return this.withTenantClient(tenantId, (client) => ensureChartOfAccountsOn(client));
+    return this.withTenantClient(tenantId, async (client) => {
+      const inserted = await ensureChartOfAccountsOn(client);
+      // Kasa/banka/kredi kartı alt hesapları (100.xx/102.xx/309.xx) — Faz 7-1.
+      await linkAllSubledgers(client);
+      return inserted;
+    });
   }
 
   async listAccountingAccounts(query: Record<string, unknown>, tenantId?: string) {
@@ -178,14 +180,32 @@ export class AccountingService {
     });
   }
 
+  /**
+   * Tek-kayıt okuyucular AYNI client'ı kullanır: create/update sonrası kaydı ikinci bir
+   * bağlantıdan (`get*ById`) okumak, henüz commit edilmemiş satırı göremez → null/eski veri
+   * dönüyordu (denetim bulgusu N1).
+   */
+  private async loadRow(
+    client: PoolClient,
+    table:
+      | 'accounting_accounts'
+      | 'fiscal_periods'
+      | 'period_locks'
+      | 'posting_rules'
+      | 'account_mappings',
+    id: string,
+  ): Promise<DbRow | null> {
+    const r = await client.query(
+      `SELECT * FROM ${table} WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [id],
+    );
+    return (r.rows[0] as DbRow | undefined) ?? null;
+  }
+
   async getAccountById(id: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
-      const r = await client.query(
-        'SELECT * FROM accounting_accounts WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
-      if (r.rows.length === 0) return null;
-      return mapAccountRow(r.rows[0]);
+      const row = await this.loadRow(client, 'accounting_accounts', id);
+      return row ? mapAccountRow(row) : null;
     });
   }
 
@@ -209,7 +229,8 @@ export class AccountingService {
           userId,
         ],
       );
-      return this.getAccountById(accountId, tenantId);
+      const row = await this.loadRow(client, 'accounting_accounts', accountId);
+      return row ? mapAccountRow(row) : null;
     });
   }
 
@@ -238,7 +259,8 @@ export class AccountingService {
           id,
         ],
       );
-      return this.getAccountById(id, tenantId);
+      const row = await this.loadRow(client, 'accounting_accounts', id);
+      return row ? mapAccountRow(row) : null;
     });
   }
 
@@ -323,44 +345,70 @@ export class AccountingService {
     });
   }
 
-  async getEntryById(id: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, async (client) => {
-      const r = await client.query(
-        'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
-      if (r.rows.length === 0) return null;
-      const header = mapEntryRow(r.rows[0]);
-      const lines = await client.query(
-        `SELECT l.*, a.code AS account_code, a.name AS account_name
-           FROM journal_lines l
-           JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = current_tenant_id()
-          WHERE l.entry_id = $1 AND l.tenant_id = current_tenant_id()
-          ORDER BY l.line_no`,
-        [id],
-      );
-      return { ...header, lines: lines.rows.map(mapLineRow) };
-    });
+  /** Fiş başlığı + satırları (aynı client — bkz. `loadRow`). */
+  private async loadEntry(client: PoolClient, id: string) {
+    const r = await client.query(
+      'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [id],
+    );
+    if (r.rows.length === 0) return null;
+    const header = mapEntryRow(r.rows[0]);
+    const lines = await client.query(
+      `SELECT l.*, a.code AS account_code, a.name AS account_name
+         FROM journal_lines l
+         JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = current_tenant_id()
+        WHERE l.entry_id = $1 AND l.tenant_id = current_tenant_id()
+        ORDER BY l.line_no`,
+      [id],
+    );
+    return { ...header, lines: lines.rows.map(mapLineRow) };
   }
 
-  /** Satir dogrulama: tek tarafli, bos degil; dengeli olmali. */
-  private validateLines(lines: JournalLineInput[]): { debit: number; credit: number } {
+  async getEntryById(id: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, (client) => this.loadEntry(client, id));
+  }
+
+  /**
+   * Satır doğrulama: tek taraflı, boş değil. Toplamlar kuruş (tamsayı) üzerinden
+   * hesaplanır — float toplama (0.1 + 0.2) dengeli fişi "dengesiz" göstermesin.
+   */
+  private validateLines(lines: JournalLineInput[]): {
+    debit: number;
+    credit: number;
+    balanced: boolean;
+  } {
     if (lines.length === 0) {
       throw new AppError('VALIDATION_ERROR', 'Fisde en az bir satir olmali');
     }
-    let debit = 0;
-    let credit = 0;
+    let debitK = 0;
+    let creditK = 0;
     for (const l of lines) {
-      const d = Number(l.debit ?? 0);
-      const c = Number(l.credit ?? 0);
+      const d = toKurus(l.debit);
+      const c = toKurus(l.credit);
       if (d < 0 || c < 0) throw new AppError('VALIDATION_ERROR', 'Negatif tutar girilemez');
       if (d > 0 && c > 0)
         throw new AppError('VALIDATION_ERROR', 'Satir tek tarafli olmali (borc veya alacak)');
       if (d === 0 && c === 0) throw new AppError('VALIDATION_ERROR', 'Bos satir girilemez');
-      debit += d;
-      credit += c;
+      debitK += d;
+      creditK += c;
     }
-    return { debit, credit };
+    return { debit: debitK / 100, credit: creditK / 100, balanced: debitK === creditK };
+  }
+
+  /** Onay için zorunlu koşullar: en az iki satır + denge (SPEC §10.5). */
+  private assertPostable(
+    lines: JournalLineInput[],
+    totals: { debit: number; credit: number; balanced: boolean },
+  ) {
+    if (lines.length < 2) {
+      throw new AppError('VALIDATION_ERROR', 'Onayli fiste en az iki satir olmali');
+    }
+    if (!totals.balanced) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `Fis dengeli degil: borc ${totals.debit} != alacak ${totals.credit} (SPEC §10.5)`,
+      );
+    }
   }
 
   /** Fis olusturur; status=posted ise onaylar (denge + donem + gap-free). */
@@ -368,25 +416,15 @@ export class AccountingService {
     return this.withTenantClient(tenantId, async (client) => {
       const totals = this.validateLines(input.lines);
       const postNow = input.status === 'posted';
-      if (postNow && totals.debit !== totals.credit) {
-        throw new AppError(
-          'VALIDATION_ERROR',
-          `Fis dengeli degil: borc ${totals.debit} != alacak ${totals.credit} (SPEC §10.5)`,
-        );
+      let postPeriodId: string | null = null;
+      if (postNow) {
+        this.assertPostable(input.lines, totals);
+        postPeriodId = await openPeriodFor(client, input.entry_date);
       }
-      if (postNow) await this.assertPeriodOpen(client, input.entry_date);
 
       const entryId = newId();
-      let entryNo: number | null = null;
-      if (postNow) {
-        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-          (tenantId ?? 'app').toString(),
-        ]);
-        const seq = await client.query(
-          'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
-        );
-        entryNo = Number(seq.rows[0].next_no);
-      }
+      const entryNo = postNow ? await allocateEntryNo(client) : null;
+      const periodId = input.period_id ?? postPeriodId;
 
       await client.query(
         `INSERT INTO journal_entries
@@ -397,7 +435,7 @@ export class AccountingService {
           entryId,
           entryNo,
           input.entry_date,
-          input.period_id ?? null,
+          periodId,
           input.entry_type,
           input.status,
           input.description,
@@ -442,46 +480,92 @@ export class AccountingService {
         `INSERT INTO journal_lines
            (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
-        [newId(), entryId, lineNo, l.account_id, l.description ?? '', l.debit, l.credit, userId],
+        [
+          newId(),
+          entryId,
+          lineNo,
+          l.account_id,
+          l.description ?? '',
+          round2(l.debit),
+          round2(l.credit),
+          userId,
+        ],
       );
       lineNo++;
     }
   }
 
-  /** Onayli fisi ters kayitla duzeltir (SPEC §15). */
-  async reverseEntry(id: string, userId: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, async (client) => {
+  /**
+   * Onayli fisi ters kayitla duzeltir (SPEC §10.1, §15).
+   * - Ters fiş `entryDate` tarihinde (varsayılan: bugün) ve o tarihin açık döneminde yazılır;
+   *   orijinal fiş ve dönemi değişmez (kapalı dönemdeki fiş de bugünden ters çevrilebilir).
+   * - Bir fiş yalnızca bir kez ters çevrilir; ters fiş yeniden ters çevrilemez
+   *   (servis kontrolü + `journal_entries_reversal_once` kısmi UNIQUE).
+   */
+  async reverseEntry(id: string, userId: string, tenantId?: string, entryDate?: string) {
+    return this.withTenantClient(tenantId, (client) =>
+      this.reverseEntryOn(client, id, userId, entryDate),
+    );
+  }
+
+  /**
+   * Ters kaydın client-tabanlı uygulaması — kaynak belge servisleri (ör. fatura iptali)
+   * kendi transaction'larında çağırır. `allowSource: false` (varsayılan) iken kaynak belgeye
+   * bağlı otomatik fişler (fatura, tahsilat, çek, kur değerleme) doğrudan ters çevrilemez:
+   * kaynak belge ile yevmiye birlikte düzeltilmelidir (SPEC §15 "Düzeltme").
+   */
+  async reverseEntryOn(
+    client: PoolClient,
+    id: string,
+    userId: string,
+    entryDate?: string,
+    opts: { allowSource?: boolean } = {},
+  ) {
+    {
       const found = await client.query(
-        'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
+        'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE',
         [id],
       );
       if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
-      if (found.rows[0].status !== 'posted')
-        throw new AppError('FORBIDDEN', 'Yalnizca onayli fis ters kaydedilir');
       const orig = found.rows[0];
-      await this.assertPeriodOpen(client, orig.entry_date);
-
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        (tenantId ?? 'app').toString(),
-      ]);
-      const seq = await client.query(
-        'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
+      if (orig.status !== 'posted')
+        throw new AppError('FORBIDDEN', 'Yalnizca onayli fis ters kaydedilir');
+      if (!opts.allowSource && AUTO_SOURCE_TYPES.includes(String(orig.source_type))) {
+        throw new AppError(
+          'FORBIDDEN',
+          'Kaynak belgeye bagli otomatik fis dogrudan ters cevrilemez; kaynak belgeyi (fatura vb.) iptal edin.',
+        );
+      }
+      if (orig.reversal_of_id || orig.entry_type === 'ters')
+        throw new AppError('FORBIDDEN', 'Ters kayit fisi yeniden ters cevrilemez');
+      const already = await client.query(
+        `SELECT entry_no FROM journal_entries
+          WHERE reversal_of_id = $1 AND tenant_id = current_tenant_id() LIMIT 1`,
+        [id],
       );
-      const entryNo = Number(seq.rows[0].next_no);
+      if (already.rows.length > 0) {
+        throw new AppError(
+          'CONFLICT',
+          `Bu fis zaten ters kaydedilmis (ters fis no ${already.rows[0].entry_no})`,
+        );
+      }
+
+      const reversalDate = entryDate ?? todayIso();
+      const periodId = await openPeriodFor(client, reversalDate);
+      const entryNo = await allocateEntryNo(client);
       const reversalId = newId();
 
       await client.query(
         `INSERT INTO journal_entries
            (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
             source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, 'posted', $6, $7, $8, $9, $10, $11, $11, now(), $11, $11)`,
+         VALUES ($1, current_tenant_id(), $2, $3, $4, 'ters', 'posted', $5, $6, $7, $8, $9, $10, $11, now(), $11, $11)`,
         [
           reversalId,
           entryNo,
-          orig.entry_date,
-          orig.period_id,
-          'ters',
-          `${orig.description} - TERS KAYIT`,
+          reversalDate,
+          periodId,
+          `${orig.description} - TERS KAYIT (fis no ${orig.entry_no})`,
           orig.source_type,
           orig.source_id,
           id,
@@ -507,10 +591,14 @@ export class AccountingService {
         userId,
         action: 'reverse',
         entityId: id,
-        newValues: { reversal_id: reversalId, reversal_entry_no: entryNo },
+        newValues: {
+          reversal_id: reversalId,
+          reversal_entry_no: entryNo,
+          entry_date: reversalDate,
+        },
       });
       return { id: reversalId, entryNo, status: 'posted' as const };
-    });
+    }
   }
 
   /** Onayli fisi iptal eder (finansal belgede fiziksel silme yok - SPEC §0). */
@@ -540,65 +628,150 @@ export class AccountingService {
     });
   }
 
-  /** Fisi gunceller; draft fislerde fis numarasi degismez. */
+  /**
+   * Taslak fişi günceller; `status: 'posted'` verilirse aynı işlemde onaylar.
+   * `lines` verilmezse mevcut satırlar korunur (yalnızca başlık güncellemesi).
+   */
   async updateEntry(id: string, input: UpdateJournalEntryInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const found = await client.query(
-        'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
+        'SELECT * FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE',
         [id],
       );
       if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
-      if (found.rows[0].status === 'posted')
-        throw new AppError('FORBIDDEN', 'Onayli fis guncellenemez');
-      const totals = this.validateLines(input.lines ?? []);
-      const postNow = input.status === 'posted';
-      if (postNow && totals.debit !== totals.credit) {
-        throw new AppError('VALIDATION_ERROR', 'Fis dengeli degil (SPEC §10.5)');
-      }
-      if (postNow)
-        await this.assertPeriodOpen(client, input.entry_date ?? found.rows[0].entry_date);
+      const current = found.rows[0];
+      if (current.status === 'posted')
+        throw new AppError('FORBIDDEN', 'Onayli fis guncellenemez; ters kayit kullanin');
+      if (current.status === 'cancelled')
+        throw new AppError('FORBIDDEN', 'Iptal edilmis fis guncellenemez');
 
+      if (input.lines) {
+        this.validateLines(input.lines);
+        await this.deleteLines(client, id);
+        await this.insertLines(client, id, input.lines, userId);
+      }
+      const entryDate = String(input.entry_date ?? toIsoDate(current.entry_date));
       await client.query(
         `UPDATE journal_entries SET
-           entry_date = COALESCE($1, entry_date),
+           entry_date = $1,
            period_id = COALESCE($2, period_id),
            entry_type = COALESCE($3, entry_type),
            description = COALESCE($4, description),
-           status = COALESCE($5, status),
-           total_debit = COALESCE($6, total_debit),
-           total_credit = COALESCE($7, total_credit),
-           updated_by = $8, updated_at = now()
-         WHERE id = $9 AND tenant_id = current_tenant_id()`,
+           updated_by = $5, updated_at = now()
+         WHERE id = $6 AND tenant_id = current_tenant_id()`,
         [
-          input.entry_date ?? null,
+          entryDate,
           input.period_id ?? null,
           input.entry_type ?? null,
           input.description ?? null,
-          input.status ?? null,
-          totals.debit,
-          totals.credit,
           userId,
           id,
         ],
       );
-      await this.deleteLines(client, id);
-      await this.insertLines(client, id, input.lines ?? [], userId);
+      const totals = await this.refreshTotals(client, id);
+
+      if (input.status === 'cancelled') {
+        await client.query(
+          `UPDATE journal_entries SET status = 'cancelled' WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [id],
+        );
+      }
+
       await this.writeAudit(client, {
         userId,
         action: 'update',
         entityId: id,
-        oldValues: found.rows[0],
+        oldValues: current,
         newValues: {
-          entry_date: input.entry_date ?? found.rows[0].entry_date,
-          entry_type: input.entry_type ?? found.rows[0].entry_type,
-          status: input.status ?? found.rows[0].status,
-          description: input.description ?? found.rows[0].description,
+          entry_date: entryDate,
+          entry_type: input.entry_type ?? current.entry_type,
+          status: input.status ?? current.status,
+          description: input.description ?? current.description,
           total_debit: totals.debit,
           total_credit: totals.credit,
         },
       });
-      return this.getEntryById(id, tenantId);
+
+      if (input.status === 'posted') {
+        await this.postDraft(client, id, userId);
+      }
+      return this.loadEntry(client, id);
     });
+  }
+
+  /** Taslak fişi onaylar (POST /entries/:id/post). */
+  async postEntry(id: string, userId: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const found = await client.query(
+        'SELECT status FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE',
+        [id],
+      );
+      if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
+      await this.postDraft(client, id, userId);
+      return this.loadEntry(client, id);
+    });
+  }
+
+  /**
+   * Taslak → onaylı geçişinin tek uygulaması: satırları DB'den okur, en az iki satır +
+   * denge + dönem açık kontrolü yapar, gap-free numara ve onaylayan bilgisini yazar.
+   * Çağıran fiş satırını FOR UPDATE ile kilitlemiş olmalıdır.
+   */
+  private async postDraft(client: PoolClient, id: string, userId: string): Promise<void> {
+    const r = await client.query(
+      'SELECT status, entry_date FROM journal_entries WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [id],
+    );
+    const entry = r.rows[0];
+    if (entry.status !== 'draft') {
+      throw new AppError('FORBIDDEN', 'Yalnizca taslak fis onaylanabilir');
+    }
+    const lineRows = await client.query(
+      'SELECT account_id, debit, credit FROM journal_lines WHERE entry_id = $1 AND tenant_id = current_tenant_id()',
+      [id],
+    );
+    const lines = lineRows.rows.map((l) => ({
+      account_id: String(l.account_id),
+      debit: Number(l.debit),
+      credit: Number(l.credit),
+    }));
+    const totals = this.validateLines(lines);
+    this.assertPostable(lines, totals);
+    const entryDate = toIsoDate(entry.entry_date);
+    const periodId = await openPeriodFor(client, entryDate);
+    const entryNo = await allocateEntryNo(client);
+    await client.query(
+      `UPDATE journal_entries SET
+         status = 'posted', entry_no = $1, period_id = COALESCE(period_id, $2),
+         total_debit = $3, total_credit = $4,
+         posted_by = $5, posted_at = now(), updated_by = $5, updated_at = now()
+       WHERE id = $6 AND tenant_id = current_tenant_id()`,
+      [entryNo, periodId, totals.debit, totals.credit, userId, id],
+    );
+    await this.writeAudit(client, {
+      userId,
+      action: 'post',
+      entityId: id,
+      oldValues: { status: 'draft' },
+      newValues: { status: 'posted', entry_no: entryNo },
+    });
+  }
+
+  /** Başlık toplamlarını satırlardan yeniden hesaplar (taslak düzenlemelerinde). */
+  private async refreshTotals(client: PoolClient, id: string) {
+    const r = await client.query(
+      `UPDATE journal_entries je SET
+         total_debit = s.debit, total_credit = s.credit
+         FROM (SELECT COALESCE(SUM(debit), 0) AS debit, COALESCE(SUM(credit), 0) AS credit
+                 FROM journal_lines WHERE entry_id = $1 AND tenant_id = current_tenant_id()) s
+        WHERE je.id = $1 AND je.tenant_id = current_tenant_id()
+        RETURNING je.total_debit, je.total_credit`,
+      [id],
+    );
+    return {
+      debit: Number(r.rows[0]?.total_debit ?? 0),
+      credit: Number(r.rows[0]?.total_credit ?? 0),
+    };
   }
 
   private async deleteLines(client: PoolClient, entryId: string) {
@@ -681,20 +854,21 @@ export class AccountingService {
     });
   }
 
+  private async loadLine(client: PoolClient, id: string) {
+    const r = await client.query(
+      `SELECT l.*, a.code AS account_code, a.name AS account_name
+         FROM journal_lines l
+         JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = current_tenant_id()
+        WHERE l.id = $1 AND l.tenant_id = current_tenant_id()`,
+      [id],
+    );
+    if (r.rows.length === 0) return null;
+    const row = mapLineRow(r.rows[0]);
+    return { ...row, account: { code: row.account_code, name: row.account_name } };
+  }
+
   async getLineById(id: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, async (client) => {
-      const r = await client.query(
-        'SELECT * FROM journal_lines WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
-      if (r.rows.length === 0) return null;
-      const row = mapLineRow(r.rows[0]);
-      const account = await client.query(
-        'SELECT code, name FROM accounting_accounts WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [row.account_id],
-      );
-      return { ...row, account: account.rows[0] };
-    });
+    return this.withTenantClient(tenantId, (client) => this.loadLine(client, id));
   }
 
   async createLine(input: JournalLineInput, userId: string, tenantId?: string) {
@@ -706,36 +880,40 @@ export class AccountingService {
       if (entry.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis bulunamadi');
       if (entry.rows[0].status !== 'draft')
         throw new AppError('FORBIDDEN', 'Yalnizca draft fislerde satir eklenebilir');
+      this.validateLines([input]);
       const lineId = newId();
       await client.query(
         `INSERT INTO journal_lines (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
-           VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
+           VALUES ($1, current_tenant_id(), $2,
+                   COALESCE($3, (SELECT COALESCE(MAX(line_no), 0) + 1 FROM journal_lines WHERE entry_id = $2)),
+                   $4, $5, $6, $7, $8, $8)`,
         [
           lineId,
           input.entry_id,
-          input.line_no,
+          input.line_no ?? null,
           input.account_id,
           input.description ?? '',
-          input.debit,
-          input.credit,
+          round2(input.debit),
+          round2(input.credit),
           userId,
         ],
       );
-      return this.getLineById(lineId, tenantId);
+      await this.refreshTotals(client, String(input.entry_id));
+      return this.loadLine(client, lineId);
     });
   }
 
-  async updateLine(id: string, input: JournalLineInput, userId: string, tenantId?: string) {
+  async updateLine(id: string, input: UpdateJournalLineInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const found = await client.query(
-        `SELECT je.status FROM journal_lines l
+        `SELECT je.id AS entry_id, je.status FROM journal_lines l
            JOIN journal_entries je ON je.id = l.entry_id AND je.tenant_id = current_tenant_id()
           WHERE l.id = $1 AND l.tenant_id = current_tenant_id()`,
         [id],
       );
-      if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status === 'posted')
-        throw new AppError('FORBIDDEN', 'Onayli fis satiri guncellenemez');
+      if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Fis satiri bulunamadi');
+      if (found.rows[0].status !== 'draft')
+        throw new AppError('FORBIDDEN', 'Yalnizca taslak fis satiri guncellenebilir');
       await client.query(
         `UPDATE journal_lines SET
            line_no = COALESCE($1, line_no),
@@ -749,13 +927,14 @@ export class AccountingService {
           input.line_no ?? null,
           input.account_id ?? null,
           input.description ?? null,
-          input.debit ?? null,
-          input.credit ?? null,
+          input.debit === undefined ? null : round2(input.debit),
+          input.credit === undefined ? null : round2(input.credit),
           userId,
           id,
         ],
       );
-      return this.getLineById(id, tenantId);
+      await this.refreshTotals(client, String(found.rows[0].entry_id));
+      return this.loadLine(client, id);
     });
   }
 
@@ -836,9 +1015,33 @@ export class AccountingService {
     });
   }
 
+  /** Aralık çakışması: aynı tenant'ta başka bir mali dönemle kesişen tarih aralığı var mı? */
+  private async assertNoPeriodOverlap(
+    client: PoolClient,
+    start: string,
+    end: string,
+    excludeId?: string,
+  ) {
+    const r = await client.query(
+      `SELECT label FROM fiscal_periods
+        WHERE tenant_id = current_tenant_id()
+          AND ($3::uuid IS NULL OR id <> $3::uuid)
+          AND daterange(start_date, end_date, '[]') && daterange($1::date, $2::date, '[]')
+        LIMIT 1`,
+      [start, end, excludeId ?? null],
+    );
+    if (r.rows.length > 0) {
+      throw new AppError('CONFLICT', `Tarih aralığı "${r.rows[0].label}" dönemiyle çakışıyor.`);
+    }
+  }
+
   async createPeriod(input: CreatePeriodInput, userId: string, tenantId?: string) {
     const periodId = newId();
     return this.withTenantClient(tenantId, async (client) => {
+      if (input.start_date > input.end_date) {
+        throw new AppError('VALIDATION_ERROR', 'Dönem başlangıcı bitişinden sonra olamaz.');
+      }
+      await this.assertNoPeriodOverlap(client, input.start_date, input.end_date);
       await client.query(
         `INSERT INTO fiscal_periods (id, tenant_id, label, year, start_date, end_date, status, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $7)`,
@@ -852,49 +1055,113 @@ export class AccountingService {
           userId,
         ],
       );
-      return this.getPeriodById(periodId, tenantId);
+      await this.writeAudit(client, {
+        userId,
+        action: 'create',
+        entityType: 'fiscal_periods',
+        entityId: periodId,
+        newValues: { ...input },
+      });
+      const row = await this.loadRow(client, 'fiscal_periods', periodId);
+      return row ? mapPeriodRow(row) : null;
     });
+  }
+
+  /** Dönem içinde (id ya da tarih aralığıyla) fiş sayısı; status verilirse yalnızca o durum. */
+  private async periodEntryCount(
+    client: PoolClient,
+    period: { id: string; start_date: unknown; end_date: unknown },
+    status?: string,
+  ): Promise<number> {
+    const r = await client.query(
+      `SELECT COUNT(*) AS n FROM journal_entries
+        WHERE tenant_id = current_tenant_id()
+          AND (period_id = $1 OR entry_date BETWEEN $2::date AND $3::date)
+          AND ($4::text IS NULL OR status = $4::text)`,
+      [period.id, toIsoDate(period.start_date), toIsoDate(period.end_date), status ?? null],
+    );
+    return Number(r.rows[0].n);
   }
 
   async updatePeriod(id: string, input: UpdatePeriodInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
+      const found = await client.query(
+        'SELECT * FROM fiscal_periods WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE',
+        [id],
+      );
+      if (found.rows.length === 0) throw new AppError('NOT_FOUND', 'Mali donem bulunamadi');
+      const cur = found.rows[0];
+      const start = input.start_date ?? toIsoDate(cur.start_date);
+      const end = input.end_date ?? toIsoDate(cur.end_date);
+      if (start > end) {
+        throw new AppError('VALIDATION_ERROR', 'Dönem başlangıcı bitişinden sonra olamaz.');
+      }
+      const datesChanged =
+        start !== toIsoDate(cur.start_date) ||
+        end !== toIsoDate(cur.end_date) ||
+        (input.year !== undefined && input.year !== cur.year);
+      if (datesChanged) {
+        await this.assertNoPeriodOverlap(client, start, end, id);
+        if ((await this.periodEntryCount(client, cur)) > 0) {
+          throw new AppError('FORBIDDEN', 'Fişi olan dönemin tarih aralığı değiştirilemez.');
+        }
+      }
+      if (input.status === 'closed' && cur.status !== 'closed') {
+        const drafts = await this.periodEntryCount(client, cur, 'draft');
+        if (drafts > 0) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            `Dönemde ${drafts} taslak fiş var; kapatmadan önce onaylayın veya silin.`,
+          );
+        }
+      }
       await client.query(
         `UPDATE fiscal_periods SET
            label = COALESCE($1, label),
            year = COALESCE($2, year),
-           start_date = COALESCE($3, start_date),
-           end_date = COALESCE($4, end_date),
+           start_date = $3,
+           end_date = $4,
            status = COALESCE($5, status),
+           version = version + 1,
            updated_by = $6, updated_at = now()
          WHERE id = $7 AND tenant_id = current_tenant_id()`,
-        [
-          input.label ?? null,
-          input.year ?? null,
-          input.start_date ?? null,
-          input.end_date ?? null,
-          input.status ?? null,
-          userId,
-          id,
-        ],
+        [input.label ?? null, input.year ?? null, start, end, input.status ?? null, userId, id],
       );
-      return this.getPeriodById(id, tenantId);
+      await this.writeAudit(client, {
+        userId,
+        action: input.status && input.status !== cur.status ? `status_${input.status}` : 'update',
+        entityType: 'fiscal_periods',
+        entityId: id,
+        oldValues: { label: cur.label, status: cur.status, year: cur.year },
+        newValues: { ...input, start_date: start, end_date: end },
+      });
+      const row = await this.loadRow(client, 'fiscal_periods', id);
+      return row ? mapPeriodRow(row) : null;
     });
   }
 
-  async deletePeriod(id: string, tenantId?: string) {
+  /** Dönem silme: yalnızca hiç fişi olmayan dönem silinebilir (açık/kapalı fark etmez). */
+  async deletePeriod(id: string, tenantId?: string, userId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const found = await client.query(
         'SELECT * FROM fiscal_periods WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
       );
       if (found.rows.length === 0) return { success: true };
-      if (found.rows[0].status !== 'closed') {
-        throw new AppError('FORBIDDEN', 'Acik dönem silinemez');
+      if ((await this.periodEntryCount(client, found.rows[0])) > 0) {
+        throw new AppError('FORBIDDEN', 'Fişi olan mali dönem silinemez.');
       }
       await client.query(
         'DELETE FROM fiscal_periods WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
       );
+      await this.writeAudit(client, {
+        userId,
+        action: 'delete',
+        entityType: 'fiscal_periods',
+        entityId: id,
+        oldValues: { label: found.rows[0].label, year: found.rows[0].year },
+      });
       return { success: true };
     });
   }
@@ -947,17 +1214,29 @@ export class AccountingService {
   async createLock(input: CreatePeriodLockInput, userId: string, tenantId?: string) {
     const lockId = newId();
     return this.withTenantClient(tenantId, async (client) => {
+      const period = await this.loadRow(client, 'fiscal_periods', input.period_id);
+      if (!period) throw new AppError('NOT_FOUND', 'Mali donem bulunamadi');
       await client.query(
         `INSERT INTO period_locks (id, tenant_id, period_id, lock_date, reason, locked_by, locked_at, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, now(), $6, $6)`,
         [lockId, input.period_id, input.lock_date, input.reason || '', userId, userId],
       );
-      return this.getLockById(lockId, tenantId);
+      await this.writeAudit(client, {
+        userId,
+        action: 'create',
+        entityType: 'period_locks',
+        entityId: lockId,
+        newValues: { period_id: input.period_id, lock_date: input.lock_date, reason: input.reason },
+      });
+      const row = await this.loadRow(client, 'period_locks', lockId);
+      return row ? mapLockRow(row) : null;
     });
   }
 
   async updateLock(id: string, input: UpdatePeriodLockInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
+      const before = await this.loadRow(client, 'period_locks', id);
+      if (!before) throw new AppError('NOT_FOUND', 'Donem kilidi bulunamadi');
       await client.query(
         `UPDATE period_locks SET
            period_id = COALESCE($1, period_id),
@@ -967,21 +1246,34 @@ export class AccountingService {
          WHERE id = $5 AND tenant_id = current_tenant_id()`,
         [input.period_id ?? null, input.lock_date ?? null, input.reason ?? null, userId, id],
       );
-      return this.getLockById(id, tenantId);
+      await this.writeAudit(client, {
+        userId,
+        action: 'update',
+        entityType: 'period_locks',
+        entityId: id,
+        oldValues: { lock_date: toIsoDate(before.lock_date), reason: before.reason },
+        newValues: { ...input },
+      });
+      const row = await this.loadRow(client, 'period_locks', id);
+      return row ? mapLockRow(row) : null;
     });
   }
 
-  async deleteLock(id: string, tenantId?: string) {
+  async deleteLock(id: string, tenantId?: string, userId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
-      const found = await client.query(
-        'SELECT * FROM period_locks WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
-      if (found.rows.length === 0) return { success: true };
+      const found = await this.loadRow(client, 'period_locks', id);
+      if (!found) return { success: true };
       await client.query(
         'DELETE FROM period_locks WHERE id = $1 AND tenant_id = current_tenant_id()',
         [id],
       );
+      await this.writeAudit(client, {
+        userId,
+        action: 'delete',
+        entityType: 'period_locks',
+        entityId: id,
+        oldValues: { lock_date: toIsoDate(found.lock_date), reason: found.reason },
+      });
       return { success: true };
     });
   }
@@ -1049,9 +1341,10 @@ export class AccountingService {
       await client.query(
         `INSERT INTO posting_rules (id, tenant_id, code, name, config, is_active, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $6)`,
-        [ruleId, input.code, input.name, input.config || '{}', input.is_active || true, userId],
+        [ruleId, input.code, input.name, input.config ?? {}, input.is_active ?? true, userId],
       );
-      return this.getRuleById(ruleId, tenantId);
+      const row = await this.loadRow(client, 'posting_rules', ruleId);
+      return row ? mapRuleRow(row) : null;
     });
   }
 
@@ -1068,13 +1361,14 @@ export class AccountingService {
         [
           input.code ?? null,
           input.name ?? null,
-          input.config || '{}',
-          input.is_active || true,
+          input.config ?? null,
+          input.is_active ?? null,
           userId,
           id,
         ],
       );
-      return this.getRuleById(id, tenantId);
+      const row = await this.loadRow(client, 'posting_rules', id);
+      return row ? mapRuleRow(row) : null;
     });
   }
 
@@ -1152,7 +1446,8 @@ export class AccountingService {
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $5)`,
         [mappingId, input.source_type, input.account_id, input.direction || 'debit', userId],
       );
-      return this.getMappingById(mappingId, tenantId);
+      const row = await this.loadRow(client, 'account_mappings', mappingId);
+      return row ? mapMappingRow(row) : null;
     });
   }
 
@@ -1170,15 +1465,10 @@ export class AccountingService {
            direction = COALESCE($3, direction),
            updated_by = $4, updated_at = now()
          WHERE id = $5 AND tenant_id = current_tenant_id()`,
-        [
-          input.source_type || null,
-          input.account_id || null,
-          input.direction || 'debit',
-          userId,
-          id,
-        ],
+        [input.source_type ?? null, input.account_id ?? null, input.direction ?? null, userId, id],
       );
-      return this.getMappingById(id, tenantId);
+      const row = await this.loadRow(client, 'account_mappings', id);
+      return row ? mapMappingRow(row) : null;
     });
   }
 
@@ -1214,150 +1504,317 @@ export class AccountingService {
   // Hesap kodu ilk hanesine göre sınıf: 1 Dönen + 2 Duran (aktif),
   // 3 Kısa + 4 Uzun Yabancı Kaynak + 5 Öz Kaynak (pasif), 6 Gelir + 7 Maliyet.
 
-  /** Rapor tarih aralığı varsayılanları (yıl başı → bugün). */
+  /**
+   * KDV tevkifatı hazırlık raporu (Faz 7-3). Kesinleşmiş faturalardan:
+   *  - `kdv2`: alışlar, KDV-2 kodu bazında matrah / KDV / tevkif edilen KDV (TRY) +
+   *    360.01.<kod> hesabının dönem bakiyesiyle mutabakat (fark = 0 beklenir),
+   *  - `kdv1`: satışlar, e-Fatura tevkifat kodu bazında (KDV-1 kısmi tevkifat bölümü).
+   */
+  async withholdingReport(input: { from?: string; to?: string }, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const { from, to } = this.normalizeRange(input);
+      const byCode = (type: 'purchase' | 'sales', codeCol: string) =>
+        client.query(
+          `SELECT il.${codeCol} AS code, il.withholding_einvoice_code AS einvoice_code,
+                  il.withholding_kdv2_code AS kdv2_code, il.withholding_rate AS rate_pct,
+                  MAX(wt.name) AS name,
+                  COUNT(DISTINCT i.id)::int AS document_count,
+                  ROUND(SUM((il.line_total - il.tax_amount) * i.exchange_rate), 2) AS base,
+                  ROUND(SUM(il.tax_amount * i.exchange_rate), 2) AS vat,
+                  ROUND(SUM(il.withholding_amount * i.exchange_rate), 2) AS withheld
+             FROM invoice_lines il
+             JOIN invoices i ON i.id = il.invoice_id
+             LEFT JOIN withholding_types wt ON wt.id = il.withholding_type_id
+            WHERE i.tenant_id = current_tenant_id() AND i.type = $1
+              AND i.posting_status = 'posted' AND il.withholding_amount > 0
+              AND i.issue_date BETWEEN $2::date AND $3::date
+            GROUP BY il.${codeCol}, il.withholding_einvoice_code, il.withholding_kdv2_code, il.withholding_rate
+            ORDER BY il.${codeCol}`,
+          [type, from, to],
+        );
+      const [purchases, sales, ledger] = await Promise.all([
+        byCode('purchase', 'withholding_kdv2_code'),
+        byCode('sales', 'withholding_einvoice_code'),
+        client.query(
+          `SELECT a.code, COALESCE(SUM(jl.credit - jl.debit), 0) AS balance
+             FROM accounting_accounts a
+             LEFT JOIN journal_lines jl ON jl.account_id = a.id
+             LEFT JOIN journal_entries je ON je.id = jl.entry_id AND je.status = 'posted'
+                  AND je.entry_date BETWEEN $1::date AND $2::date
+            WHERE a.tenant_id = current_tenant_id() AND a.code LIKE '360.01.%'
+              AND (jl.id IS NULL OR je.id IS NOT NULL)
+            GROUP BY a.code`,
+          [from, to],
+        ),
+      ]);
+      const ledgerByCode = new Map(
+        ledger.rows.map((r) => [String(r.code).replace('360.01.', ''), Number(r.balance)]),
+      );
+      const num = (v: unknown) => Number(v ?? 0);
+      const kdv2 = purchases.rows.map((r) => {
+        const withheld = num(r.withheld);
+        const ledgerAmount = ledgerByCode.get(String(r.kdv2_code)) ?? 0;
+        return {
+          kdv2Code: r.kdv2_code,
+          einvoiceCode: r.einvoice_code,
+          name: r.name,
+          rate: `${Math.round(num(r.rate_pct) / 10)}/10`,
+          documentCount: r.document_count,
+          base: num(r.base),
+          vat: num(r.vat),
+          withheld,
+          ledger: ledgerAmount,
+          difference: round2(withheld - ledgerAmount),
+        };
+      });
+      const kdv1 = sales.rows.map((r) => ({
+        einvoiceCode: r.einvoice_code,
+        name: r.name,
+        rate: `${Math.round(num(r.rate_pct) / 10)}/10`,
+        documentCount: r.document_count,
+        base: num(r.base),
+        vat: num(r.vat),
+        withheld: num(r.withheld),
+      }));
+      const sum = (rows: Array<{ withheld: number }>) =>
+        round2(rows.reduce((acc, r) => acc + r.withheld, 0));
+      return {
+        from,
+        to,
+        kdv2,
+        kdv2Total: sum(kdv2),
+        kdv1,
+        kdv1Total: sum(kdv1),
+      };
+    });
+  }
+
+  /** Rapor tarih aralığı varsayılanları (yıl başı → bugün, Europe/Istanbul). */
   private normalizeRange(input: { from?: string; to?: string }): { from: string; to: string } {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     return { from: input.from ?? `${today.slice(0, 4)}-01-01`, to: input.to ?? today };
   }
 
-  /** Hesap kodundan prefix grubu toplamı (debit/credit) çıkarır. */
-  private summarizeByPrefix(rows: DbRow[], length: number) {
-    const map = new Map<string, { debit: number; credit: number }>();
+  /**
+   * Bir hesap satırının üç bileşeni (kuruş değil, TL; DB numeric(18,2)):
+   *  - `carry`  : devir = hesabın açılış bakiyesi + `from` öncesi onaylı hareketler,
+   *  - `period` : [from, to] aralığındaki onaylı hareketler,
+   *  - `cum`    : kümülatif = carry + period (to tarihine kadar).
+   * Eksik alanlar 0 sayılır (sahte/eski satırlarla uyumluluk).
+   */
+  private componentOf(row: DbRow, comp: 'carry' | 'period' | 'cum') {
+    const n = (v: unknown) => toKurus(v as number | string | null | undefined);
+    const carryD = n(row.opening_debit) + n(row.prior_debit);
+    const carryC = n(row.opening_credit) + n(row.prior_credit);
+    const perD = n(row.debit);
+    const perC = n(row.credit);
+    if (comp === 'carry') return { debitK: carryD, creditK: carryC };
+    if (comp === 'period') return { debitK: perD, creditK: perC };
+    return { debitK: carryD + perD, creditK: carryC + perC };
+  }
+
+  /** Hesap kodu ön ekine göre bileşen toplamı (kuruş cinsinden). */
+  private summarizeByPrefix(
+    rows: DbRow[],
+    length: number,
+    comp: 'carry' | 'period' | 'cum' = 'period',
+  ) {
+    const map = new Map<string, { debitK: number; creditK: number }>();
     for (const row of rows) {
       const key = String(row.code).slice(0, length);
-      const entry = map.get(key) ?? { debit: 0, credit: 0 };
-      entry.debit += Number(row.debit ?? 0);
-      entry.credit += Number(row.credit ?? 0);
+      const c = this.componentOf(row, comp);
+      const entry = map.get(key) ?? { debitK: 0, creditK: 0 };
+      entry.debitK += c.debitK;
+      entry.creditK += c.creditK;
       map.set(key, entry);
     }
     return map;
   }
 
-  /** Onaylı fiş satırlarını hesap bazında toplar (opsiyonel tarih aralığı). */
+  /**
+   * Onaylı fiş satırlarını hesap bazında toplar. `from`'dan önceki hareketler `prior_*`,
+   * [from, to] arası `debit/credit` (dönem) olarak ayrılır; hesabın açılış bakiyesi
+   * (`opening_*`) başlangıç devridir (SPEC §15 açılış/devir).
+   */
   private async aggregateAccountBalances(
     client: PoolClient,
     from: string | null,
     to: string,
   ): Promise<DbRow[]> {
-    const conditions = ["je.status = 'posted'", 'je.entry_date <= $1'];
-    const values: unknown[] = [to];
-    if (from) {
-      conditions.push('je.entry_date >= $2');
-      values.push(from);
-    }
     const result = await client.query(
-      `SELECT aa.code, aa.name, aa.type,
-              COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit ELSE 0 END), 0) AS debit,
-              COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.credit ELSE 0 END), 0) AS credit
+      `SELECT aa.code, aa.name, aa.type, aa.opening_debit, aa.opening_credit,
+              COALESCE(SUM(CASE WHEN je.id IS NOT NULL AND je.entry_date <  $2::date THEN jl.debit  END), 0) AS prior_debit,
+              COALESCE(SUM(CASE WHEN je.id IS NOT NULL AND je.entry_date <  $2::date THEN jl.credit END), 0) AS prior_credit,
+              COALESCE(SUM(CASE WHEN je.id IS NOT NULL AND je.entry_date >= $2::date THEN jl.debit  END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN je.id IS NOT NULL AND je.entry_date >= $2::date THEN jl.credit END), 0) AS credit
          FROM accounting_accounts aa
          LEFT JOIN journal_lines jl
            ON jl.account_id = aa.id AND jl.tenant_id = aa.tenant_id
          LEFT JOIN journal_entries je
            ON je.id = jl.entry_id AND je.tenant_id = jl.tenant_id
-          AND ${conditions.join(' AND ')}
+          AND je.status = 'posted' AND je.entry_date <= $1::date
         WHERE aa.tenant_id = current_tenant_id()
-        GROUP BY aa.code, aa.name, aa.type
+        GROUP BY aa.code, aa.name, aa.type, aa.opening_debit, aa.opening_credit
         ORDER BY aa.code`,
-      values,
+      [to, from ?? '0001-01-01'],
     );
     return result.rows as DbRow[];
   }
 
-  /** Mizan (mizan-ı umumi): dönem aralığında hesap bazında borç/alacak/bakiye. */
+  /**
+   * Mizan (mizan-ı umumi): `from` öncesi devir + dönem hareketi = kümülatif borç/alacak.
+   * `debit/credit/balance` kümülatiftir (to tarihine kadar); dönem ve devir ayrı alanlarda.
+   */
   async trialBalance(input: { from?: string; to?: string }, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const { from, to } = this.normalizeRange(input);
       const rows = await this.aggregateAccountBalances(client, from, to);
-      let totalDebit = 0;
-      let totalCredit = 0;
-      const accounts = rows
-        .map((row) => {
-          const debit = Number(row.debit);
-          const credit = Number(row.credit);
-          return {
-            code: String(row.code),
-            name: row.name,
-            type: row.type,
-            debit,
-            credit,
-            balance: debit - credit,
-          };
-        })
-        .filter((a) => a.debit !== 0 || a.credit !== 0);
-      for (const a of accounts) {
-        totalDebit += a.debit;
-        totalCredit += a.credit;
+      const sum = { cumD: 0, cumC: 0, perD: 0, perC: 0, carryD: 0, carryC: 0 };
+      const accounts = [];
+      for (const row of rows) {
+        const carry = this.componentOf(row, 'carry');
+        const per = this.componentOf(row, 'period');
+        const cum = this.componentOf(row, 'cum');
+        if (cum.debitK === 0 && cum.creditK === 0 && per.debitK === 0 && per.creditK === 0) {
+          continue;
+        }
+        sum.cumD += cum.debitK;
+        sum.cumC += cum.creditK;
+        sum.perD += per.debitK;
+        sum.perC += per.creditK;
+        sum.carryD += carry.debitK;
+        sum.carryC += carry.creditK;
+        accounts.push({
+          code: String(row.code),
+          name: row.name,
+          type: row.type,
+          openingDebit: carry.debitK / 100,
+          openingCredit: carry.creditK / 100,
+          periodDebit: per.debitK / 100,
+          periodCredit: per.creditK / 100,
+          debit: cum.debitK / 100,
+          credit: cum.creditK / 100,
+          balance: (cum.debitK - cum.creditK) / 100,
+        });
       }
       return {
         from,
         to,
         accounts,
-        totalDebit,
-        totalCredit,
-        balanced: Math.abs(totalDebit - totalCredit) < 0.005,
+        openingDebit: sum.carryD / 100,
+        openingCredit: sum.carryC / 100,
+        periodDebit: sum.perD / 100,
+        periodCredit: sum.perC / 100,
+        totalDebit: sum.cumD / 100,
+        totalCredit: sum.cumC / 100,
+        balanced: sum.cumD === sum.cumC,
       };
     });
   }
 
-  /** Bilanço (dönem sonu itibarıyla kümülatif). */
+  /**
+   * Bilanço (as_of itibarıyla). Varlık/kaynak hesapları kümülatif (açılış dahil) alınır.
+   * Gelir/gider (6/7) bakiyesi İKİYE ayrılır: cari mali yıl başından beri olan kısım
+   * "Dönem Net Kârı", önceki yıllardan devreden kısım "Geçmiş Yıllar Kâr/Zararı" — yıl
+   * sonu kapanış fişi (690→692→570/580) yazılana kadar eski yılların sonucu dönem kârına
+   * karışmaz.
+   */
   async balanceSheet(input: { as_of?: string }, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
-      const asOf = input.as_of ?? new Date().toISOString().slice(0, 10);
-      const rows = await this.aggregateAccountBalances(client, null, asOf);
-      const g = this.summarizeByPrefix(rows, 1);
-      const signed = (prefix: string) => {
-        const e = g.get(prefix) ?? { debit: 0, credit: 0 };
-        return e.debit - e.credit;
+      const asOf = input.as_of ?? todayIso();
+      const yearStartRow = await client.query(
+        `SELECT start_date FROM fiscal_periods
+          WHERE tenant_id = current_tenant_id() AND $1::date BETWEEN start_date AND end_date
+          ORDER BY start_date DESC LIMIT 1`,
+        [asOf],
+      );
+      const yearStart = yearStartRow.rows[0]?.start_date
+        ? toIsoDate(yearStartRow.rows[0].start_date)
+        : `${asOf.slice(0, 4)}-01-01`;
+      const rows = await this.aggregateAccountBalances(client, yearStart, asOf);
+      const cum = this.summarizeByPrefix(rows, 1, 'cum');
+      const per = this.summarizeByPrefix(rows, 1, 'period');
+      const carry = this.summarizeByPrefix(rows, 1, 'carry');
+      const net = (m: Map<string, { debitK: number; creditK: number }>, prefix: string) => {
+        const e = m.get(prefix) ?? { debitK: 0, creditK: 0 };
+        return e.debitK - e.creditK;
       };
-      const donenVarliklar = signed('1');
-      const duranVarliklar = signed('2');
-      const kisaVadeliYabanciKaynaklar = -signed('3');
-      const uzunVadeliYabanciKaynaklar = -signed('4');
-      const ozKaynaklar = -signed('5');
-      // Dönem sonucu (6 gelir − 7 gider): 6 alacak ağırlıklı, 7 borç ağırlıklı.
-      const donemNetKar = -(signed('6') + signed('7'));
+      const donenVarliklar = net(cum, '1');
+      const duranVarliklar = net(cum, '2');
+      const kisaVadeliYabanciKaynaklar = -net(cum, '3');
+      const uzunVadeliYabanciKaynaklar = -net(cum, '4');
+      const ozKaynaklar = -net(cum, '5');
+      const donemNetKar = -(net(per, '6') + net(per, '7'));
+      const gecmisYillarKarZarari = -(net(carry, '6') + net(carry, '7'));
       const aktifToplam = donenVarliklar + duranVarliklar;
       const pasifToplam =
-        kisaVadeliYabanciKaynaklar + uzunVadeliYabanciKaynaklar + ozKaynaklar + donemNetKar;
+        kisaVadeliYabanciKaynaklar +
+        uzunVadeliYabanciKaynaklar +
+        ozKaynaklar +
+        gecmisYillarKarZarari +
+        donemNetKar;
+      const t = (k: number) => k / 100;
       return {
         as_of: asOf,
-        aktif: { donenVarliklar, duranVarliklar, toplam: aktifToplam },
-        pasif: {
-          kisaVadeliYabanciKaynaklar,
-          uzunVadeliYabanciKaynaklar,
-          ozKaynaklar,
-          donemNetKar,
-          toplam: pasifToplam,
+        year_start: yearStart,
+        aktif: {
+          donenVarliklar: t(donenVarliklar),
+          duranVarliklar: t(duranVarliklar),
+          toplam: t(aktifToplam),
         },
-        balanced: Math.abs(aktifToplam - pasifToplam) < 0.005,
+        pasif: {
+          kisaVadeliYabanciKaynaklar: t(kisaVadeliYabanciKaynaklar),
+          uzunVadeliYabanciKaynaklar: t(uzunVadeliYabanciKaynaklar),
+          ozKaynaklar: t(ozKaynaklar),
+          gecmisYillarKarZarari: t(gecmisYillarKarZarari),
+          donemNetKar: t(donemNetKar),
+          toplam: t(pasifToplam),
+        },
+        balanced: aktifToplam === pasifToplam,
       };
     });
   }
 
-  /** Gelir tablosu (dönem aralığı) — TDHP 6/7 grubu. */
+  /**
+   * Gelir tablosu (dönem aralığı) — TDHP 6/7 grubu. Her kalem NET alınır (gelir: alacak −
+   * borç, gider: borç − alacak); böylece iade ve ters kayıtlar kalemi doğru azaltır.
+   * 7xx (maliyet hesapları) ayrı "maliyetHesaplari7xx" satırı olarak gösterilir ve net
+   * kârdan düşülür (bilançodaki 6+7 sonucuyla tutarlı; 7/A–7/B seçimi SMMM kararıdır).
+   */
   async incomeStatement(input: { from?: string; to?: string }, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const { from, to } = this.normalizeRange(input);
       const rows = await this.aggregateAccountBalances(client, from, to);
-      const g = this.summarizeByPrefix(rows, 2);
-      const cr = (prefix: string) => g.get(prefix)?.credit ?? 0;
-      const dr = (prefix: string) => g.get(prefix)?.debit ?? 0;
+      const g = this.summarizeByPrefix(rows, 2, 'period');
+      const g1 = this.summarizeByPrefix(rows, 1, 'period');
+      // kuruş cinsinden net: gelir (alacak − borç) / gider (borç − alacak)
+      const income = (prefix: string) => {
+        const e = g.get(prefix) ?? { debitK: 0, creditK: 0 };
+        return e.creditK - e.debitK;
+      };
+      const expense = (prefix: string) => -income(prefix);
+      const t = (k: number) => k / 100;
 
-      const brutSatislar = cr('60');
-      const satisIndirimleri = dr('61');
+      const brutSatislar = income('60');
+      const satisIndirimleri = expense('61');
       const netSatislar = brutSatislar - satisIndirimleri;
-      const satislarinMaliyeti = dr('62');
+      const satislarinMaliyeti = expense('62');
       const brutKar = netSatislar - satislarinMaliyeti;
-      const faaliyetGiderleri = dr('63');
+      const faaliyetGiderleri = expense('63');
       const faaliyetKari = brutKar - faaliyetGiderleri;
-      const digerFaaliyetGelirleri = cr('64');
-      const digerFaaliyetGiderleri = dr('65');
-      const finansmanGiderleri = dr('66');
-      const olaganDisiGelirler = cr('67');
-      const olaganDisiGiderler = dr('68');
+      const digerFaaliyetGelirleri = income('64');
+      const digerFaaliyetGiderleri = expense('65');
+      const finansmanGiderleri = expense('66');
+      const olaganDisiGelirler = income('67');
+      const olaganDisiGiderler = expense('68');
       const vergiKarsiligi = rows
         .filter((row) => String(row.code).startsWith('691'))
-        .reduce((sum, row) => sum + Number(row.debit) - Number(row.credit), 0);
+        .reduce((sum, row) => {
+          const c = this.componentOf(row, 'period');
+          return sum + c.debitK - c.creditK;
+        }, 0);
+      const e7 = g1.get('7') ?? { debitK: 0, creditK: 0 };
+      const maliyetHesaplari7xx = e7.debitK - e7.creditK;
       const donemNetKari =
         faaliyetKari +
         digerFaaliyetGelirleri -
@@ -1365,25 +1822,27 @@ export class AccountingService {
         finansmanGiderleri +
         olaganDisiGelirler -
         olaganDisiGiderler -
-        vergiKarsiligi;
+        vergiKarsiligi -
+        maliyetHesaplari7xx;
 
       return {
         from,
         to,
-        brutSatislar,
-        satisIndirimleri,
-        netSatislar,
-        satislarinMaliyeti,
-        brutKar,
-        faaliyetGiderleri,
-        faaliyetKari,
-        digerFaaliyetGelirleri,
-        digerFaaliyetGiderleri,
-        finansmanGiderleri,
-        olaganDisiGelirler,
-        olaganDisiGiderler,
-        vergiKarsiligi,
-        donemNetKari,
+        brutSatislar: t(brutSatislar),
+        satisIndirimleri: t(satisIndirimleri),
+        netSatislar: t(netSatislar),
+        satislarinMaliyeti: t(satislarinMaliyeti),
+        brutKar: t(brutKar),
+        faaliyetGiderleri: t(faaliyetGiderleri),
+        faaliyetKari: t(faaliyetKari),
+        digerFaaliyetGelirleri: t(digerFaaliyetGelirleri),
+        digerFaaliyetGiderleri: t(digerFaaliyetGiderleri),
+        finansmanGiderleri: t(finansmanGiderleri),
+        olaganDisiGelirler: t(olaganDisiGelirler),
+        olaganDisiGiderler: t(olaganDisiGiderler),
+        vergiKarsiligi: t(vergiKarsiligi),
+        maliyetHesaplari7xx: t(maliyetHesaplari7xx),
+        donemNetKari: t(donemNetKari),
       };
     });
   }
@@ -1533,8 +1992,17 @@ export async function updateEntry(
   return accountingService.updateEntry(id, input, userId, tenantId);
 }
 
-export async function reverseEntry(id: string, userId: string, tenantId?: string) {
-  return accountingService.reverseEntry(id, userId, tenantId);
+export async function reverseEntry(
+  id: string,
+  userId: string,
+  tenantId?: string,
+  entryDate?: string,
+) {
+  return accountingService.reverseEntry(id, userId, tenantId, entryDate);
+}
+
+export async function postEntry(id: string, userId: string, tenantId?: string) {
+  return accountingService.postEntry(id, userId, tenantId);
 }
 
 export async function cancelEntry(id: string, userId: string, tenantId?: string) {
@@ -1559,7 +2027,7 @@ export async function createLine(input: JournalLineInput, userId: string, tenant
 
 export async function updateLine(
   id: string,
-  input: JournalLineInput,
+  input: UpdateJournalLineInput,
   userId: string,
   tenantId?: string,
 ) {
@@ -1591,8 +2059,8 @@ export async function updatePeriod(
   return accountingService.updatePeriod(id, input, userId, tenantId);
 }
 
-export async function deletePeriod(id: string, tenantId?: string) {
-  return accountingService.deletePeriod(id, tenantId);
+export async function deletePeriod(id: string, tenantId?: string, userId?: string) {
+  return accountingService.deletePeriod(id, tenantId, userId);
 }
 
 export async function listPeriodLocks(query?: Record<string, unknown>, tenantId?: string) {
@@ -1616,8 +2084,8 @@ export async function updateLock(
   return accountingService.updateLock(id, input, userId, tenantId);
 }
 
-export async function deleteLock(id: string, tenantId?: string) {
-  return accountingService.deleteLock(id, tenantId);
+export async function deleteLock(id: string, tenantId?: string, userId?: string) {
+  return accountingService.deleteLock(id, tenantId, userId);
 }
 
 export async function listPostingRules(query?: Record<string, unknown>, tenantId?: string) {
@@ -1686,6 +2154,10 @@ export async function trialBalance(input?: { from?: string; to?: string }, tenan
 
 export async function balanceSheet(input?: { as_of?: string }, tenantId?: string) {
   return accountingService.balanceSheet(input ?? {}, tenantId);
+}
+
+export async function withholdingReport(input?: { from?: string; to?: string }, tenantId?: string) {
+  return accountingService.withholdingReport(input ?? {}, tenantId);
 }
 
 export async function incomeStatement(input?: { from?: string; to?: string }, tenantId?: string) {

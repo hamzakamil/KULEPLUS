@@ -10,9 +10,13 @@ export const CHEQUE_STATUSES = [
   'bounced',
   'cancelled',
 ] as const;
-export const CHEQUE_HOLDERS = ['own', 'bank', 'customer', 'supplier'] as const;
+/** own = portföyde, bank = tahsile verildi, pledged = teminata verildi (Faz 7-4). */
+export const CHEQUE_HOLDERS = ['own', 'bank', 'pledged', 'customer', 'supplier'] as const;
 export const CHEQUE_TRANSACTION_TYPES = [
   'created',
+  'deposited',
+  'pledged',
+  'released',
   'endorsed',
   'collected',
   'bounced',
@@ -91,6 +95,26 @@ export const collectChequeSchema = z.object({
   description: z.string().max(1000).optional(),
 });
 
+/** Tahsile verme: portföydeki alınan çek/senet bankaya tahsile verilir (Faz 7-4). */
+export const depositChequeSchema = z.object({
+  cash_bank_account_id: z.string().uuid('Tahsile verilen banka hesabı zorunlu'),
+  transaction_date: dateString,
+  description: z.string().max(1000).optional(),
+});
+
+/** Teminata verme: portföydeki alınan çek/senet teminat olarak verilir. */
+export const pledgeChequeSchema = z.object({
+  party_name: z.string().min(1).max(255, 'Teminat verilen taraf zorunlu'),
+  transaction_date: dateString,
+  description: z.string().max(1000).optional(),
+});
+
+/** Teminattan / tahsilden geri alma: çek/senet portföye geri döner. */
+export const releaseChequeSchema = z.object({
+  transaction_date: dateString,
+  description: z.string().max(1000).optional(),
+});
+
 export const bounceChequeSchema = z.object({
   transaction_date: dateString,
   reason: z.string().min(1).max(500, 'Karşılıksız nedeni zorunlu'),
@@ -123,6 +147,9 @@ export type UpdateChequeInput = z.infer<typeof updateChequeSchema>;
 export type ChequeListQuery = z.infer<typeof chequeListQuerySchema>;
 export type EndorseChequeInput = z.infer<typeof endorseChequeSchema>;
 export type CollectChequeInput = z.infer<typeof collectChequeSchema>;
+export type DepositChequeInput = z.infer<typeof depositChequeSchema>;
+export type PledgeChequeInput = z.infer<typeof pledgeChequeSchema>;
+export type ReleaseChequeInput = z.infer<typeof releaseChequeSchema>;
 export type BounceChequeInput = z.infer<typeof bounceChequeSchema>;
 export type CancelChequeInput = z.infer<typeof cancelChequeSchema>;
 export type PortfolioListQuery = z.infer<typeof portfolioListQuerySchema>;

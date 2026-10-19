@@ -55,13 +55,16 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({ rows: [invoice], rowCount: 1 });
       }
       if (s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
-      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+      if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
       if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
       if (s.includes('COALESCE(MAX(entry_no)'))
         return Promise.resolve({ rows: [{ next_no: '1' }] });
@@ -100,6 +103,8 @@ describe('Golden — CANLI: Fatura & Vergi sayıları (SMMM Ek B)', () => {
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({
           rows: [{ ...singleLineInvoice, posting_status: 'posted' }],

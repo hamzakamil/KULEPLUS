@@ -101,6 +101,22 @@ export const journalLineInputSchema = z.object({
   credit: z.number().nonnegative().default(0),
 });
 
+/** Satır PATCH'i: varsayılan YOK — verilmeyen alan (ör. debit) 0'a ezilmez. */
+export const updateJournalLineSchema = z.object({
+  line_no: z.number().int().positive().optional(),
+  account_id: z.string().uuid().optional(),
+  description: z.string().max(500).optional(),
+  debit: z.number().nonnegative().optional(),
+  credit: z.number().nonnegative().optional(),
+});
+
+export const reverseEntrySchema = z
+  .object({
+    /** Ters fiş tarihi; verilmezse bugün (açık dönemde olmalı). */
+    entry_date: dateString.optional(),
+  })
+  .optional();
+
 export const createJournalEntrySchema = z.object({
   entry_date: dateString,
   period_id: z.string().uuid().optional().nullable(),
@@ -188,6 +204,7 @@ export type UpdatePeriodInput = z.infer<typeof updatePeriodSchema>;
 export type CreatePeriodLockInput = z.infer<typeof createPeriodLockSchema>;
 export type UpdatePeriodLockInput = z.infer<typeof updatePeriodLockSchema>;
 export type JournalLineInput = z.infer<typeof journalLineInputSchema>;
+export type UpdateJournalLineInput = z.infer<typeof updateJournalLineSchema>;
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;
 export type UpdateJournalEntryInput = z.infer<typeof updateJournalEntrySchema>;
 export type CreatePostingRuleInput = z.infer<typeof createPostingRuleSchema>;

@@ -3,6 +3,8 @@ import { getPool } from '@kuleplus/db';
 import type { PoolClient } from 'pg';
 import { AppError, newId } from '@kuleplus/shared';
 import { ensureChartOfAccountsOn } from '../accounting/chart.js';
+import { allocateEntryNo, openPeriodFor } from '../accounting/ledger.js';
+import { cashBankLedgerAccount } from '../accounting/subledger.js';
 import {
   upsertRates as sharedUpsertRates,
   getRate as sharedGetRate,
@@ -384,7 +386,7 @@ export interface RevaluationJournalResult {
  * Dönem sonu değerleme + KAPANIŞ FİŞİ üretir (idempotent — ADR-0017).
  *
  * Değerlemeyi `revalueForeignBalances` ile aynı kurallarla hesaplar; fark
- * 645 (kambiyo kârı) / 655 (kambiyo zararı) hesaplarına karşılık, kasa/banka
+ * 646 (kambiyo kârı) / 656 (kambiyo zararı) hesaplarına karşılık, kasa/banka
  * TL karşılık hesabı (account_mappings | 100/102) ile dengeli bir `mahsup`
  * yevmiye fişi olarak `posted` statüsünde yazar.
  *
@@ -425,8 +427,8 @@ export async function bookRevaluationJournal(
 
     // Fiş için gereken hesaplar — TDHP şablonu gerekirse bootstrap edilir.
     await ensureChartOfAccountsOn(client);
-    const gainAccount = await resolveAccountByCodeLocal(client, '645');
-    const lossAccount = await resolveAccountByCodeLocal(client, '655');
+    const gainAccount = await resolveAccountByCodeLocal(client, '646');
+    const lossAccount = await resolveAccountByCodeLocal(client, '656');
 
     // Satırları topla: hesap başına denge (borç = alacak, |fark|).
     type Line = { accountId: string; debit: number; credit: number };
@@ -436,14 +438,17 @@ export async function bookRevaluationJournal(
       const absDiff = round2(Math.abs(e.diff));
       if (absDiff < 0.005) continue;
       const fxAccountId = e.diff > 0 ? gainAccount : lossAccount;
-      const cashAccountId = await resolveCashBankAccountForType(client, e.accountType);
+      // Değerleme hesap bazındadır: farkı o kasa/bankanın kendi alt hesabına yaz (Faz 7-1).
+      const cashAccountId =
+        (await cashBankLedgerAccount(client, e.accountId)) ??
+        (await resolveCashBankAccountForType(client, e.accountType));
       if (!fxAccountId || !cashAccountId) continue;
       if (e.diff > 0) {
-        // Varlık artışı: Borç kasa/banka, Alacak 645 (kambiyo kârı).
+        // Varlık artışı: Borç kasa/banka, Alacak 646 (kambiyo kârı).
         lines.push({ accountId: cashAccountId, debit: absDiff, credit: 0 });
         lines.push({ accountId: fxAccountId, debit: 0, credit: absDiff });
       } else {
-        // Varlık azalışı: Borç 655 (kambiyo zararı), Alacak kasa/banka.
+        // Varlık azalışı: Borç 656 (kambiyo zararı), Alacak kasa/banka.
         lines.push({ accountId: fxAccountId, debit: absDiff, credit: 0 });
         lines.push({ accountId: cashAccountId, debit: 0, credit: absDiff });
       }
@@ -462,23 +467,18 @@ export async function bookRevaluationJournal(
     }
 
     // Gap-free fiş numarası (aynı tenant içinde eşzamanlılık kilidinde — SPEC §12.3).
-    await client.query('SELECT pg_advisory_xact_lock(hashtext(current_setting($1)))', [
-      'app.tenant_id',
-    ]);
-    const seq = await client.query<{ next_no: string }>(
-      `SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries
-        WHERE tenant_id = current_tenant_id()`,
-    );
-    const entryNo = Number(seq.rows[0].next_no);
+    // Dönem kapısı: kapalı döneme / kilit tarihinden önceye değerleme fişi yazılamaz.
+    const periodId = await openPeriodFor(client, valuationDate);
+    const entryNo = await allocateEntryNo(client);
     const entryId = newId();
     const description = `Dönem sonu kur değerleme ${valuationDate} (${report.entries.length} döviz hesap)`;
 
     await client.query(
       `INSERT INTO journal_entries
-         (id, tenant_id, entry_no, entry_date, entry_type, status, description,
+         (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
           source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-       VALUES ($1, current_tenant_id(), $2, $3, 'mahsup', 'posted', $4, 'revaluation', $5, $6, $6, $7, now(), $7, $7)`,
-      [entryId, entryNo, valuationDate, description, sourceId, totalDebit, userId],
+       VALUES ($1, current_tenant_id(), $2, $3, $4, 'mahsup', 'posted', $5, 'revaluation', $6, $7, $7, $8, now(), $8, $8)`,
+      [entryId, entryNo, valuationDate, periodId, description, sourceId, totalDebit, userId],
     );
 
     let lineNo = 1;

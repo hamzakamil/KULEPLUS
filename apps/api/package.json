@@ -8,6 +8,7 @@
     "dev": "tsx watch src/server.ts",
     "vercel-build": "node ../../scripts/build-vercel-workspaces.mjs --vercel",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration --no-file-parallelism",
     "typecheck": "tsc --noEmit",
     "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts"
   },

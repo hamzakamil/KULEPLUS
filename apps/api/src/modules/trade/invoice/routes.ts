@@ -12,6 +12,8 @@ import {
   replaceInvoiceLinesSchema,
   paymentSchema,
   listInvoicesQuerySchema,
+  withholdingTypeSchema,
+  updateWithholdingTypeSchema,
 } from './schemas.js';
 import { AppError } from '@kuleplus/shared';
 import type { ListInvoicesQuery } from './schemas.js';
@@ -47,6 +49,42 @@ router.get('/tax-rates', async (req: Request, res: Response, next: NextFunction)
     next(error);
   }
 });
+
+/** Tevkifat türleri (Faz 7-3). `?active_on=YYYY-MM-DD` → o tarihte geçerli aktif türler. */
+router.get('/withholding-types', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const activeOn = typeof req.query.active_on === 'string' ? req.query.active_on : undefined;
+    res.json(await service.listWithholdingTypes(activeOn));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  '/withholding-types',
+  requirePermission('core.settings.update'),
+  validate(withholdingTypeSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.status(201).json(await service.createWithholdingType(req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.patch(
+  '/withholding-types/:id',
+  requirePermission('core.settings.update'),
+  validate(updateWithholdingTypeSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(await service.updateWithholdingType(req.params.id, req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Fatura sıraları */
 router.get('/sequences', async (req: Request, res: Response, next: NextFunction) => {

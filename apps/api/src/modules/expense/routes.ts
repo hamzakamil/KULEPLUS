@@ -8,6 +8,7 @@ import {
   createExpenseCategorySchema,
   updateExpenseCategorySchema,
   createExpenseSchema,
+  expensePaymentSchema,
   updateExpenseSchema,
   expenseListQuerySchema,
 } from './expense.service';
@@ -179,11 +180,10 @@ router.delete(
 router.post(
   '/:id/payments',
   canExpenseUpdate,
-  validate(createExpenseSchema),
+  // Önceden yanlışlıkla gider oluşturma şemasıyla doğrulanıyordu → ödeme girilemiyordu.
+  validate(expensePaymentSchema),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      // This is a simplified payment creation - in full implementation would need expenseId
-      // For now, we'll just validate and return
       const result = await createExpensePayment(req.params.id, req.body, req.user!.sub);
       res.status(201).json(result);
     } catch (error) {

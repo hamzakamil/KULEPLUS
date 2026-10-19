@@ -262,9 +262,13 @@ describe('getRate / getLatestRate / calculateRateDifference (API sarmalayıcıla
 });
 
 describe('bookRevaluationJournal', () => {
-  it('değerlemeyi hesaplar ve 645/655 + kasa/banka hesaplarına dengeli kapanış fişi yazar', async () => {
+  it('değerlemeyi hesaplar ve 646/656 + kasa/banka hesaplarına dengeli kapanış fişi yazar', async () => {
     sharedMockQuery.mockImplementation((sql: string, params: unknown[]) => {
       const s = String(sql);
+      if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+      if (s.includes('FROM fiscal_periods')) {
+        return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
+      }
       if (s.includes('FROM cash_bank_accounts')) {
         return Promise.resolve({
           rows: [
@@ -275,9 +279,14 @@ describe('bookRevaluationJournal', () => {
               account_type: 'cash',
               opening_balance: '100',
               balance: '3500',
+              // Faz 7-1: kasa kendi alt hesabına bağlı (100.01 → acct-cash).
+              accounting_account_id: 'acct-cash',
             },
           ],
         });
+      }
+      if (s.includes('SELECT 1 FROM accounting_accounts WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 });
       }
       if (s.includes('SUM(CASE WHEN movement_type')) {
         return Promise.resolve({ rows: [{ net: '20' }] });
@@ -300,12 +309,14 @@ describe('bookRevaluationJournal', () => {
       if (s.includes('FROM accounting_accounts') && s.includes('code = $1')) {
         const code = String(params?.[0] ?? '');
         const ids: Record<string, string> = {
-          '645': 'acct-645',
-          '655': 'acct-655',
+          '646': 'acct-646',
+          '656': 'acct-656',
           '100': 'acct-cash',
           '102': 'acct-bank',
         };
-        return ids[code] ? Promise.resolve({ rows: [{ id: ids[code] }] }) : Promise.resolve({ rows: [] });
+        return ids[code]
+          ? Promise.resolve({ rows: [{ id: ids[code] }] })
+          : Promise.resolve({ rows: [] });
       }
       if (s.includes('MAX(entry_no)')) {
         return Promise.resolve({ rows: [{ next_no: '1' }] });
@@ -331,7 +342,7 @@ describe('bookRevaluationJournal', () => {
     expect(entryInsert).toContain("'revaluation'");
     expect(entryInsert).toContain("'mahsup'");
     expect(entryInsert).toContain("'posted'");
-    // Dengeli fiş: her döviz hesabı için 2 satır (kasa/banka + 645).
+    // Dengeli fiş: her döviz hesabı için 2 satır (kasa/banka + 646).
     expect(calls.filter((c) => c.startsWith('INSERT INTO journal_lines'))).toHaveLength(2);
     expect(calls.some((c) => c.startsWith('INSERT INTO audit_logs'))).toBe(true);
   });
@@ -342,7 +353,14 @@ describe('bookRevaluationJournal', () => {
       if (s.includes('FROM cash_bank_accounts')) {
         return Promise.resolve({
           rows: [
-            { id: 'a1', account_name: 'Dolar Kasası', currency: 'USD', account_type: 'cash', opening_balance: '100', balance: '3500' },
+            {
+              id: 'a1',
+              account_name: 'Dolar Kasası',
+              currency: 'USD',
+              account_type: 'cash',
+              opening_balance: '100',
+              balance: '3500',
+            },
           ],
         });
       }

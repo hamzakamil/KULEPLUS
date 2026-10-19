@@ -53,6 +53,13 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       const s = String(sql);
       const t = s.trim();
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(t)) return Promise.resolve({ rows: [] });
+      // updateInvoice kilidi (lockInvoice): FOR UPDATE'li fatura sorgusu, diğer dallardan ÖNCE yakalanır.
+      if (s.includes('FROM invoices') && s.includes('FOR UPDATE') && s.includes('posting_status')) {
+        return Promise.resolve({
+          rows: [{ id: 'inv-1', number: 'INV-1', type: 'sales', status: 'draft', posting_status: 'draft', paid_amount: '0' }],
+          rowCount: 1,
+        });
+      }
       // INSERT'ten önce yakala: INSERT sorgusunun içinde FROM invoice_sequences alt sorgusu vardır.
       if (s.includes('INSERT INTO invoices')) {
         return Promise.resolve({ rows: [{ ...invoiceRow, id: 'inv-1' }] });
@@ -63,7 +70,8 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
         return Promise.resolve({ rows: [{ prefix: 'FAT', current_number: 1 }], rowCount: 1 });
       }
       // otomatik kur çözme (resolveInvoiceRate)
-      if (s.includes('current_tenant_id() AS tid')) return Promise.resolve({ rows: [{ tid: 'tenant-1' }] });
+      if (s.includes('current_tenant_id() AS tid'))
+        return Promise.resolve({ rows: [{ tid: 'tenant-1' }] });
       if (s.includes('FROM exchange_rates')) {
         return rateRoutes
           ? Promise.resolve({ rows: [{ rate: '33.5', rate_date: '2026-10-01' }] })
@@ -157,16 +165,21 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
         const s = String(sql);
         const t = s.trim();
         if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(t)) return Promise.resolve({ rows: [] });
+        if (s.includes('FROM tenant_entitlements'))
+          return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
         if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
           return Promise.resolve({ rows: [invoice], rowCount: 1 });
         }
-        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
         if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
           return Promise.resolve({ rows: [{ total: '1' }] });
-        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ id: 'acc-1' }] });
         if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
         if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '5' }] });
+        if (s.includes('COALESCE(MAX(entry_no)'))
+          return Promise.resolve({ rows: [{ next_no: '5' }] });
         return Promise.resolve({ rows: [] });
       });
 
@@ -235,7 +248,10 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
     function routePayment() {
       clientQuery.mockImplementation((sql: string) => {
         const s = String(sql);
-        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim()))
+          return Promise.resolve({ rows: [] });
+        if (s.includes('FROM tenant_entitlements'))
+          return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
         if (s.includes('FROM invoices')) {
           return Promise.resolve({
             rows: [
@@ -243,6 +259,8 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
                 id: 'inv-1',
                 number: 'FAT-2026-000000001',
                 type: 'sales',
+                status: 'draft',
+                posting_status: 'posted',
                 total: '1200',
                 paid_amount: '0',
                 balance: '1200',
@@ -255,11 +273,14 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
         }
         if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
           return Promise.resolve({ rows: [{ total: '1' }] });
-        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ id: 'acc-1' }] });
         if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
-        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
         if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '9' }] });
+        if (s.includes('COALESCE(MAX(entry_no)'))
+          return Promise.resolve({ rows: [{ next_no: '9' }] });
         return Promise.resolve({ rows: [] });
       });
     }
@@ -268,15 +289,22 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       routePayment();
       await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
 
-      const payCall = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO invoice_payments'));
+      const payCall = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO invoice_payments'),
+      );
       expect(payCall![1][2]).toBe(400); // invoice_payments.amount = belge para birimi (USD)
 
-      const entryCall = clientQuery.mock.calls.find((c) => String(c[0]).includes('INSERT INTO journal_entries'));
+      const entryCall = clientQuery.mock.calls.find((c) =>
+        String(c[0]).includes('INSERT INTO journal_entries'),
+      );
       expect(entryCall![1]).toBeTruthy();
-      expect(entryCall![1][6]).toBe(13000); // total_debit = total_credit (aynı $7 placeholder) = TRY karşılık
-      expect(entryCall![1][7]).toBe('user-1'); // posted_by
+      expect(entryCall![1][7]).toBe(13000); // total_debit = TRY karşılık (satırlardan)
+      expect(entryCall![1][8]).toBe(13000); // total_credit = total_debit (dengeli)
+      expect(entryCall![1][9]).toBe('user-1'); // posted_by
 
-      const lineCalls = clientQuery.mock.calls.filter((c) => String(c[0]).includes('INSERT INTO journal_lines'));
+      const lineCalls = clientQuery.mock.calls.filter((c) =>
+        String(c[0]).includes('INSERT INTO journal_lines'),
+      );
       expect(lineCalls).toHaveLength(2);
       expect(lineCalls[0][1][5]).toBe(13000); // debit kasa
       expect(lineCalls[0][1][6]).toBe(0);
@@ -295,7 +323,10 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
     function routePaymentWithRate(rate: string, type: 'sales' | 'purchase' = 'sales') {
       clientQuery.mockImplementation((sql: string) => {
         const s = String(sql);
-        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+        if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim()))
+          return Promise.resolve({ rows: [] });
+        if (s.includes('FROM tenant_entitlements'))
+          return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
         if (s.includes('current_tenant_id() AS tid'))
           return Promise.resolve({ rows: [{ tid: 'tenant-1' }] });
         if (s.includes('FROM invoices')) {
@@ -305,6 +336,8 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
                 id: 'inv-1',
                 number: 'FAT-2026-000000001',
                 type,
+                status: 'draft',
+                posting_status: 'posted',
                 total: '1200',
                 paid_amount: '0',
                 balance: '1200',
@@ -319,21 +352,24 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
           return Promise.resolve({ rows: [{ rate, rate_date: '2026-10-02' }] });
         if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
           return Promise.resolve({ rows: [{ total: '1' }] });
-        if (s.includes('FROM accounting_accounts')) return Promise.resolve({ rows: [{ id: 'acc-1' }] });
+        if (s.includes('FROM accounting_accounts'))
+          return Promise.resolve({ rows: [{ id: 'acc-1' }] });
         if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
-        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
         if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
-        if (s.includes('COALESCE(MAX(entry_no)')) return Promise.resolve({ rows: [{ next_no: '9' }] });
+        if (s.includes('COALESCE(MAX(entry_no)'))
+          return Promise.resolve({ rows: [{ next_no: '9' }] });
         return Promise.resolve({ rows: [] });
       });
     }
 
-    it('tahsilatta ödeme günü kuru daha yüksekse kur farkı kambiyo kârı olarak 645 hesabına yazılır', async () => {
+    it('tahsilatta ödeme günü kuru daha yüksekse kur farkı kambiyo kârı olarak 646 hesabına yazılır', async () => {
       routePaymentWithRate('33');
       await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
 
       // Ödeme TRY karşılığı ödeme günü kuruyla: 400 × 33 = 13200; cari kapanışı fatura kuruyla:
-      // 400 × 32.5 = 13000; fark 200 → kambiyo kârı (645 credit).
+      // 400 × 32.5 = 13000; fark 200 → kambiyo kârı (646 credit).
       const payCall = clientQuery.mock.calls.find((c) =>
         String(c[0]).includes('INSERT INTO invoice_payments'),
       );
@@ -344,7 +380,7 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       const entryCall = clientQuery.mock.calls.find((c) =>
         String(c[0]).includes('INSERT INTO journal_entries'),
       );
-      expect(entryCall![1][6]).toBe(13200); // dengeli fiş (borç = alacak)
+      expect(entryCall![1][7]).toBe(13200); // dengeli fiş (borç = alacak)
 
       const lineCalls = clientQuery.mock.calls.filter((c) =>
         String(c[0]).includes('INSERT INTO journal_lines'),
@@ -355,10 +391,10 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       expect(lineCalls[1][1][5]).toBe(0);
       expect(lineCalls[1][1][6]).toBe(13000); // 120 kapanış (fatura kuru)
       expect(lineCalls[2][1][5]).toBe(0);
-      expect(lineCalls[2][1][6]).toBe(200); // 645 kambiyo kârı
+      expect(lineCalls[2][1][6]).toBe(200); // 646 kambiyo kârı
     });
 
-    it('tahsilatta ödeme günü kuru daha düşükse kur farkı kambiyo zararı olarak 655 e yazılır', async () => {
+    it('tahsilatta ödeme günü kuru daha düşükse kur farkı kambiyo zararı olarak 656 e yazılır', async () => {
       routePaymentWithRate('32');
       await service.addPayment('inv-1', { amount: 400, payment_method: 'cash' } as never, 'user-1');
 
@@ -370,11 +406,11 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       expect(lineCalls[0][1][6]).toBe(0);
       expect(lineCalls[1][1][5]).toBe(0);
       expect(lineCalls[1][1][6]).toBe(13000); // 120 kapanış
-      expect(lineCalls[2][1][5]).toBe(200); // 655 kambiyo zararı borç
+      expect(lineCalls[2][1][5]).toBe(200); // 656 kambiyo zararı borç
       expect(lineCalls[2][1][6]).toBe(0);
     });
 
-    it('tediyede kur arttıysa ödenen fazla TL kambiyo zararı (655) olur', async () => {
+    it('tediyede kur arttıysa ödenen fazla TL kambiyo zararı (656) olur', async () => {
       routePaymentWithRate('33', 'purchase');
       await service.addPayment(
         'inv-1',
@@ -390,9 +426,8 @@ describe('InvoiceService — dövizli fatura / çoklu para birimi (SPEC §9.2)',
       expect(lineCalls[0][1][6]).toBe(0);
       expect(lineCalls[1][1][5]).toBe(0);
       expect(lineCalls[1][1][6]).toBe(13200); // banka alacak (ödeme günü kuru)
-      expect(lineCalls[2][1][5]).toBe(200); // 655 kambiyo zararı
+      expect(lineCalls[2][1][5]).toBe(200); // 656 kambiyo zararı
       expect(lineCalls[2][1][6]).toBe(0);
     });
   });
 });
-

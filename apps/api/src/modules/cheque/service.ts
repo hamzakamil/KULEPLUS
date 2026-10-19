@@ -1,5 +1,9 @@
 import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
+import { allocateEntryNo, openPeriodFor, round2, todayIso } from '../accounting/ledger.js';
+import { cashBankLedgerAccount, ensureAccountByCode } from '../accounting/subledger.js';
+import { accountingService } from '../accounting/service.js';
+import { ensureChartOfAccountsOn } from '../accounting/chart.js';
 import type { Pool, PoolClient } from 'pg';
 import type {
   CreateChequeInput,
@@ -7,6 +11,9 @@ import type {
   ChequeListQuery,
   EndorseChequeInput,
   CollectChequeInput,
+  DepositChequeInput,
+  PledgeChequeInput,
+  ReleaseChequeInput,
   BounceChequeInput,
   CancelChequeInput,
   PortfolioListQuery,
@@ -28,6 +35,8 @@ import type {
  *   portfolio ─tahsil▸ collected (terminal)
  *   portfolio ───────▸ bounced (terminal)
  *   portfolio ───────▸ cancelled (terminal)
+ * Portföy içi yer değişimi (durum 'portfolio' kalır — Faz 7-4):
+ *   own ─tahsile ver▸ bank,  own ─teminata ver▸ pledged,  bank|pledged ─geri al▸ own
  * Her geçiş `cheque_transactions`'a durum geçmişi yazar; portföy yeri
  * `cheque_portfolio`'da aktif kayıtla (until_date IS NULL) tutulur.
  *
@@ -44,7 +53,16 @@ export interface ChequeJournalContext {
   cashBankAccountId: string | null;
   description: string;
   userId: string;
+  /** Çek mi senet mi (alınan senet 121.xx, verilen senet 321; çek 101.xx / 103). */
+  chequeType?: 'cheque' | 'promissory';
+  /** İşlem öncesi portföy yeri (own/bank/pledged) — alacaklandırılacak 101.0x hesabı. */
+  fromHolder?: string;
+  /** İşlem sonrası portföy yeri. */
+  toHolder?: string;
 }
+
+/** Fiş üreten çek olayları (Faz 7-4). */
+export type ChequeLedgerEvent = 'created' | 'deposited' | 'pledged' | 'released' | 'endorsed';
 
 /** Muhasebe portu — varsayılan implementasyon accounting tablolarına yazar. */
 export interface JournalPort {
@@ -52,8 +70,16 @@ export interface JournalPort {
   isAccountingActive(tenantId?: string): Promise<boolean>;
   /** Tahsil kaydı: borç kasa/banka, alacak 120/320. Fiş id döner (çözülemezse null). */
   postCollected(ctx: ChequeJournalContext, client: PoolClient): Promise<string | null>;
-  /** Karşılıksız kaydı: tahsilin tersi. Fiş id döner (çözülemezse null). */
+  /** Karşılıksız kaydı. Fiş id döner (çözülemezse null). */
   postBounced(ctx: ChequeJournalContext, client: PoolClient): Promise<string | null>;
+  /** Diğer olaylar (alış/veriliş, tahsile/teminata verme, geri alma, ciro). */
+  postEvent?(
+    event: ChequeLedgerEvent,
+    ctx: ChequeJournalContext,
+    client: PoolClient,
+  ): Promise<string | null>;
+  /** İptalde bu çeke ait (ters çevrilmemiş) tüm fişleri ters kayıtla düzeltir. */
+  reverseAll?(chequeId: string, userId: string, date: string, client: PoolClient): Promise<number>;
 }
 
 /** Portföy özet satırı. */
@@ -69,6 +95,7 @@ interface LoadedCheque {
   id: string;
   status: string;
   direction: string;
+  chequeType: 'cheque' | 'promissory';
   portfolioHolder: string;
   cashBankAccountId: string | null;
   amount: number;
@@ -202,14 +229,20 @@ export class ChequeService {
   }
 
   async getChequeById(id: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, async (client) => {
-      const r = await client.query(
-        'SELECT * FROM cheques WHERE id = $1 AND tenant_id = current_tenant_id()',
-        [id],
-      );
-      if (r.rows.length === 0) return null;
-      return mapChequeRow(r.rows[0]);
-    });
+    return this.withTenantClient(tenantId, (client) => this.loadCheque(client, id));
+  }
+
+  /**
+   * Aynı client ile okur: işlem sonrası kaydı ikinci bir bağlantıdan (`getChequeById`)
+   * okumak commit edilmemiş satırı göremez → yeni çekte null, işlemlerde eski veri dönüyordu.
+   */
+  private async loadCheque(client: PoolClient, id: string) {
+    const r = await client.query(
+      'SELECT * FROM cheques WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [id],
+    );
+    if (r.rows.length === 0) return null;
+    return mapChequeRow(r.rows[0]);
   }
 
   async listPortfolio(query: PortfolioListQuery, tenantId?: string) {
@@ -393,6 +426,27 @@ export class ChequeService {
         input.drawer_name,
         input.issue_date,
       );
+      // Alınan: 101.0x/121.0x B / 120 A — verilen: 320 B / 103/321 A (Faz 7-4).
+      let journalEntryId: string | null = null;
+      if (this.journalPort.postEvent && (await this.journalPort.isAccountingActive(tenantId))) {
+        journalEntryId = await this.journalPort.postEvent(
+          'created',
+          {
+            chequeId,
+            direction: input.direction,
+            amount: input.amount,
+            transactionDate: input.issue_date,
+            cashBankAccountId: input.cash_bank_account_id ?? null,
+            description: `${input.direction === 'incoming' ? 'Alınan' : 'Verilen'} ${
+              input.cheque_type === 'promissory' ? 'senet' : 'çek'
+            }: ${input.cheque_no} — ${input.drawer_name}`,
+            userId,
+            chequeType: input.cheque_type,
+            toHolder: input.portfolio_holder,
+          },
+          client,
+        );
+      }
       await this.insertTransaction(client, {
         chequeId,
         type: 'created',
@@ -401,12 +455,12 @@ export class ChequeService {
         date: input.issue_date,
         amount: input.amount,
         party: null,
-        journalEntryId: null,
+        journalEntryId,
         description: 'Çek/senet kaydı oluşturuldu',
         userId,
       });
 
-      return this.getChequeById(chequeId, tenantId);
+      return this.loadCheque(client, chequeId);
     });
   }
 
@@ -451,7 +505,7 @@ export class ChequeService {
           id,
         ],
       );
-      return this.getChequeById(id, tenantId);
+      return this.loadCheque(client, id);
     });
   }
 
@@ -485,13 +539,30 @@ export class ChequeService {
       if (cheque.direction !== 'incoming') {
         throw new AppError('FORBIDDEN', 'Yalnızca alınan çek/senet cirolanabilir');
       }
+      if (cheque.portfolioHolder !== 'own') {
+        throw new AppError(
+          'FORBIDDEN',
+          'Tahsildeki veya teminattaki çek cirolanamaz; önce portföye geri alın',
+        );
+      }
 
+      if (!['customer', 'supplier'].includes(input.to_holder)) {
+        throw new AppError('VALIDATION_ERROR', 'Ciro yalnızca tedarikçiye veya müşteriye yapılır');
+      }
+      // Ciro: 320 (tedarikçiye) / 120 (müşteriye) B — 101.0x/121.0x A
+      const journalEntryId = await this.postEventIfActive(client, tenantId, 'endorsed', cheque, {
+        transactionDate: input.transaction_date,
+        description: input.description ?? `Çek ciro: ${cheque.chequeNo} → ${input.party_name}`,
+        userId,
+        toHolder: input.to_holder,
+      });
       await this.transition(client, cheque, 'endorsed', input.transaction_date, userId, {
         newHolder: input.to_holder,
         party: input.party_name,
         description: input.description ?? `Ciro: ${input.party_name}`,
+        journalEntryId,
       });
-      return this.getChequeById(id, tenantId);
+      return this.loadCheque(client, id);
     });
   }
 
@@ -512,6 +583,8 @@ export class ChequeService {
             cashBankAccountId: input.cash_bank_account_id,
             description: input.description ?? `Çek tahsilatı: ${cheque.chequeNo}`,
             userId,
+            chequeType: cheque.chequeType,
+            fromHolder: cheque.portfolioHolder,
           },
           client,
         );
@@ -524,7 +597,7 @@ export class ChequeService {
         cashBankAccountId: input.cash_bank_account_id,
         journalEntryId,
       });
-      return this.getChequeById(id, tenantId);
+      return this.loadCheque(client, id);
     });
   }
 
@@ -532,10 +605,13 @@ export class ChequeService {
   async bounceCheque(id: string, input: BounceChequeInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const cheque = await this.loadActiveCheque(client, id);
-      if (cheque.portfolioHolder !== 'bank') {
+      if (
+        cheque.direction === 'incoming' &&
+        !['bank', 'pledged', 'own'].includes(cheque.portfolioHolder)
+      ) {
         throw new AppError(
           'FORBIDDEN',
-          'Karşılıksız kaydı yalnızca bankada olan çeklerde yapılır (portföy yeri: bank)',
+          'Karşılıksız kaydı yalnızca portföydeki/bankadaki çekte yapılır',
         );
       }
 
@@ -550,6 +626,8 @@ export class ChequeService {
             cashBankAccountId: cheque.cashBankAccountId,
             description: `Çek karşılıksız: ${cheque.chequeNo} — ${input.reason}`,
             userId,
+            chequeType: cheque.chequeType,
+            fromHolder: cheque.portfolioHolder,
           },
           client,
         );
@@ -559,7 +637,178 @@ export class ChequeService {
         description: `Karşılıksız: ${input.reason}`,
         journalEntryId,
       });
-      return this.getChequeById(id, tenantId);
+      return this.loadCheque(client, id);
+    });
+  }
+
+  /** Tahsile verme: portföydeki alınan çek/senet bankaya verilir (101.02 B / 101.01 A). */
+  async depositCheque(id: string, input: DepositChequeInput, userId: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const cheque = await this.loadActiveCheque(client, id);
+      this.assertIncomingAt(cheque, ['own'], 'tahsile verilebilir');
+      const journalEntryId = await this.postEventIfActive(client, tenantId, 'deposited', cheque, {
+        transactionDate: input.transaction_date,
+        description: input.description ?? `Çek tahsile verildi: ${cheque.chequeNo}`,
+        userId,
+        toHolder: 'bank',
+        cashBankAccountId: input.cash_bank_account_id,
+      });
+      await this.moveWithinPortfolio(
+        client,
+        cheque,
+        'bank',
+        'deposited',
+        input.transaction_date,
+        userId,
+        {
+          party: 'Banka (tahsil)',
+          description: input.description ?? 'Tahsile verildi',
+          cashBankAccountId: input.cash_bank_account_id,
+          journalEntryId,
+        },
+      );
+      return this.loadCheque(client, id);
+    });
+  }
+
+  /** Teminata verme: portföydeki alınan çek/senet teminat olarak verilir (101.03 B / 101.01 A). */
+  async pledgeCheque(id: string, input: PledgeChequeInput, userId: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const cheque = await this.loadActiveCheque(client, id);
+      this.assertIncomingAt(cheque, ['own'], 'teminata verilebilir');
+      const journalEntryId = await this.postEventIfActive(client, tenantId, 'pledged', cheque, {
+        transactionDate: input.transaction_date,
+        description:
+          input.description ?? `Çek teminata verildi: ${cheque.chequeNo} → ${input.party_name}`,
+        userId,
+        toHolder: 'pledged',
+      });
+      await this.moveWithinPortfolio(
+        client,
+        cheque,
+        'pledged',
+        'pledged',
+        input.transaction_date,
+        userId,
+        {
+          party: input.party_name,
+          description: input.description ?? `Teminata verildi: ${input.party_name}`,
+          journalEntryId,
+        },
+      );
+      return this.loadCheque(client, id);
+    });
+  }
+
+  /** Geri alma: tahsilden veya teminattan portföye dönüş (101.01 B / 101.02|101.03 A). */
+  async releaseCheque(id: string, input: ReleaseChequeInput, userId: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const cheque = await this.loadActiveCheque(client, id);
+      this.assertIncomingAt(cheque, ['bank', 'pledged'], 'portföye geri alınabilir');
+      const journalEntryId = await this.postEventIfActive(client, tenantId, 'released', cheque, {
+        transactionDate: input.transaction_date,
+        description: input.description ?? `Çek portföye geri alındı: ${cheque.chequeNo}`,
+        userId,
+        toHolder: 'own',
+      });
+      await this.moveWithinPortfolio(
+        client,
+        cheque,
+        'own',
+        'released',
+        input.transaction_date,
+        userId,
+        {
+          party: 'Portföy',
+          description: input.description ?? 'Portföye geri alındı',
+          journalEntryId,
+        },
+      );
+      return this.loadCheque(client, id);
+    });
+  }
+
+  private assertIncomingAt(cheque: LoadedCheque, holders: string[], action: string) {
+    if (cheque.direction !== 'incoming') {
+      throw new AppError('FORBIDDEN', `Yalnızca alınan çek/senet ${action}`);
+    }
+    if (!holders.includes(cheque.portfolioHolder)) {
+      throw new AppError(
+        'FORBIDDEN',
+        `Bu işlem için çek/senedin yeri ${holders.join(' veya ')} olmalı (şu an: ${cheque.portfolioHolder})`,
+      );
+    }
+  }
+
+  /** Muhasebe aktifse olay fişini yazar (port destekliyorsa). */
+  private async postEventIfActive(
+    client: PoolClient,
+    tenantId: string | undefined,
+    event: ChequeLedgerEvent,
+    cheque: LoadedCheque,
+    extra: {
+      transactionDate: string;
+      description: string;
+      userId: string;
+      toHolder?: string;
+      cashBankAccountId?: string | null;
+    },
+  ): Promise<string | null> {
+    if (!this.journalPort.postEvent) return null;
+    if (!(await this.journalPort.isAccountingActive(tenantId))) return null;
+    return this.journalPort.postEvent(
+      event,
+      {
+        chequeId: cheque.id,
+        direction: cheque.direction as 'incoming' | 'outgoing',
+        amount: cheque.amount,
+        transactionDate: extra.transactionDate,
+        cashBankAccountId: extra.cashBankAccountId ?? cheque.cashBankAccountId,
+        description: extra.description,
+        userId: extra.userId,
+        chequeType: cheque.chequeType,
+        fromHolder: cheque.portfolioHolder,
+        toHolder: extra.toHolder,
+      },
+      client,
+    );
+  }
+
+  /** Durum 'portfolio' kalırken yer değiştirir + portföy ve durum geçmişi yazar. */
+  private async moveWithinPortfolio(
+    client: PoolClient,
+    cheque: LoadedCheque,
+    toHolder: string,
+    transactionType: string,
+    date: string,
+    userId: string,
+    options: {
+      party: string;
+      description: string;
+      cashBankAccountId?: string;
+      journalEntryId: string | null;
+    },
+  ) {
+    await client.query(
+      `UPDATE cheques SET portfolio_holder = $1,
+              cash_bank_account_id = COALESCE($2, cash_bank_account_id),
+              updated_by = $3, updated_at = now()
+        WHERE id = $4 AND tenant_id = current_tenant_id()`,
+      [toHolder, options.cashBankAccountId ?? null, userId, cheque.id],
+    );
+    await this.closePortfolio(client, cheque.id, date);
+    await this.insertPortfolio(client, cheque.id, toHolder, options.party, date);
+    await this.insertTransaction(client, {
+      chequeId: cheque.id,
+      type: transactionType,
+      fromStatus: cheque.status,
+      toStatus: 'portfolio',
+      date,
+      amount: cheque.amount,
+      party: options.party,
+      journalEntryId: options.journalEntryId,
+      description: options.description,
+      userId,
     });
   }
 
@@ -567,7 +816,11 @@ export class ChequeService {
   async cancelCheque(id: string, input: CancelChequeInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const cheque = await this.loadActiveCheque(client, id);
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayIso();
+      // Bu çeke ait fişler (alış, tahsile verme vb.) ters kayıtla düzeltilir (Faz 7-4).
+      if (this.journalPort.reverseAll) {
+        await this.journalPort.reverseAll(id, userId, today, client);
+      }
       await this.closePortfolio(client, id, today);
       await client.query(
         `UPDATE cheques SET status = 'cancelled', cancelled_reason = $1, updated_by = $2, updated_at = now()
@@ -586,7 +839,7 @@ export class ChequeService {
         description: `İptal: ${input.reason}`,
         userId,
       });
-      return this.getChequeById(id, tenantId);
+      return this.loadCheque(client, id);
     });
   }
 
@@ -606,6 +859,7 @@ export class ChequeService {
       id: row.id,
       status: row.status,
       direction: row.direction,
+      chequeType: row.cheque_type === 'promissory' ? 'promissory' : 'cheque',
       portfolioHolder: row.portfolio_holder,
       cashBankAccountId: row.cash_bank_account_id,
       amount: Number(row.amount),
@@ -748,84 +1002,191 @@ class AccountingJournalPort implements JournalPort {
     }
   }
 
+  /**
+   * Tahsil. Alınan: kasa/banka B / 101.0x (bulunduğu yer) A; verilen: 103/321 B / banka A.
+   * Çekin alış fişi yoksa (Faz 7-4 öncesi kayıt) eski davranış: karşı hesap 120/320.
+   */
   async postCollected(ctx: ChequeJournalContext, client: PoolClient): Promise<string | null> {
-    return this.writeEntry(
-      client,
-      ctx,
-      ctx.direction === 'incoming'
-        ? // Alınan çek tahsil: Borç kasa/banka, Alacak 120
-          { debitSource: ctx.cashBankAccountId, creditCode: '120' }
-        : // Verilen çek tahsil: Borç 320, Alacak kasa/banka
-          { debitCode: '320', creditSource: ctx.cashBankAccountId },
-    );
+    await ensureChartOfAccountsOn(client);
+    if (!ctx.cashBankAccountId) return null;
+    const cash = await cashBankLedgerAccount(client, ctx.cashBankAccountId);
+    if (!cash) return null;
+    const legacy = !(await this.hasEntries(client, ctx.chequeId));
+    if (ctx.direction === 'incoming') {
+      const credit = legacy
+        ? await this.byCode(client, '120')
+        : await this.holdingAccount(client, ctx, ctx.fromHolder ?? 'own');
+      return this.writeEntry(client, ctx, cash, credit);
+    }
+    const debit = legacy ? await this.byCode(client, '320') : await this.issuedAccount(client, ctx);
+    return this.writeEntry(client, ctx, debit, cash);
   }
 
+  /**
+   * Karşılıksız. Alınan: 128 Şüpheli Ticari Alacaklar B / 101.0x A (eski kayıtta 120 A);
+   * verilen (ödenmedi): 103/321 B / 320 A — borç tedarikçiye geri döner.
+   */
   async postBounced(ctx: ChequeJournalContext, client: PoolClient): Promise<string | null> {
+    await ensureChartOfAccountsOn(client);
+    const legacy = !(await this.hasEntries(client, ctx.chequeId));
+    if (ctx.direction === 'incoming') {
+      const doubtful = await this.byCode(client, '128');
+      const credit = legacy
+        ? await this.byCode(client, '120')
+        : await this.holdingAccount(client, ctx, ctx.fromHolder ?? 'own');
+      return this.writeEntry(client, ctx, doubtful, credit);
+    }
+    if (legacy) return null;
     return this.writeEntry(
       client,
       ctx,
-      ctx.direction === 'incoming'
-        ? // Alınan çek karşılıksız: Borç 120, Alacak kasa/banka (tahsilin tersi)
-          { debitCode: '120', creditSource: ctx.cashBankAccountId }
-        : // Verilen çek karşılıksız: Borç kasa/banka, Alacak 320 (tahsilin tersi)
-          { debitSource: ctx.cashBankAccountId, creditCode: '320' },
+      await this.issuedAccount(client, ctx),
+      await this.byCode(client, '320'),
     );
   }
 
-  /** Çift taraflı fiş yazar; hesap çözülemezse null (kayıt atlanır). */
+  async postEvent(
+    event: ChequeLedgerEvent,
+    ctx: ChequeJournalContext,
+    client: PoolClient,
+  ): Promise<string | null> {
+    await ensureChartOfAccountsOn(client);
+    if (event === 'created') {
+      if (ctx.direction === 'incoming') {
+        // Alınan çek/senet: portföy (veya verilen yer) B / 120 Alıcılar A
+        return this.writeEntry(
+          client,
+          ctx,
+          await this.holdingAccount(client, ctx, ctx.toHolder ?? 'own'),
+          await this.byCode(client, '120'),
+        );
+      }
+      // Verilen çek/senet: 320 Satıcılar B / 103 Verilen Çekler | 321 Borç Senetleri A
+      return this.writeEntry(
+        client,
+        ctx,
+        await this.byCode(client, '320'),
+        await this.issuedAccount(client, ctx),
+      );
+    }
+    const legacy = !(await this.hasEntries(client, ctx.chequeId));
+    if (event === 'endorsed') {
+      const debit = await this.byCode(client, ctx.toHolder === 'customer' ? '120' : '320');
+      const credit = legacy
+        ? await this.byCode(client, '120')
+        : await this.holdingAccount(client, ctx, ctx.fromHolder ?? 'own');
+      return this.writeEntry(client, ctx, debit, credit);
+    }
+    // Portföy içi yer değişimi: eski kayıtlarda 101.0x bakiyesi olmadığından fiş yazılmaz.
+    if (legacy) return null;
+    return this.writeEntry(
+      client,
+      ctx,
+      await this.holdingAccount(client, ctx, ctx.toHolder ?? 'own'),
+      await this.holdingAccount(client, ctx, ctx.fromHolder ?? 'own'),
+    );
+  }
+
+  async reverseAll(chequeId: string, userId: string, date: string, client: PoolClient) {
+    const r = await client.query(
+      `SELECT je.id FROM journal_entries je
+        WHERE je.tenant_id = current_tenant_id() AND je.source_type = 'cheque' AND je.source_id = $1
+          AND je.status = 'posted' AND je.entry_type <> 'ters'
+          AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = je.id)
+        ORDER BY je.entry_no DESC`,
+      [chequeId],
+    );
+    for (const row of r.rows) {
+      await accountingService.reverseEntryOn(client, String(row.id), userId, date, {
+        allowSource: true,
+      });
+    }
+    return r.rows.length;
+  }
+
+  /** Bu çeke ait onaylı fiş var mı? (Faz 7-4 öncesi kayıtlarda yok → eski hesaplama) */
+  private async hasEntries(client: PoolClient, chequeId: string): Promise<boolean> {
+    const r = await client.query(
+      `SELECT 1 FROM journal_entries
+        WHERE tenant_id = current_tenant_id() AND source_type = 'cheque' AND source_id = $1
+          AND status = 'posted' LIMIT 1`,
+      [chequeId],
+    );
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Alınan çek/senedin bulunduğu yere göre hesabı (yoksa açılır):
+   * çek 101.01 portföy / 101.02 tahsilde / 101.03 teminatta; senet 121.01 / 121.02 / 121.03.
+   */
+  private async holdingAccount(
+    client: PoolClient,
+    ctx: ChequeJournalContext,
+    holder: string,
+  ): Promise<string> {
+    const promissory = ctx.chequeType === 'promissory';
+    const parent = promissory ? '121' : '101';
+    const noun = promissory ? 'Senetler' : 'Çekler';
+    const [suffix, label] =
+      holder === 'bank'
+        ? ['02', `Tahsile Verilen ${noun}`]
+        : holder === 'pledged'
+          ? ['03', promissory ? 'Teminattaki Senetler' : 'Teminata Verilen Çekler']
+          : ['01', `Portföydeki ${noun}`];
+    return ensureAccountByCode(client, `${parent}.${suffix}`, label, parent);
+  }
+
+  /** Verilen çek → 103 Verilen Çekler ve Ödeme Emirleri; verilen senet → 321 Borç Senetleri. */
+  private async issuedAccount(client: PoolClient, ctx: ChequeJournalContext): Promise<string> {
+    return this.byCode(client, ctx.chequeType === 'promissory' ? '321' : '103');
+  }
+
+  private async byCode(client: PoolClient, code: string): Promise<string> {
+    const r = await client.query(
+      'SELECT id FROM accounting_accounts WHERE tenant_id = current_tenant_id() AND code = $1 LIMIT 1',
+      [code],
+    );
+    if (!r.rows[0]) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `Muhasebe hesabı bulunamadı: ${code} (hesap planını kurun)`,
+      );
+    }
+    return String(r.rows[0].id);
+  }
+
+  /** Çift taraflı fiş (dönem kapısı + gap-free numara). */
   private async writeEntry(
     client: PoolClient,
     ctx: ChequeJournalContext,
-    side: {
-      debitCode?: string;
-      debitSource?: string | null;
-      creditCode?: string;
-      creditSource?: string | null;
-    },
-  ): Promise<string | null> {
-    const debitAccountId = side.debitSource
-      ? await this.resolveCashBankAccount(client, side.debitSource)
-      : side.debitCode
-        ? await this.resolveAccountByCode(client, side.debitCode)
-        : null;
-    const creditAccountId = side.creditSource
-      ? await this.resolveCashBankAccount(client, side.creditSource)
-      : side.creditCode
-        ? await this.resolveAccountByCode(client, side.creditCode)
-        : null;
-    if (!debitAccountId || !creditAccountId) return null;
-
-    await client.query('SELECT pg_advisory_xact_lock(hashtext(current_setting($1)))', [
-      'app.tenant_id',
-    ]);
-    const seq = await client.query(
-      'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
-    );
-    const entryNo = Number(seq.rows[0].next_no);
+    debitAccountId: string,
+    creditAccountId: string,
+  ): Promise<string> {
+    const periodId = await openPeriodFor(client, ctx.transactionDate);
+    const entryNo = await allocateEntryNo(client);
     const entryId = newId();
-
+    const amount = round2(ctx.amount);
     await client.query(
       `INSERT INTO journal_entries
-         (id, tenant_id, entry_no, entry_date, entry_type, status, description,
+         (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
           source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-       VALUES ($1, current_tenant_id(), $2, $3, 'mahsup', 'posted', $4, 'cheque', $5, $6, $6, $7, now(), $7, $7)`,
+       VALUES ($1, current_tenant_id(), $2, $3, $4, 'mahsup', 'posted', $5, 'cheque', $6, $7, $7, $8, now(), $8, $8)`,
       [
         entryId,
         entryNo,
         ctx.transactionDate,
+        periodId,
         ctx.description,
         ctx.chequeId,
-        ctx.amount,
+        amount,
         ctx.userId,
       ],
     );
-
-    const lines: Array<{ accountId: string; debit: number; credit: number }> = [
-      { accountId: debitAccountId, debit: ctx.amount, credit: 0 },
-      { accountId: creditAccountId, debit: 0, credit: ctx.amount },
-    ];
     let lineNo = 1;
-    for (const l of lines) {
+    for (const l of [
+      { accountId: debitAccountId, debit: amount, credit: 0 },
+      { accountId: creditAccountId, debit: 0, credit: amount },
+    ]) {
       await client.query(
         `INSERT INTO journal_lines
            (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
@@ -835,42 +1196,6 @@ class AccountingJournalPort implements JournalPort {
       lineNo++;
     }
     return entryId;
-  }
-
-  /** Kasa/banka kartının eşlemiş muhasebe hesabı (account_mappings → TDHP fallback). */
-  private async resolveCashBankAccount(
-    client: PoolClient,
-    accountId: string,
-  ): Promise<string | null> {
-    const r = await client.query(
-      `SELECT aa.id
-         FROM cash_bank_accounts cba
-         JOIN account_mappings am
-           ON am.tenant_id = cba.tenant_id
-          AND am.source_type = (CASE WHEN cba.account_type = 'bank' THEN 'bank' ELSE 'cash' END)
-          AND am.direction = 'debit'
-         JOIN accounting_accounts aa
-           ON aa.id = am.account_id AND aa.tenant_id = cba.tenant_id
-        WHERE cba.id = $1 AND cba.tenant_id = current_tenant_id()
-        LIMIT 1`,
-      [accountId],
-    );
-    if (r.rows.length > 0) return r.rows[0].id;
-    // Fallback: hesabın tipine göre TDHP kodu.
-    const type = await client.query(
-      'SELECT account_type FROM cash_bank_accounts WHERE id = $1 AND tenant_id = current_tenant_id()',
-      [accountId],
-    );
-    const code = type.rows[0]?.account_type === 'bank' ? '102' : '100';
-    return this.resolveAccountByCode(client, code);
-  }
-
-  private async resolveAccountByCode(client: PoolClient, code: string): Promise<string | null> {
-    const r = await client.query(
-      'SELECT id FROM accounting_accounts WHERE tenant_id = current_tenant_id() AND code = $1 LIMIT 1',
-      [code],
-    );
-    return r.rows[0]?.id ?? null;
   }
 }
 

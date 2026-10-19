@@ -5,6 +5,7 @@ import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { appUrl, queueEmailTemplate } from '../../services/email-templates.js';
+import { ensureTenantDefaults } from '../core/tenant-defaults.js';
 import {
   createGoogleCredentialVerifier,
   type GoogleCredentialVerifier,
@@ -371,6 +372,9 @@ export class IdentityService {
        ON CONFLICT (tenant_id, key) DO NOTHING`,
       [tenantId, opts.now],
     );
+
+    // Varsayılan KDV oranları, tevkifat türleri, gider kategorileri (Faz 7-3).
+    await ensureTenantDefaults(client, tenantId);
 
     await queueEmailTemplate(
       'core.welcome',

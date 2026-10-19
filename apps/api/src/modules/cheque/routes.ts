@@ -11,6 +11,9 @@ import {
   chequeListQuerySchema,
   endorseChequeSchema,
   collectChequeSchema,
+  depositChequeSchema,
+  pledgeChequeSchema,
+  releaseChequeSchema,
   bounceChequeSchema,
   cancelChequeSchema,
   portfolioListQuerySchema,
@@ -139,6 +142,64 @@ router.post(
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const result = await service.collectCheque(
+        req.params.id,
+        req.body,
+        (req as TenantRequest).user!.sub,
+        (req as TenantRequest).tenantId,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Tahsile ver / teminata ver / portföye geri al (Faz 7-4). */
+router.post(
+  '/:id/deposit',
+  canManage,
+  validate(depositChequeSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.depositCheque(
+        req.params.id,
+        req.body,
+        (req as TenantRequest).user!.sub,
+        (req as TenantRequest).tenantId,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/:id/pledge',
+  canManage,
+  validate(pledgeChequeSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.pledgeCheque(
+        req.params.id,
+        req.body,
+        (req as TenantRequest).user!.sub,
+        (req as TenantRequest).tenantId,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/:id/release',
+  canManage,
+  validate(releaseChequeSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.releaseCheque(
         req.params.id,
         req.body,
         (req as TenantRequest).user!.sub,

@@ -103,7 +103,7 @@ router.post(
   },
 );
 
-// Dönem sonu değerleme + KAPANIŞ FİŞİ (Faz 6.6): raporun yanı sıra 645/655'e
+// Dönem sonu değerleme + KAPANIŞ FİŞİ (Faz 6.6): raporun yanı sıra 646/656'ya
 // dengeli `mahsup` yevmiye fişi yazar; aynı tarih için idempotenttir.
 router.post(
   '/revalue/book',

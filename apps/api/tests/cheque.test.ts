@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { getPool } from '@kuleplus/db';
-import { ChequeService, type JournalPort, type ChequeJournalContext } from '../src/modules/cheque/service';
+import {
+  ChequeService,
+  type JournalPort,
+  type ChequeJournalContext,
+} from '../src/modules/cheque/service';
 
 const sharedMockQuery = vi.fn();
 const sharedMockClient = { query: sharedMockQuery, release: vi.fn() };
@@ -336,7 +340,9 @@ describe('endorseCheque', () => {
     expect(out.status).toBe('endorsed');
     const calls = sharedMockQuery.mock.calls;
     // Yeni portföy kaydı (ciro yeri) eklendi.
-    expect(calls.filter((c) => String(c[0]).startsWith('INSERT INTO cheque_portfolio'))).toHaveLength(1);
+    expect(
+      calls.filter((c) => String(c[0]).startsWith('INSERT INTO cheque_portfolio')),
+    ).toHaveLength(1);
     // Durum geçmişi 'endorsed' + taraf bilgisi.
     const params = trxParamsFor(calls, 'INSERT INTO cheque_transactions');
     expect(params).toContain('endorsed');
@@ -418,7 +424,10 @@ describe('collectCheque', () => {
 describe('bounceCheque', () => {
   it('bankadaki çek karşılıksız işaretlenir; ters muhasebe kaydı yazılır', async () => {
     // loadActiveCheque: bank portföyünde; getById: bounced sonucu.
-    actionMocks({ status: 'bounced', portfolio_holder: 'bank' }, chequeRow({ portfolio_holder: 'bank' }));
+    actionMocks(
+      { status: 'bounced', portfolio_holder: 'bank' },
+      chequeRow({ portfolio_holder: 'bank' }),
+    );
     const journal = fakeJournal(true);
     const service = buildService(journal);
 
@@ -437,11 +446,11 @@ describe('bounceCheque', () => {
     expect(params).toContain('entry-bounced');
   });
 
-  it('yalnızca bankadaki çekler karşılıksız işaretlenebilir', async () => {
+  it('ciro edilmiş (müşteri yerindeki) alınan çekte karşılıksız kaydı reddedilir', async () => {
     sharedMockQuery.mockImplementation((sql: unknown) => {
       const s = String(sql).trim();
       if (s.includes('SELECT * FROM cheques WHERE id = $1')) {
-        return Promise.resolve({ rows: [chequeRow({ portfolio_holder: 'own' })] });
+        return Promise.resolve({ rows: [chequeRow({ portfolio_holder: 'customer' })] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -449,7 +458,10 @@ describe('bounceCheque', () => {
     const service = buildService(fakeJournal(true));
     await expect(
       service.bounceCheque('c1', { transaction_date: '2026-10-22', reason: 'X' }, 'u1', 't1'),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('yalnızca portföydeki/bankadaki çekte yapılır'),
+    });
   });
 });
 
@@ -464,7 +476,11 @@ describe('cancelCheque', () => {
     expect(out.cancelledReason).toBe('Hatalı kayıt');
     const calls = sharedMockQuery.mock.calls;
     expect(
-      calls.some((c) => String(c[0]).startsWith('UPDATE cheques SET') && String(c[0]).includes('cancelled_reason')),
+      calls.some(
+        (c) =>
+          String(c[0]).startsWith('UPDATE cheques SET') &&
+          String(c[0]).includes('cancelled_reason'),
+      ),
     ).toBe(true);
     const params = trxParamsFor(calls, 'INSERT INTO cheque_transactions');
     expect(params).toContain('cancelled');
@@ -570,51 +586,77 @@ describe('listTransactions', () => {
 
 // ======================= Varsayılan Muhasebe Portu =======================
 
+/**
+ * Varsayılan AccountingJournalPort için ortak mock.
+ *  - hesap planı sayımı (COUNT ... accounting_accounts) → 1: plan kurulu, yeniden kurulmaz;
+ *  - kasa/banka kartı → alt hesabı 'acct-bank' (bağlı ve mevcut);
+ *  - çekin fişi yok (journal_entries source_type='cheque') → eski kayıt, karşı hesap 120;
+ *  - hesap kodu sorgusu → `accounts` haritasındaki kodlar bulunur, diğerleri bulunamaz.
+ */
+function mockDefaultPort(
+  accounts: Record<string, string> = { '102': 'acct-bank', '120': 'acct-120' },
+) {
+  let getCall = 0;
+  sharedMockQuery.mockImplementation((sql: unknown, params?: unknown[]) => {
+    const s = String(sql).trim();
+    if (s.includes('set_config') || s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') {
+      return Promise.resolve({ rows: [] });
+    }
+    if (s.includes('SELECT status FROM tenant_entitlements')) {
+      return Promise.resolve({ rows: [{ status: 'active' }] });
+    }
+    if (s.includes('SELECT * FROM cheques WHERE id = $1')) {
+      getCall++;
+      // 1. çağrı loadActiveCheque (portfolio), 2. çağrı getChequeById (collected).
+      return Promise.resolve({
+        rows: [
+          getCall === 1
+            ? chequeRow({ cash_bank_account_id: 'acc-1' })
+            : chequeRow({ status: 'collected', cash_bank_account_id: 'acc-1' }),
+        ],
+      });
+    }
+    if (s.includes('COUNT(*) AS total') && s.includes('FROM accounting_accounts')) {
+      return Promise.resolve({ rows: [{ total: '1' }] }); // hesap planı zaten kurulu.
+    }
+    if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+    if (s.includes('FROM fiscal_periods')) {
+      return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
+    }
+    if (s.includes('FROM account_mappings am')) {
+      return Promise.resolve({ rows: [] }); // eşleşme yok → TDHP fallback.
+    }
+    // Kasa/banka kartı kendi alt hesabına bağlı (102.01 → acct-bank).
+    if (s.includes('accounting_account_id') && s.includes('FROM cash_bank_accounts')) {
+      return Promise.resolve({
+        rows: [{ account_type: 'bank', account_name: 'Banka', accounting_account_id: 'acct-bank' }],
+      });
+    }
+    if (s.includes('SELECT 1 FROM accounting_accounts WHERE id = $1')) {
+      return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 });
+    }
+    if (s.includes('FROM journal_entries') && s.includes("source_type = 'cheque'")) {
+      return Promise.resolve({ rows: [], rowCount: 0 }); // fiş yok → eski kayıt.
+    }
+    if (s.includes('FROM accounting_accounts') && s.includes('code = $1')) {
+      const code = String(params?.[0] ?? '');
+      return accounts[code]
+        ? Promise.resolve({ rows: [{ id: accounts[code] }] })
+        : Promise.resolve({ rows: [] });
+    }
+    if (s.includes('MAX(entry_no)')) {
+      return Promise.resolve({ rows: [{ next_no: '4' }] });
+    }
+    if (s.startsWith('INSERT INTO') || s.startsWith('UPDATE ')) {
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    }
+    return Promise.resolve({ rows: [] });
+  });
+}
+
 describe('AccountingJournalPort (varsayılan)', () => {
   it('tahsil: kasa/banka ↔ 120 arasında dengeli mahsup fişi yazar; gap-free entry_no', async () => {
-    // Önce yeniden kur: bu test default port kullanacak (AccountingJournalPort).
-    let getCall = 0;
-    sharedMockQuery.mockImplementation((sql: unknown, params?: unknown[]) => {
-      const s = String(sql).trim();
-      if (s.includes('set_config') || s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') {
-        return Promise.resolve({ rows: [] });
-      }
-      if (s.includes('SELECT status FROM tenant_entitlements')) {
-        return Promise.resolve({ rows: [{ status: 'active' }] });
-      }
-      if (s.includes('SELECT * FROM cheques WHERE id = $1')) {
-        getCall++;
-        // 1. çağrı loadActiveCheque (portfolio), 2. çağrı getChequeById (collected).
-        return Promise.resolve({
-          rows: [
-            getCall === 1
-              ? chequeRow({ cash_bank_account_id: 'acc-1' })
-              : chequeRow({ status: 'collected', cash_bank_account_id: 'acc-1' }),
-          ],
-        });
-      }
-      if (s.includes('FROM account_mappings am')) {
-        return Promise.resolve({ rows: [] }); // eşleşme yok → TDHP fallback.
-      }
-      if (s.includes('SELECT account_type FROM cash_bank_accounts')) {
-        return Promise.resolve({ rows: [{ account_type: 'bank' }] });
-      }
-      if (s.includes('FROM accounting_accounts') && s.includes('code = $1')) {
-        const code = String(params?.[0] ?? '');
-        const ids: Record<string, string> = { '102': 'acct-bank', '120': 'acct-120' };
-        return ids[code]
-          ? Promise.resolve({ rows: [{ id: ids[code] }] })
-          : Promise.resolve({ rows: [] });
-      }
-      if (s.includes('MAX(entry_no)')) {
-        return Promise.resolve({ rows: [{ next_no: '4' }] });
-      }
-      if (s.startsWith('INSERT INTO') || s.startsWith('UPDATE ')) {
-        return Promise.resolve({ rows: [], rowCount: 1 });
-      }
-      return Promise.resolve({ rows: [] });
-    });
-
+    mockDefaultPort();
     const service = buildService(); // default port (AccountingJournalPort)
     const out = (await service.collectCheque(
       'c1',
@@ -624,61 +666,44 @@ describe('AccountingJournalPort (varsayılan)', () => {
     ))!;
 
     expect(out.status).toBe('collected');
-    const calls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
-    const entryInsert = calls.find((c) => c.startsWith('INSERT INTO journal_entries'));
-    expect(entryInsert).toBeDefined();
-    expect(entryInsert).toContain("'mahsup'");
-    expect(entryInsert).toContain("'posted'");
-    expect(entryInsert).toContain("'cheque'");
-    expect(entryInsert).toContain('4');
-    // Dengeli fiş: 2 satır (borç kasa/banka + alacak 120).
-    expect(calls.filter((c) => c.startsWith('INSERT INTO journal_lines'))).toHaveLength(2);
-    // Durum geçmişine fiş id bağlandı (entry id, 'entry-' değil — gerçek port newId üretir).
+    const entryCall = sharedMockQuery.mock.calls.find((c) =>
+      String(c[0]).startsWith('INSERT INTO journal_entries'),
+    );
+    expect(entryCall).toBeDefined();
+    const entrySql = String(entryCall?.[0]);
+    expect(entrySql).toContain("'mahsup'");
+    expect(entrySql).toContain("'posted'");
+    expect(entrySql).toContain("'cheque'");
+    // journal_entries params: [entryId, entryNo, ...] — gap-free numara MAX+1 = 4.
+    const entryParams = entryCall?.[1] as unknown[];
+    expect(entryParams[1]).toBe(4);
+
+    // Dengeli fiş: 2 satır — borç kasa/banka (acct-bank), alacak 120 (acct-120).
+    // journal_lines params: [id, entryId, lineNo, accountId, description, debit, credit, userId]
+    const lineParams = sharedMockQuery.mock.calls
+      .filter((c) => String(c[0]).startsWith('INSERT INTO journal_lines'))
+      .map((c) => c[1] as unknown[]);
+    expect(lineParams).toHaveLength(2);
+    expect(lineParams[0][3]).toBe('acct-bank');
+    expect(lineParams[0][5]).toBe(1000);
+    expect(lineParams[1][3]).toBe('acct-120');
+    expect(lineParams[1][6]).toBe(1000);
+
+    // Durum geçmişine fiş id bağlandı.
     const trxParams = trxParamsFor(
       sharedMockQuery.mock.calls,
       'INSERT INTO cheque_transactions',
     ) as unknown[];
-    const journalEntryId = trxParams.find((v): v is string => typeof v === 'string' && v.includes('-'));
-    expect(journalEntryId).toBeTruthy();
+    expect(trxParams).toContain(entryParams[0]);
   });
 
-  it('hesap çözümlenemezse fiş atlanır (boş bırakılabilir muhasebe kaydı)', async () => {
-    let getCall = 0;
-    sharedMockQuery.mockImplementation((sql: unknown) => {
-      const s = String(sql).trim();
-      if (s.includes('SELECT * FROM cheques WHERE id = $1')) {
-        getCall++;
-        return Promise.resolve({
-          rows: [
-            getCall === 1
-              ? chequeRow({ cash_bank_account_id: 'acc-9' })
-              : chequeRow({ status: 'collected', cash_bank_account_id: 'acc-9' }),
-          ],
-        });
-      }
-      if (s.includes('SELECT status FROM tenant_entitlements')) {
-        return Promise.resolve({ rows: [{ status: 'active' }] });
-      }
-      if (s.includes('FROM account_mappings am')) {
-        return Promise.resolve({ rows: [] });
-      }
-      // Kasa/banka yok, TDHP 102 de yok → debit çözülemez → fiş atlanır.
-      if (s.includes('account_type FROM cash_bank_accounts')) {
-        return Promise.resolve({ rows: [] });
-      }
-      if (s.includes('FROM accounting_accounts')) {
-        return Promise.resolve({ rows: [] });
-      }
-      if (s.startsWith('INSERT INTO') || s.startsWith('UPDATE ')) {
-        return Promise.resolve({ rows: [], rowCount: 1 });
-      }
-      return Promise.resolve({ rows: [] });
-    });
-
+  it('kasa/banka hesabı verilmemişse fiş atlanır (port null döner); durum geçişi yine gerçekleşir', async () => {
+    mockDefaultPort();
     const service = buildService();
+    // cash_bank_account_id verilmedi → ctx.cashBankAccountId boş → port null döner.
     const out = (await service.collectCheque(
       'c1',
-      { cash_bank_account_id: 'acc-9', transaction_date: '2026-10-20' },
+      { transaction_date: '2026-10-20' } as never,
       'u1',
       't1',
     ))!;
@@ -687,9 +712,21 @@ describe('AccountingJournalPort (varsayılan)', () => {
     const calls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
     expect(calls.some((c) => c.startsWith('INSERT INTO journal_entries'))).toBe(false);
   });
+
+  it('karşı hesap 120 planda yoksa "Muhasebe hesabı bulunamadı" hatası fırlatır', async () => {
+    mockDefaultPort({ '102': 'acct-bank' }); // 120 yok.
+    const service = buildService();
+
+    await expect(
+      service.collectCheque(
+        'c1',
+        { cash_bank_account_id: 'acc-1', transaction_date: '2026-10-20' },
+        'u1',
+        't1',
+      ),
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('Muhasebe hesabı bulunamadı: 120'),
+    });
+  });
 });
-
-
-
-
-

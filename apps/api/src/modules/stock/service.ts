@@ -2,6 +2,21 @@ import { getPool, getTenantScope } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 
+/** `updateProduct` ile güncellenebilen ürün alanları (beyaz liste). */
+const UPDATABLE_PRODUCT_FIELDS = new Set([
+  'code',
+  'name',
+  'unit_id',
+  'barcode',
+  'cost_price',
+  'sale_price',
+  'list_price',
+  'description',
+  'track_inventory',
+  'is_active',
+  'default_expense_category_id',
+]);
+
 export class StockService {
   private pool: Pool | null = null;
   private readonly providedPool: Pool | null;
@@ -475,11 +490,14 @@ export class StockService {
     list_price?: number;
     description?: string;
     track_inventory?: boolean;
+    /** Stok takipsiz (hizmet/sarf) ürün: alışta yazılacak gider kategorisi (Faz 7-2). */
+    default_expense_category_id?: string | null;
   }) {
     const pool = this.getPoolInstance();
+    await this.assertExpenseCategory(data.default_expense_category_id);
     const result = await pool.query(
-      `INSERT INTO products (id, tenant_id, code, name, unit_id, barcode, cost_price, sale_price, list_price, description, track_inventory, is_active, created_at, updated_at)
-       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
+      `INSERT INTO products (id, tenant_id, code, name, unit_id, barcode, cost_price, sale_price, list_price, description, track_inventory, is_active, created_at, updated_at, default_expense_category_id)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now(), $11)
        RETURNING *`,
       [
         newId(),
@@ -492,9 +510,20 @@ export class StockService {
         data.list_price ?? 0,
         data.description ?? null,
         data.track_inventory ?? true,
+        data.default_expense_category_id ?? null,
       ],
     );
     return result.rows[0];
+  }
+
+  /** Gider kategorisi bu tenant'a ait mi? (FK, RLS'i baypas ettiğinden ayrıca doğrulanır) */
+  private async assertExpenseCategory(categoryId: string | null | undefined) {
+    if (!categoryId) return;
+    const r = await this.getPoolInstance().query(
+      'SELECT 1 FROM expense_categories WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [categoryId],
+    );
+    if ((r.rowCount ?? 0) === 0) throw new AppError('NOT_FOUND', 'Gider kategorisi bulunamadı');
   }
 
   /** Barkod ekle */
@@ -559,14 +588,19 @@ export class StockService {
       description: string | null;
       track_inventory: boolean;
       is_active: boolean;
+      default_expense_category_id: string | null;
     }>,
   ) {
     const pool = this.getPoolInstance();
     const fields: string[] = [];
     const values: unknown[] = [id];
     let paramIndex = 2;
+    await this.assertExpenseCategory(data.default_expense_category_id);
 
     for (const [key, value] of Object.entries(data)) {
+      // GÜVENLİK: kolon adı istek gövdesinden türetildiği için yalnızca izinli alanlar
+      // SQL'e girer (aksi halde anahtar adı üzerinden SQL enjeksiyonu mümkündü).
+      if (!UPDATABLE_PRODUCT_FIELDS.has(key)) continue;
       if (value !== undefined) {
         const column = key.replace(/([A-Z])/g, '_$1').toLowerCase();
         fields.push(`${column} = $${paramIndex}`);

@@ -150,16 +150,19 @@ describe('ExpenseService - Unit Tests', () => {
 
   describe('deleteExpense', () => {
     it('bulunmayan giderde NOT_FOUND fırlatır', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [] });
+      // Silme artık tek transaction'da kilitli okumayla yapılır (FOR UPDATE).
+      mockClient.query
+        .mockResolvedValueOnce({}) // BEGIN
+        .mockResolvedValueOnce({ rows: [] }); // SELECT ... FOR UPDATE
 
       await expect(service.deleteExpense('yok', 'user-1')).rejects.toThrow('Gider bulunamadı');
     });
 
     it('mevcut gideri iptal eder (soft-delete) + denetim izi yazar', async () => {
-      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'e1', amount: '10.00', status: 'draft' }] });
       mockClient.query
         .mockResolvedValueOnce({}) // BEGIN
-        .mockResolvedValueOnce({}) // UPDATE
+        .mockResolvedValueOnce({ rows: [{ id: 'e1', amount: '10.00', status: 'draft' }] }) // FOR UPDATE
+        .mockResolvedValueOnce({}) // UPDATE status = cancelled
         .mockResolvedValueOnce({}) // writeAudit (INSERT audit_logs)
         .mockResolvedValueOnce({}); // COMMIT
 

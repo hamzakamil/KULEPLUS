@@ -49,13 +49,16 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({ rows: [invoice], rowCount: 1 });
       }
       if (s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ id: 'acc-1' }] });
       if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
-      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+      if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
       if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ total: '1' }] });
       if (s.includes('FROM accounting_accounts'))
@@ -90,6 +93,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE')) {
         return Promise.resolve({
           rows: [{ ...salesInvoice, posting_status: 'posted' }],
@@ -121,6 +126,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE'))
         return Promise.resolve({ rows: [], rowCount: 0 });
       return Promise.resolve({ rows: [] });
@@ -132,6 +139,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     function routePayment(invoiceType: 'sales' | 'purchase') {
       clientQuery.mockImplementation((sql: string) => {
         const s = String(sql);
+        if (s.includes('FROM tenant_entitlements'))
+          return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
         if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim()))
           return Promise.resolve({ rows: [] });
         if (s.includes('FROM invoices')) {
@@ -141,6 +150,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
                 id: 'inv-1',
                 number: 'FAT-2026-000000001',
                 type: invoiceType,
+                status: 'draft',
+                posting_status: 'posted',
                 total: '1200',
                 paid_amount: '0',
                 balance: '1200',
@@ -154,7 +165,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
         if (s.includes('FROM accounting_accounts'))
           return Promise.resolve({ rows: [{ id: 'acc-1' }] });
         if (s.includes('FROM account_mappings')) return Promise.resolve({ rows: [] });
-        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+        if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+        if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
         if (s.includes('pg_advisory_xact_lock')) return Promise.resolve({ rows: [] });
         if (s.includes('COALESCE(MAX(entry_no)'))
           return Promise.resolve({ rows: [{ next_no: '9' }] });
@@ -170,8 +182,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
         String(c[0]).includes('INSERT INTO journal_entries'),
       );
       expect(entryCall).toBeTruthy();
-      expect(entryCall![1][3]).toBe('tahsil');
-      expect(entryCall![1][6]).toBe(500);
+      expect(entryCall![1][4]).toBe('tahsil');
+      expect(entryCall![1][7]).toBe(500);
 
       const lineCalls = clientQuery.mock.calls.filter((c) =>
         String(c[0]).includes('INSERT INTO journal_lines'),
@@ -190,8 +202,8 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
       const entryCall = clientQuery.mock.calls.find((c) =>
         String(c[0]).includes('INSERT INTO journal_entries'),
       );
-      expect(entryCall![1][3]).toBe('tediye');
-      expect(entryCall![1][6]).toBe(300);
+      expect(entryCall![1][4]).toBe('tediye');
+      expect(entryCall![1][7]).toBe(300);
     });
   });
 
@@ -199,9 +211,12 @@ describe('InvoiceService.postInvoice — otomatik muhasebeleştirme (Faz 3/5)', 
     clientQuery.mockImplementation((sql: string) => {
       const s = String(sql);
       if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(s.trim())) return Promise.resolve({ rows: [] });
+      if (s.includes('FROM tenant_entitlements'))
+        return Promise.resolve({ rows: [{ one: 1 }], rowCount: 1 }); // accounting aktif
       if (s.includes('FROM invoices') && s.includes('FOR UPDATE'))
         return Promise.resolve({ rows: [salesInvoice], rowCount: 1 });
-      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [] });
+      if (s.includes('period_locks')) return Promise.resolve({ rows: [{ lock_date: null }] });
+      if (s.includes('FROM fiscal_periods')) return Promise.resolve({ rows: [{ id: 'period-1', status: 'open' }] });
       if (s.includes('COUNT(*)') && s.includes('FROM accounting_accounts'))
         return Promise.resolve({ rows: [{ total: '0' }] });
       if (s.includes('FROM accounting_accounts'))

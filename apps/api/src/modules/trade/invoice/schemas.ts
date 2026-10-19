@@ -23,6 +23,8 @@ export const createInvoiceSchema = z.object({
   notes: z.string().optional(),
   reference_type: z.string().optional(),
   reference_id: z.string().uuid().optional(),
+  /** Alış faturası: tedarikçinin belge numarası (mükerrer kontrolü; muhasebe aktifken zorunlu). */
+  supplier_document_no: z.string().trim().max(100).optional(),
   lines: z
     .array(
       z.object({
@@ -33,6 +35,10 @@ export const createInvoiceSchema = z.object({
         unit_price: z.number().default(0),
         discount_percent: z.number().min(0).max(100).default(0),
         tax_rate_id: z.string().uuid().optional(),
+        /** Alışta gider satırı: gider kategorisi (ürün yerine). Satır ya ürün ya kategori taşır. */
+        expense_category_id: z.string().uuid().optional(),
+        /** KDV tevkifatı türü (oran ve e-Fatura/KDV-2 kodları türden gelir). */
+        withholding_type_id: z.string().uuid().optional(),
       }),
     )
     .min(1),
@@ -58,6 +64,7 @@ export const updateInvoiceSchema = z.object({
     .optional(),
   status: z.enum(['draft', 'sent', 'paid', 'partial', 'cancelled', 'overdue']).optional(),
   notes: z.string().optional(),
+  supplier_document_no: z.string().trim().max(100).optional(),
   reference_type: z.string().optional(),
   reference_id: z.string().uuid().optional(),
 });
@@ -71,6 +78,10 @@ export const invoiceLineSchema = z.object({
   unit_price: z.number().default(0),
   discount_percent: z.number().min(0).max(100).default(0),
   tax_rate_id: z.string().uuid().nullable().optional(),
+  /** Alışta gider satırı: gider kategorisi (ürün yerine). */
+  expense_category_id: z.string().uuid().nullable().optional(),
+  /** KDV tevkifatı türü (oran ve e-Fatura/KDV-2 kodları türden gelir). */
+  withholding_type_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().default(0),
 });
 
@@ -85,6 +96,10 @@ export const paymentSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   payment_method: z.enum(['cash', 'bank_transfer', 'check', 'credit_card', 'other']),
+  /** Ödemenin geçtiği kasa/banka kartı (verilirse fiş o kartın 100.xx/102.xx alt hesabına). */
+  cash_bank_account_id: z.string().uuid().optional(),
+  /** Alışta şirket kredi kartıyla ödeme (verilirse fiş 309.xx alt hesabına). */
+  credit_card_id: z.string().uuid().optional(),
   reference: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -109,6 +124,32 @@ export const listInvoicesQuerySchema = z.object({
     .optional(),
   q: z.string().optional(),
 });
+
+/** Tevkifat türü (yönetim ekranı). Oran yalnızca mevzuattaki paylar: 2,3,4,5,7,9,10 (/10). */
+export const withholdingTypeSchema = z.object({
+  name: z.string().min(1),
+  einvoice_code: z.string().regex(/^\d{3}$/, 'e-Fatura tevkifat kodu 3 haneli olmalı'),
+  kdv2_code: z.string().regex(/^\d{3}$/, 'KDV-2 kodu 3 haneli olmalı'),
+  rate_numerator: z
+    .number()
+    .int()
+    .refine(
+      (n) => [2, 3, 4, 5, 7, 9, 10].includes(n),
+      'Tevkifat oranı 2, 3, 4, 5, 7, 9 veya 10 (/10) olmalı',
+    ),
+  valid_from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  valid_to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  is_active: z.boolean().default(true),
+});
+export const updateWithholdingTypeSchema = withholdingTypeSchema.partial();
+export type WithholdingTypeInput = z.infer<typeof withholdingTypeSchema>;
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
 export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;

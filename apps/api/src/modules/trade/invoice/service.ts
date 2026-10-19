@@ -2,18 +2,37 @@ import { getPool } from '@kuleplus/db';
 import { AppError, newId, getRate, getLatestRate } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { ensureChartOfAccountsOn } from '../../accounting/chart.js';
+import { accountingService } from '../../accounting/service.js';
+import { assertNoDuplicateDocument } from '../duplicate-document.js';
+import {
+  cashBankLedgerAccount,
+  creditCardLedgerAccount,
+  ensureAccountByCode,
+  expenseCategoryLedgerAccount,
+} from '../../accounting/subledger.js';
+import {
+  allocateEntryNo,
+  isAccountingActive,
+  openPeriodFor,
+  round2,
+  toIsoDate,
+  toKurus,
+  todayIso,
+} from '../../accounting/ledger.js';
 import type {
   CreateInvoiceInput,
   UpdateInvoiceInput,
   ReplaceInvoiceLinesInput,
   PaymentInput,
   ListInvoicesQuery,
+  WithholdingTypeInput,
 } from './schemas.js';
 
 interface LineWithTax {
   id: string;
   invoice_id: string;
   product_id: string | null;
+  expense_category_id: string | null;
   description: string;
   quantity: number;
   unit_id: string | null;
@@ -25,6 +44,26 @@ interface LineWithTax {
   tax_amount: number;
   line_total: number;
   sort_order: number;
+  /** KDV tevkifatı (Faz 7-3): tür + kesinleşmede kopyalanan kodlar/oran. */
+  withholding_type_id: string | null;
+  withholding_rate: number;
+  withholding_einvoice_code: string | null;
+  withholding_kdv2_code: string | null;
+  withholding_amount: number;
+}
+
+/** `lockInvoice` sonucu: değişmezlik kararı için gereken alanlar. */
+interface LockedInvoice {
+  id: string;
+  number: string;
+  type: string;
+  status: string;
+  posting_status: string;
+  paid_amount: string | number;
+  returned_amount: string | number;
+  total: string | number;
+  reference_type: string | null;
+  reference_id: string | null;
 }
 
 export class InvoiceService {
@@ -70,17 +109,28 @@ export class InvoiceService {
   }
 
   private calculateLineTotals(lines: LineWithTax[]) {
+    lines.forEach((line, i) => {
+      if (line.product_id && line.expense_category_id) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Satır ${i + 1}: aynı satırda hem ürün hem gider kategorisi seçilemez.`,
+        );
+      }
+    });
     return lines.map((line, index) => {
       const baseAmount = line.quantity * line.unit_price;
       const discountAmount = baseAmount * (line.discount_percent / 100);
       const taxableAmount = baseAmount - discountAmount;
       const taxAmount = taxableAmount * (line.tax_rate / 100);
       const lineTotal = taxableAmount + taxAmount;
+      // Tevkif edilen KDV = satır KDV'si × tevkifat oranı (ör. 4/10 → %40).
+      const withholdingAmount = taxAmount * ((line.withholding_rate ?? 0) / 100);
 
       return {
         ...line,
         discount_amount: discountAmount,
         tax_amount: taxAmount,
+        withholding_amount: withholdingAmount,
         line_total: lineTotal,
         sort_order: line.sort_order ?? index,
       };
@@ -91,9 +141,11 @@ export class InvoiceService {
     const subtotal = calculatedLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
     const discountTotal = calculatedLines.reduce((sum, l) => sum + l.discount_amount, 0);
     const taxTotal = calculatedLines.reduce((sum, l) => sum + l.tax_amount, 0);
-    const total = subtotal - discountTotal + taxTotal;
+    const withholdingTotal = calculatedLines.reduce((sum, l) => sum + (l.withholding_amount ?? 0), 0);
+    // `total` = ödenecek tutar (matrah + KDV − tevkif edilen KDV); `tax_total` tam KDV.
+    const total = subtotal - discountTotal + taxTotal - withholdingTotal;
 
-    return { subtotal, discountTotal, taxTotal, total };
+    return { subtotal, discountTotal, taxTotal, withholdingTotal, total };
   }
 
   async listInvoices(query: ListInvoicesQuery) {
@@ -299,6 +351,7 @@ export class InvoiceService {
         id: '',
         invoice_id: '',
         product_id: line.product_id ?? null,
+        expense_category_id: line.expense_category_id ?? null,
         description: line.description,
         quantity: line.quantity,
         unit_id: line.unit_id ?? null,
@@ -311,11 +364,23 @@ export class InvoiceService {
         tax_amount: 0,
         line_total: 0,
         sort_order: 0,
+        withholding_type_id: line.withholding_type_id ?? null,
+        withholding_rate: 0,
+        withholding_einvoice_code: null,
+        withholding_kdv2_code: null,
+        withholding_amount: 0,
       }));
+      await this.applyWithholdingTypes(
+        client,
+        linesWithTax,
+        data.type,
+        data.issue_date ?? todayIso(),
+      );
 
       // Calculate totals
       const calculatedLines = this.calculateLineTotals(linesWithTax);
-      const { subtotal, discountTotal, taxTotal, total } = this.calculateTotals(calculatedLines);
+      const { subtotal, discountTotal, taxTotal, withholdingTotal, total } =
+        this.calculateTotals(calculatedLines);
 
       // Çoklu para birimi (SPEC §9.2): kur çözülür. Kullanıcı exchange_rate verdiyse onu sabitler
       // (<b>bilinçli kur</b> — snapshot); vermediyse issue_date bazlı TCMB kuru getirilir.
@@ -334,11 +399,11 @@ export class InvoiceService {
           id, tenant_id, sequence_id, number, type, status, contact_id, warehouse_id,
           issue_date, due_date, currency, exchange_rate, rate_date,
           subtotal, discount_total, tax_total, total, balance,
-          notes, reference_type, reference_id
+          notes, reference_type, reference_id, withholding_total, supplier_document_no
         ) VALUES (
           $1, current_tenant_id(),
           (SELECT id FROM invoice_sequences WHERE tenant_id = current_tenant_id() AND fiscal_year = $2),
-          $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18
+          $3, $4, 'draft', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17, $18, $19, $20
         ) RETURNING *`,
         [
           newId(),
@@ -359,6 +424,8 @@ export class InvoiceService {
           data.notes ?? null,
           data.reference_type ?? null,
           data.reference_id ?? null,
+          withholdingTotal,
+          data.supplier_document_no || null,
         ],
       );
 
@@ -370,8 +437,10 @@ export class InvoiceService {
           `INSERT INTO invoice_lines (
             id, invoice_id, product_id, description, quantity, unit_id,
             unit_price, discount_percent, discount_amount,
-            tax_rate_id, tax_rate, tax_amount, line_total, sort_order
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            tax_rate_id, tax_rate, tax_amount, line_total, sort_order, expense_category_id,
+            withholding_type_id, withholding_rate, withholding_einvoice_code, withholding_kdv2_code,
+            withholding_amount
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
           [
             newId(),
             invoice.id,
@@ -387,6 +456,12 @@ export class InvoiceService {
             line.tax_amount,
             line.line_total,
             line.sort_order,
+            line.expense_category_id ?? null,
+            line.withholding_type_id ?? null,
+            line.withholding_rate ?? 0,
+            line.withholding_einvoice_code ?? null,
+            line.withholding_kdv2_code ?? null,
+            line.withholding_amount ?? 0,
           ],
         );
       }
@@ -415,11 +490,131 @@ export class InvoiceService {
     }
   }
 
+  /**
+   * Kesinleşmiş (posting_status='posted') fatura değişmezdir (SPEC §10.1): yalnızca not ve
+   * vade tarihi güncellenebilir, ya da iptal edilir (yevmiye fişi ters kayıtla birlikte
+   * düzeltilir). İptal edilmiş fatura hiç değiştirilemez.
+   */
+  private async lockInvoice(client: PoolClient, id: string) {
+    const r = await client.query(
+      `SELECT id, number, type, status, posting_status, paid_amount, returned_amount, total,
+              reference_type, reference_id
+         FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
+      [id],
+    );
+    if (r.rows.length === 0) throw new AppError('NOT_FOUND', 'Fatura bulunamadı');
+    return r.rows[0] as LockedInvoice;
+  }
+
+  /**
+   * Faturayı iptal eder. Kesinleşmişse yevmiye fişi aynı transaction'da ters kayıtla
+   * düzeltilir. Ödemesi olan fatura iptal edilemez (ödeme fişleri ayrıca düzeltilmelidir).
+   */
+  private async cancelInvoiceOn(
+    client: PoolClient,
+    inv: LockedInvoice,
+    userId?: string,
+  ): Promise<string | null> {
+    if (Number(inv.paid_amount) > 0) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Ödemesi olan fatura iptal edilemez; önce ödeme kayıtlarını düzeltin.',
+      );
+    }
+    if (Number(inv.returned_amount ?? 0) > 0) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Bağlı iade faturası olan fatura iptal edilemez; önce iade faturasını iptal edin.',
+      );
+    }
+    // Kesinleşmiş ve orijinal faturaya bağlı iade iptal edilirse orijinalin bakiyesi geri gelir.
+    if (
+      inv.posting_status === 'posted' &&
+      ['credit_note', 'debit_note'].includes(inv.type) &&
+      inv.reference_type === 'invoice' &&
+      inv.reference_id
+    ) {
+      await client.query(
+        `UPDATE invoices
+            SET returned_amount = returned_amount - $1,
+                balance = balance + $1,
+                status = CASE WHEN status = 'paid' AND balance + $1 > 0
+                              THEN (CASE WHEN paid_amount > 0 THEN 'partial' ELSE 'sent' END)
+                              ELSE status END,
+                updated_at = now()
+          WHERE id = $2 AND tenant_id = current_tenant_id()`,
+        [Number(inv.total), inv.reference_id],
+      );
+    }
+    let reversalId: string | null = null;
+    if (inv.posting_status === 'posted') {
+      const entry = await client.query(
+        `SELECT id FROM journal_entries
+          WHERE tenant_id = current_tenant_id() AND source_type = 'invoice' AND source_id = $1
+            AND status = 'posted' AND entry_type <> 'ters'
+            AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = journal_entries.id)
+          LIMIT 1`,
+        [inv.id],
+      );
+      if (entry.rows[0]) {
+        const rev = await accountingService.reverseEntryOn(
+          client,
+          entry.rows[0].id,
+          userId ?? '',
+          undefined,
+          { allowSource: true },
+        );
+        reversalId = rev.id;
+      }
+    }
+    await client.query(
+      `UPDATE invoices SET status = 'cancelled', posting_status = 'cancelled', updated_at = now()
+        WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [inv.id],
+    );
+    await this.writeAudit(client, {
+      action: 'update',
+      entityType: 'invoices',
+      entityId: inv.id,
+      userId,
+      oldValues: { status: inv.status, posting_status: inv.posting_status },
+      newValues: {
+        action: 'cancelled',
+        invoice_number: inv.number,
+        reversal_entry_id: reversalId,
+      },
+    });
+    return reversalId;
+  }
+
   async updateInvoice(id: string, data: UpdateInvoiceInput, userId?: string) {
     const pool = this.getPoolInstance();
     const client = await pool.connect();
+    let didCancel = false;
     try {
       await client.query('BEGIN');
+
+      const inv = await this.lockInvoice(client, id);
+      if (inv.posting_status === 'cancelled' || inv.status === 'cancelled') {
+        throw new AppError('FORBIDDEN', 'İptal edilmiş fatura değiştirilemez.');
+      }
+      if (inv.posting_status === 'posted') {
+        const allowed = new Set(['notes', 'due_date', 'status']);
+        const illegal = Object.keys(data).filter(
+          (k) => (data as Record<string, unknown>)[k] !== undefined && !allowed.has(k),
+        );
+        if (illegal.length > 0 || (data.status !== undefined && data.status !== 'cancelled')) {
+          throw new AppError(
+            'FORBIDDEN',
+            'Kesinleşmiş fatura değiştirilemez; yalnızca not/vade güncellenir veya fatura iptal edilir.',
+          );
+        }
+      }
+      if (data.status === 'cancelled') {
+        await this.cancelInvoiceOn(client, inv, userId);
+        didCancel = true;
+        delete (data as { status?: string }).status;
+      }
 
       // Çoklu para birimi (SPEC §9.2) — düzenlemede kur verilmediyse otomatik çöz.
       // NOT: Bu adım alan döngüsünden ÖNCE yapılmalıdır; aksi halde çözülen kur/rate_date
@@ -452,7 +647,11 @@ export class InvoiceService {
       }
 
       if (fields.length === 0) {
-        await client.query('ROLLBACK');
+        if (didCancel) {
+          await client.query('COMMIT');
+        } else {
+          await client.query('ROLLBACK');
+        }
         return this.getInvoice(id);
       }
 
@@ -495,14 +694,14 @@ export class InvoiceService {
       await client.query('BEGIN');
 
       // Verify invoice exists and is editable
-      const invoiceCheck = await client.query(
-        `SELECT id, status FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
-        [invoiceId],
-      );
-      if (invoiceCheck.rowCount === 0) {
-        throw new AppError('NOT_FOUND', 'Fatura bulunamadı');
+      const invoiceCheck = await this.lockInvoice(client, invoiceId);
+      if (invoiceCheck.posting_status !== 'draft') {
+        throw new AppError(
+          'FORBIDDEN',
+          'Kesinleşmiş veya iptal edilmiş faturanın satırları değiştirilemez.',
+        );
       }
-      if (!['draft', 'proforma'].includes(invoiceCheck.rows[0].status)) {
+      if (!['draft', 'proforma'].includes(invoiceCheck.status)) {
         throw new AppError('VALIDATION_ERROR', 'Sadece taslak faturalar düzenlenebilir');
       }
 
@@ -520,6 +719,7 @@ export class InvoiceService {
         id: '',
         invoice_id: '',
         product_id: line.product_id ?? null,
+        expense_category_id: line.expense_category_id ?? null,
         description: line.description,
         quantity: line.quantity,
         unit_id: line.unit_id ?? null,
@@ -532,10 +732,26 @@ export class InvoiceService {
         tax_amount: 0,
         line_total: 0,
         sort_order: line.sort_order,
+        withholding_type_id: line.withholding_type_id ?? null,
+        withholding_rate: 0,
+        withholding_einvoice_code: null,
+        withholding_kdv2_code: null,
+        withholding_amount: 0,
       }));
+      const head = await client.query(
+        'SELECT type, issue_date FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()',
+        [invoiceId],
+      );
+      await this.applyWithholdingTypes(
+        client,
+        linesWithTax,
+        String(head.rows[0].type),
+        toIsoDate(head.rows[0].issue_date),
+      );
 
       const calculatedLines = this.calculateLineTotals(linesWithTax);
-      const { subtotal, discountTotal, taxTotal, total } = this.calculateTotals(calculatedLines);
+      const { subtotal, discountTotal, taxTotal, withholdingTotal, total } =
+        this.calculateTotals(calculatedLines);
 
       // Delete old lines
       await client.query(`DELETE FROM invoice_lines WHERE invoice_id = $1`, [invoiceId]);
@@ -546,8 +762,10 @@ export class InvoiceService {
           `INSERT INTO invoice_lines (
             id, invoice_id, product_id, description, quantity, unit_id,
             unit_price, discount_percent, discount_amount,
-            tax_rate_id, tax_rate, tax_amount, line_total, sort_order
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+            tax_rate_id, tax_rate, tax_amount, line_total, sort_order, expense_category_id,
+            withholding_type_id, withholding_rate, withholding_einvoice_code, withholding_kdv2_code,
+            withholding_amount
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
           [
             newId(),
             invoiceId,
@@ -563,15 +781,22 @@ export class InvoiceService {
             line.tax_amount,
             line.line_total,
             line.sort_order,
+            line.expense_category_id ?? null,
+            line.withholding_type_id ?? null,
+            line.withholding_rate ?? 0,
+            line.withholding_einvoice_code ?? null,
+            line.withholding_kdv2_code ?? null,
+            line.withholding_amount ?? 0,
           ],
         );
       }
 
       // Update invoice totals
       await client.query(
-        `UPDATE invoices SET subtotal = $1, discount_total = $2, tax_total = $3, total = $4, balance = $4, updated_at = now()
+        `UPDATE invoices SET subtotal = $1, discount_total = $2, tax_total = $3, total = $4,
+                balance = $4 - paid_amount - returned_amount, withholding_total = $6, updated_at = now()
          WHERE id = $5 AND tenant_id = current_tenant_id()`,
-        [subtotal, discountTotal, taxTotal, total, invoiceId],
+        [subtotal, discountTotal, taxTotal, total, invoiceId, withholdingTotal],
       );
 
       // ADR-0016: satır değişimi denetim izi — belge satırları + izi tek transaction'da.
@@ -604,6 +829,24 @@ export class InvoiceService {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const inv = await client.query(
+        `SELECT posting_status FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
+        [id],
+      );
+      if (inv.rows[0]) {
+        const hasEntry = await client.query(
+          `SELECT 1 FROM journal_entries
+            WHERE tenant_id = current_tenant_id() AND source_type IN ('invoice') AND source_id = $1
+            LIMIT 1`,
+          [id],
+        );
+        if (inv.rows[0].posting_status === 'posted' || (hasEntry.rowCount ?? 0) > 0) {
+          throw new AppError(
+            'FORBIDDEN',
+            'Kesinleşmiş faturanın muhasebe kaydı vardır; silinemez, iptal edin.',
+          );
+        }
+      }
       const prev = await client.query(
         `SELECT number, type, status, total FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [id],
@@ -639,7 +882,7 @@ export class InvoiceService {
       await client.query('BEGIN');
 
       const invoiceResult = await client.query(
-        `SELECT id, number, type, total, paid_amount, balance, currency, exchange_rate FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id()`,
+        `SELECT id, number, type, status, posting_status, total, paid_amount, returned_amount, balance, currency, exchange_rate FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
         [invoiceId],
       );
       if (invoiceResult.rowCount === 0) {
@@ -647,18 +890,34 @@ export class InvoiceService {
       }
 
       const invoice = invoiceResult.rows[0];
-      const paymentDate = data.payment_date ?? new Date().toISOString().split('T')[0];
+      const paymentDate = data.payment_date ?? todayIso();
+
+      if (invoice.status === 'cancelled' || invoice.posting_status === 'cancelled') {
+        throw new AppError('VALIDATION_ERROR', 'İptal edilmiş faturaya ödeme eklenemez.');
+      }
+      // Muhasebe aktifken ödeme, kesinleşmiş faturaya yazılır: aksi halde tahsilat fişi
+      // 120/320'yi alacaklandırır ama faturanın borç kaydı henüz yoktur (SPEC §10.3).
+      const postsJournal =
+        ['sales', 'purchase'].includes(invoice.type) &&
+        data.amount > 0 &&
+        (await isAccountingActive(client));
+      if (postsJournal && invoice.posting_status !== 'posted') {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Muhasebe aktifken ödeme yalnızca kesinleşmiş faturaya girilebilir; önce faturayı kesinleştirin.',
+        );
+      }
 
       // Çoklu para birimi + kur farkı (SPEC §9.2):
       // - paid_amount/balance, invoices.total ile aynı birimde (belge para biriminde) kalır.
-      // - Otomatik fiş TRY karşılıkla kesilir. Kur farkı hesapları (645 kambiyo kârı / 655 kambiyo
+      // - Otomatik fiş TRY karşılıkla kesilir. Kur farkı hesapları (646 kambiyo kârı / 656 kambiyo
       //   zararı) ve ödeme tarihi kuru çözülebiliyorsa ödeme ödeme günü kuruyla TRY'ye çevrilir;
-      //   fatura kuru (-kapanış) ile fark 645/655'e kur farkı olarak yazılır. Kur çözülemezse
+      //   fatura kuru (-kapanış) ile fark 646/656'ya kur farkı olarak yazılır. Kur çözülemezse
       //   fatura kuru kullanılır (kur farkı doğmaz — eski davranış).
       const invoiceRate = Number(invoice.exchange_rate ?? 1);
       const invoiceCurrency = (invoice.currency || 'TRY').toUpperCase();
-      const gainAccount = await this.resolveAccountByCode(client, '645');
-      const lossAccount = await this.resolveAccountByCode(client, '655');
+      const gainAccount = await this.resolveAccountByCode(client, '646');
+      const lossAccount = await this.resolveAccountByCode(client, '656');
       let paymentRate = invoiceRate;
       if (gainAccount && lossAccount && invoiceCurrency !== 'TRY') {
         try {
@@ -668,11 +927,14 @@ export class InvoiceService {
           /* kur çözülemedi → fatura kuru kullanılır */
         }
       }
-      const baseAmount = Number(data.amount) * paymentRate;
+      // Kuruşa yuvarlanmış TRY karşılıklar: fiş satırları numeric(18,2)'ye yazılır; kur farkı
+      // yuvarlanmış değerlerden hesaplanır ki fiş kuruşu kuruşuna dengeli kalsın (SPEC §10.5).
+      const baseAmount = round2(Number(data.amount) * paymentRate);
       // Faturanın kurundan kapanış payı — cari (120/320) fatura kuruyla kapatılır.
-      const invoicePortion = Number(data.amount) * invoiceRate;
+      const invoicePortion = round2(Number(data.amount) * invoiceRate);
       const newPaidAmount = Number(invoice.paid_amount) + data.amount;
-      const newBalance = Number(invoice.total) - newPaidAmount;
+      const newBalance =
+        Number(invoice.total) - newPaidAmount - Number(invoice.returned_amount ?? 0);
 
       let newStatus = invoice.balance > 0 ? 'partial' : 'draft';
       if (newBalance <= 0) newStatus = 'paid';
@@ -681,8 +943,8 @@ export class InvoiceService {
       const paymentId = newId();
 
       await client.query(
-        `INSERT INTO invoice_payments (id, invoice_id, amount, payment_date, payment_method, reference, notes, exchange_rate, base_amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO invoice_payments (id, invoice_id, amount, payment_date, payment_method, reference, notes, exchange_rate, base_amount, cash_bank_account_id, credit_card_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           paymentId,
           invoiceId,
@@ -693,6 +955,8 @@ export class InvoiceService {
           data.notes ?? null,
           paymentRate,
           baseAmount,
+          data.cash_bank_account_id ?? null,
+          data.credit_card_id ?? null,
         ],
       );
 
@@ -706,39 +970,34 @@ export class InvoiceService {
       // Tahsilat: Borç kasa/banka, Alacak 120 (Alıcılar).
       // Tediye : Borç 320 (Satıcılar), Alacak kasa/banka.
       let journalEntryId: string | null = null;
-      if (['sales', 'purchase'].includes(invoice.type) && data.amount > 0) {
+      // Muhasebe modülü aktif değilse fiş ve hesap planı oluşturulmaz (SPEC §10.3).
+      if (postsJournal) {
         const isInflow = invoice.type === 'sales';
         await ensureChartOfAccountsOn(client);
-        const cashBank = await this.resolveCashBankForMethod(client, data.payment_method, isInflow);
+        // Hesap seçimi (Faz 7-1): şirket kartıyla ödeme → 309.xx, belirli kasa/banka → kendi
+        // alt hesabı, aksi halde ödeme yöntemine göre ana hesap (eski davranış).
+        let cashBank: string | null = null;
+        if (data.credit_card_id) {
+          if (isInflow) {
+            throw new AppError(
+              'VALIDATION_ERROR',
+              'Şirket kredi kartı yalnızca ödemede (alış faturası) kullanılabilir.',
+            );
+          }
+          cashBank = await creditCardLedgerAccount(client, data.credit_card_id);
+          if (!cashBank) throw new AppError('NOT_FOUND', 'Kredi kartı bulunamadı');
+        } else if (data.cash_bank_account_id) {
+          cashBank = await cashBankLedgerAccount(client, data.cash_bank_account_id);
+          if (!cashBank) throw new AppError('NOT_FOUND', 'Kasa/banka hesabı bulunamadı');
+        } else {
+          cashBank = await this.resolveCashBankForMethod(client, data.payment_method, isInflow);
+        }
         const control = await this.resolveAccountByCode(client, isInflow ? '120' : '320');
         if (cashBank && control) {
-          await this.assertInvoicePeriodOpen(client, paymentDate);
-          await client.query('SELECT pg_advisory_xact_lock(hashtext(current_setting($1)))', [
-            'app.tenant_id',
-          ]);
-          const seq = await client.query(
-            'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
-          );
-          const entryNo = Number(seq.rows[0].next_no);
+          const periodId = await openPeriodFor(client, paymentDate);
           const entryId = newId();
           journalEntryId = entryId;
           const description = `${isInflow ? 'Tahsilat' : 'Ödeme'} ${invoice.number}`;
-          await client.query(
-            `INSERT INTO journal_entries
-               (id, tenant_id, entry_no, entry_date, entry_type, status, description,
-                source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-             VALUES ($1, current_tenant_id(), $2, $3, $4, 'posted', $5, 'invoice_payment', $6, $7, $7, $8, now(), $8, $8)`,
-            [
-              entryId,
-              entryNo,
-              paymentDate,
-              isInflow ? 'tahsil' : 'tediye',
-              description,
-              paymentId,
-              baseAmount,
-              userId,
-            ],
-          );
           const lines = isInflow
             ? [
                 { accountId: cashBank, debit: baseAmount, credit: 0 },
@@ -748,8 +1007,8 @@ export class InvoiceService {
                 { accountId: control, debit: invoicePortion, credit: 0 },
                 { accountId: cashBank, debit: 0, credit: baseAmount },
               ];
-          // Kur farkı: satışta +fark kambiyo kârı (645), alışta +fark kambiyo zararı (655).
-          const fxDiff = baseAmount - invoicePortion;
+          // Kur farkı: satışta +fark kambiyo kârı (646), alışta +fark kambiyo zararı (656).
+          const fxDiff = round2(baseAmount - invoicePortion);
           let fxGain = 0;
           let fxLoss = 0;
           if (Math.abs(fxDiff) >= 0.005) {
@@ -758,6 +1017,29 @@ export class InvoiceService {
           }
           if (fxGain > 0) lines.push({ accountId: gainAccount!, debit: 0, credit: fxGain });
           if (fxLoss > 0) lines.push({ accountId: lossAccount!, debit: fxLoss, credit: 0 });
+          // Başlık toplamı satırlardan: kur farkı satırı varsa borç/alacak toplamı baseAmount'tan
+          // farklıdır (eski kod başlığa baseAmount yazıyordu → başlık/satır uyuşmazlığı).
+          const headDebit = lines.reduce((sum, l) => sum + toKurus(l.debit), 0) / 100;
+          const headCredit = lines.reduce((sum, l) => sum + toKurus(l.credit), 0) / 100;
+          const entryNo = await allocateEntryNo(client);
+          await client.query(
+            `INSERT INTO journal_entries
+               (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
+                source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
+             VALUES ($1, current_tenant_id(), $2, $3, $4, $5, 'posted', $6, 'invoice_payment', $7, $8, $9, $10, now(), $10, $10)`,
+            [
+              entryId,
+              entryNo,
+              paymentDate,
+              periodId,
+              isInflow ? 'tahsil' : 'tediye',
+              description,
+              paymentId,
+              headDebit,
+              headCredit,
+              userId,
+            ],
+          );
           let lineNo = 1;
           for (const l of lines) {
             await client.query(
@@ -807,6 +1089,77 @@ export class InvoiceService {
     return { data: result.rows };
   }
 
+  /** Tevkifat türleri (Faz 7-3). `activeOn` verilirse yalnızca o tarihte geçerli aktif türler. */
+  async listWithholdingTypes(activeOn?: string) {
+    const pool = this.getPoolInstance();
+    const params: unknown[] = [];
+    let where = 'tenant_id = current_tenant_id()';
+    if (activeOn) {
+      params.push(activeOn);
+      where += ` AND is_active AND valid_from <= $1::date AND (valid_to IS NULL OR valid_to >= $1::date)`;
+    }
+    const result = await pool.query(
+      `SELECT * FROM withholding_types WHERE ${where} ORDER BY einvoice_code, valid_from`,
+      params,
+    );
+    return { data: result.rows };
+  }
+
+  async createWithholdingType(data: WithholdingTypeInput) {
+    const pool = this.getPoolInstance();
+    const result = await pool.query(
+      `INSERT INTO withholding_types
+         (id, tenant_id, name, einvoice_code, kdv2_code, rate_numerator, valid_from, valid_to, is_active)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, COALESCE($6::date, DATE '2000-01-01'), $7, $8)
+       RETURNING *`,
+      [
+        newId(),
+        data.name,
+        data.einvoice_code,
+        data.kdv2_code,
+        data.rate_numerator,
+        data.valid_from ?? null,
+        data.valid_to ?? null,
+        data.is_active ?? true,
+      ],
+    );
+    return result.rows[0];
+  }
+
+  /**
+   * Tür güncellemesi kesinleşmiş belgeleri etkilemez (kodlar/oran satıra kopyalıdır).
+   * Oran değişikliği için eski kaydı `valid_to` ile kapatıp yeni geçerlilikle kayıt açmak önerilir.
+   */
+  async updateWithholdingType(id: string, data: Partial<WithholdingTypeInput>) {
+    const pool = this.getPoolInstance();
+    const result = await pool.query(
+      `UPDATE withholding_types SET
+         name = COALESCE($2, name),
+         einvoice_code = COALESCE($3, einvoice_code),
+         kdv2_code = COALESCE($4, kdv2_code),
+         rate_numerator = COALESCE($5, rate_numerator),
+         valid_from = COALESCE($6::date, valid_from),
+         valid_to = CASE WHEN $9::boolean THEN $7::date ELSE valid_to END,
+         is_active = COALESCE($8, is_active),
+         version = version + 1, updated_at = now()
+       WHERE id = $1 AND tenant_id = current_tenant_id()
+       RETURNING *`,
+      [
+        id,
+        data.name ?? null,
+        data.einvoice_code ?? null,
+        data.kdv2_code ?? null,
+        data.rate_numerator ?? null,
+        data.valid_from ?? null,
+        data.valid_to ?? null,
+        data.is_active ?? null,
+        data.valid_to !== undefined,
+      ],
+    );
+    if (result.rows.length === 0) throw new AppError('NOT_FOUND', 'Tevkifat türü bulunamadı');
+    return result.rows[0];
+  }
+
   async getInvoiceSequences() {
     const pool = this.getPoolInstance();
     const result = await pool.query(
@@ -818,6 +1171,209 @@ export class InvoiceService {
   // ==================== Otomatik Muhasebeleştirme (Faz 3/5) ====================
   //
   // Çek modülü deseniyle aynı: hesap eşleme `account_mappings` → TDHP kodu fallback.
+
+  /**
+   * Satırlardaki tevkifat türlerini çözer ve kodları/oranı satıra kopyalar (snapshot, Faz 7-3).
+   * Tür: bu tenant'ın, aktif ve belge tarihinde geçerli kaydı olmalı. Tevkifat yalnızca
+   * satış/alış faturasında ve KDV'li satırda uygulanır.
+   */
+  private async applyWithholdingTypes(
+    client: PoolClient,
+    lines: LineWithTax[],
+    invoiceType: string,
+    issueDate: string,
+  ): Promise<void> {
+    const ids = [...new Set(lines.map((l) => l.withholding_type_id).filter(Boolean))] as string[];
+    if (ids.length === 0) return;
+    if (!['sales', 'purchase'].includes(invoiceType)) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'KDV tevkifatı yalnızca satış ve alış faturasında uygulanabilir.',
+      );
+    }
+    const r = await client.query(
+      `SELECT id, einvoice_code, kdv2_code, rate_numerator, rate_denominator
+         FROM withholding_types
+        WHERE tenant_id = current_tenant_id() AND id = ANY($1::uuid[]) AND is_active
+          AND valid_from <= $2::date AND (valid_to IS NULL OR valid_to >= $2::date)`,
+      [ids, issueDate],
+    );
+    const byId = new Map(r.rows.map((row) => [String(row.id), row]));
+    lines.forEach((line, i) => {
+      if (!line.withholding_type_id) return;
+      const t = byId.get(line.withholding_type_id);
+      if (!t) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Satır ${i + 1}: tevkifat türü bulunamadı, pasif veya belge tarihinde geçerli değil.`,
+        );
+      }
+      if (!(Number(line.tax_rate) > 0)) {
+        throw new AppError('VALIDATION_ERROR', `Satır ${i + 1}: KDV'siz satıra tevkifat uygulanamaz.`);
+      }
+      line.withholding_rate = (Number(t.rate_numerator) / Number(t.rate_denominator)) * 100;
+      line.withholding_einvoice_code = String(t.einvoice_code);
+      line.withholding_kdv2_code = String(t.kdv2_code);
+    });
+  }
+
+  /**
+   * Alışta tevkif edilen KDV'yi KDV-2 koduna göre 360.01.<kod> hesaplarına dağıtır
+   * (Sorumlu Sıfatıyla Ödenecek KDV). Kuruş; yuvarlama farkı en büyük kaleme eklenir.
+   */
+  private async withholdingAllocation(
+    client: PoolClient,
+    invoiceId: string,
+    rate: number,
+    withholding: number,
+  ): Promise<Array<{ accountId: string; creditK: number }>> {
+    if (toKurus(withholding) === 0) return [];
+    const r = await client.query(
+      `SELECT il.withholding_kdv2_code AS kdv2, MAX(il.withholding_rate) AS pct,
+              MAX(wt.name) AS name, SUM(il.withholding_amount) AS amount
+         FROM invoice_lines il
+         LEFT JOIN withholding_types wt ON wt.id = il.withholding_type_id
+        WHERE il.invoice_id = $1 AND il.withholding_amount > 0
+        GROUP BY il.withholding_kdv2_code
+        ORDER BY il.withholding_kdv2_code`,
+      [invoiceId],
+    );
+    await ensureAccountByCode(client, '360.01', 'Sorumlu Sıfatıyla Ödenecek KDV', '360');
+    const parts: Array<{ accountId: string; creditK: number }> = [];
+    for (const row of r.rows) {
+      const kdv2 = String(row.kdv2 ?? '000');
+      const numerator = Math.round(Number(row.pct) / 10);
+      const accountId = await ensureAccountByCode(
+        client,
+        `360.01.${kdv2}`,
+        `${row.name ?? 'Tevkifat'} (${numerator}/10) — KDV-2 ${kdv2}`,
+        '360.01',
+      );
+      parts.push({ accountId, creditK: toKurus(Number(row.amount) * rate) });
+    }
+    const residual = toKurus(withholding) - parts.reduce((sum, p) => sum + p.creditK, 0);
+    if (residual !== 0 && parts.length > 0) {
+      parts.sort((a, b) => b.creditK - a.creditK);
+      parts[0]!.creditK += residual;
+    }
+    return parts.filter((p) => p.creditK !== 0);
+  }
+
+  /**
+   * İade faturası (credit_note/debit_note) orijinal faturaya bağlıysa (reference_type='invoice'):
+   * orijinal aynı cariye ait, karşı türde (alınan iade → satış, verilen iade → alış), kesinleşmiş
+   * ve aynı para biriminde olmalı; iade tutarı orijinalin kalan bakiyesini aşamaz. Tutar
+   * orijinalin bakiyesinden düşülür, iadenin kendi bakiyesi kapanır.
+   */
+  private async applyReturnLink(
+    client: PoolClient,
+    note: Record<string, unknown>,
+  ): Promise<void> {
+    if (!['credit_note', 'debit_note'].includes(String(note.type))) return;
+    if (note.reference_type !== 'invoice' || !note.reference_id) return;
+    const orig = await client.query(
+      `SELECT id, number, type, contact_id, currency, posting_status, status, balance
+         FROM invoices WHERE id = $1 AND tenant_id = current_tenant_id() FOR UPDATE`,
+      [note.reference_id],
+    );
+    const o = orig.rows[0];
+    if (!o) throw new AppError('NOT_FOUND', 'İadenin bağlı olduğu fatura bulunamadı.');
+    const expected = note.type === 'credit_note' ? 'sales' : 'purchase';
+    if (o.type !== expected) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        note.type === 'credit_note'
+          ? 'Alınan iade yalnızca bir satış faturasına bağlanabilir.'
+          : 'Verilen iade yalnızca bir alış faturasına bağlanabilir.',
+      );
+    }
+    if (o.posting_status !== 'posted' || o.status === 'cancelled') {
+      throw new AppError('VALIDATION_ERROR', 'İade yalnızca kesinleşmiş faturaya bağlanabilir.');
+    }
+    if (note.contact_id && o.contact_id && note.contact_id !== o.contact_id) {
+      throw new AppError('VALIDATION_ERROR', 'İade ile orijinal fatura aynı cariye ait olmalı.');
+    }
+    if (String(note.currency ?? 'TRY').trim() !== String(o.currency ?? 'TRY').trim()) {
+      throw new AppError('VALIDATION_ERROR', 'İade ile orijinal fatura aynı para biriminde olmalı.');
+    }
+    const amount = Number(note.total);
+    if (toKurus(amount) > toKurus(Number(o.balance))) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `İade tutarı (${amount}) orijinal faturanın kalan bakiyesini (${Number(o.balance)}) aşamaz.`,
+      );
+    }
+    await client.query(
+      `UPDATE invoices
+          SET returned_amount = returned_amount + $1,
+              balance = balance - $1,
+              status = CASE WHEN balance - $1 <= 0 THEN 'paid' ELSE status END,
+              updated_at = now()
+        WHERE id = $2 AND tenant_id = current_tenant_id()`,
+      [amount, o.id],
+    );
+    await client.query(
+      `UPDATE invoices SET balance = 0, status = 'paid', updated_at = now()
+        WHERE id = $1 AND tenant_id = current_tenant_id()`,
+      [note.id],
+    );
+  }
+
+  /**
+   * Alış faturası matrahını satırlara göre borç hesaplarına dağıtır (Faz 7-2):
+   *  - stok takipli ürün → stok hesabı (hesap eşleme 'purchase' | 153),
+   *  - stok takipsiz ürün → satırdaki ya da ürün kartındaki varsayılan gider kategorisi,
+   *  - ürünsüz satır → satırın gider kategorisi,
+   *  - hiçbiri yoksa kesinleştirme reddedilir (yanlış hesaba sessiz kayıt yok).
+   * Tutarlar kuruştur; yuvarlama farkı en büyük kaleme eklenir ki toplam = `net` olsun.
+   */
+  private async purchaseDebitAllocation(
+    client: PoolClient,
+    invoiceId: string,
+    rate: number,
+    stockAccountId: string,
+    net: number,
+  ): Promise<Array<{ accountId: string; debitK: number }>> {
+    const r = await client.query(
+      `SELECT il.description, il.product_id, il.expense_category_id,
+              (il.line_total - il.tax_amount) AS taxable,
+              p.track_inventory, p.default_expense_category_id
+         FROM invoice_lines il
+         LEFT JOIN products p ON p.id = il.product_id
+        WHERE il.invoice_id = $1
+        ORDER BY il.sort_order, il.id`,
+      [invoiceId],
+    );
+    if (r.rows.length === 0) {
+      throw new AppError('VALIDATION_ERROR', 'Satırı olmayan fatura kesinleştirilemez.');
+    }
+    const byAccount = new Map<string, number>();
+    let index = 0;
+    for (const row of r.rows) {
+      index++;
+      let accountId: string | null = null;
+      if (row.product_id && row.track_inventory !== false) {
+        accountId = stockAccountId;
+      } else {
+        const categoryId = row.expense_category_id ?? row.default_expense_category_id ?? null;
+        if (categoryId) accountId = await expenseCategoryLedgerAccount(client, String(categoryId));
+      }
+      if (!accountId) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Satır ${index} ("${row.description}"): stok ürünü veya gider kategorisi seçin.`,
+        );
+      }
+      byAccount.set(accountId, (byAccount.get(accountId) ?? 0) + toKurus(Number(row.taxable) * rate));
+    }
+    const parts = [...byAccount.entries()].map(([accountId, debitK]) => ({ accountId, debitK }));
+    const residual = toKurus(net) - parts.reduce((sum, p) => sum + p.debitK, 0);
+    if (residual !== 0) {
+      parts.sort((a, b) => b.debitK - a.debitK);
+      parts[0]!.debitK += residual;
+    }
+    return parts.filter((p) => p.debitK !== 0);
+  }
 
   /** Hesap kodu ile muhasebe hesabı çözer (tenant planı; yoksa null). */
   private async resolveAccountByCode(client: PoolClient, code: string): Promise<string | null> {
@@ -877,23 +1433,6 @@ export class InvoiceService {
     );
   }
 
-  /** Kapalı dönem kontrolü — accounting servisiyle aynı kural (SPEC §15). */
-  private async assertInvoicePeriodOpen(client: PoolClient, entryDate: string): Promise<void> {
-    const period = await client.query(
-      `SELECT fp.status,
-              (SELECT TRUE FROM period_locks pl
-                 WHERE pl.period_id = fp.id AND pl.lock_date > $1 LIMIT 1) AS locked
-         FROM fiscal_periods fp
-        WHERE fp.tenant_id = current_tenant_id()
-          AND $1 BETWEEN fp.start_date AND fp.end_date
-        LIMIT 1`,
-      [entryDate],
-    );
-    const row = period.rows[0];
-    if (row?.status === 'closed') throw new AppError('PERIOD_LOCKED', 'Bu mali dönem kapatılmış.');
-    if (row?.locked) throw new AppError('PERIOD_LOCKED', 'Bu tarih dönem kilidinin gerisinde.');
-  }
-
   /**
    * Faturayı kesinleştirir + otomatik yevmiye fişi üretir (SPEC §12.2, §15).
    * `posting_status='posted'`; tahsilat durumundan (`status`) bağımsızdır.
@@ -916,7 +1455,7 @@ export class InvoiceService {
         const existing = await client.query(
           `SELECT id, entry_no FROM journal_entries
             WHERE tenant_id = current_tenant_id()
-              AND source_type = 'invoice' AND source_id = $1 AND status = 'posted'
+              AND source_type = 'invoice' AND source_id = $1 AND status = 'posted' AND entry_type <> 'ters'
             LIMIT 1`,
           [id],
         );
@@ -931,78 +1470,152 @@ export class InvoiceService {
       if (invoice.status === 'cancelled') {
         throw new AppError('VALIDATION_ERROR', 'İptal edilmiş fatura kesinleştirilemez.');
       }
-      if (!['sales', 'purchase'].includes(invoice.type)) {
+      if (!['sales', 'purchase', 'credit_note', 'debit_note'].includes(invoice.type)) {
         throw new AppError(
           'VALIDATION_ERROR',
           'Bu belge türü için otomatik muhasebeleştirme desteklenmiyor.',
         );
       }
 
+      // İade faturası orijinal faturaya bağlıysa: tutar kontrolü + orijinalin bakiyesinden düş.
+      // Muhasebe modülünden bağımsız ticari etkidir (cari bakiye), bu yüzden fişten önce.
+      await this.applyReturnLink(client, invoice);
+
+      const accountingActive = await isAccountingActive(client);
+      // Alış faturası: tedarikçi belge no (muhasebe aktifken zorunlu) + mükerrer belge engeli.
+      if (invoice.type === 'purchase') {
+        if (accountingActive && !String(invoice.supplier_document_no ?? '').trim()) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            'Alış faturasında tedarikçinin belge numarası (supplier_document_no) zorunludur.',
+          );
+        }
+        await assertNoDuplicateDocument(client, {
+          documentNo: invoice.supplier_document_no,
+          contactId: invoice.contact_id,
+          excludeInvoiceId: id,
+        });
+      }
+
+      // Muhasebe modülü aktif değilse fatura yine kesinleşir (posting_status) ama yevmiye
+      // fişi ve hesap planı oluşturulmaz (SPEC §10.3: "modül aktifse fiş").
+      if (!accountingActive) {
+        await client.query(
+          `UPDATE invoices SET posting_status = 'posted', posted_at = now(), updated_at = now()
+            WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [id],
+        );
+        await this.writeAudit(client, {
+          action: 'update',
+          entityType: 'invoices',
+          entityId: id,
+          userId,
+          newValues: {
+            action: 'posted',
+            invoice_number: invoice.number,
+            posting_status: 'posted',
+            journal_entry_id: null,
+            accounting_active: false,
+          },
+        });
+        await client.query('COMMIT');
+        return { invoiceId: id, entryId: null, entryNo: null, alreadyPosted: false, journal: false };
+      }
+
       // Çoklu para birimi (SPEC §9.2): fiş TRY (yerel) cinsinden üretilir — belge tutarları
       // base_total / exchange_rate ile TRY karşılığa çevrilir (dövizli faturada 120/320/600
       // gibi hesaplar her zaman TRY bazında dengelenir).
+      // Kuruşa yuvarlanır; dövizli belgede net+KDV TL karşılığı ile base_total arasında
+      // kalan kuruş farkı (≤ KURUS_TOLERANCE) matrah satırına eklenir — fiş tam dengeli olur.
+      const KURUS_TOLERANCE = 5;
       const rate = Number(invoice.exchange_rate) || 1;
-      const net = (Number(invoice.subtotal) - Number(invoice.discount_total)) * rate;
-      const vat = Number(invoice.tax_total) * rate;
-      const total = Number(invoice.base_total) || Number(invoice.total) * rate;
-      const rawDate = invoice.issue_date;
-      const entryDate =
-        (rawDate instanceof Date ? rawDate.toISOString() : String(rawDate)).slice(0, 10) ||
-        new Date().toISOString().slice(0, 10);
+      const vat = round2(Number(invoice.tax_total) * rate);
+      const withholding = round2(Number(invoice.withholding_total ?? 0) * rate);
+      const total = round2(Number(invoice.base_total) || Number(invoice.total) * rate);
+      let net = round2((Number(invoice.subtotal) - Number(invoice.discount_total)) * rate);
+      // total (ödenecek) = matrah + KDV − tevkifat
+      const roundingK = toKurus(total) - (toKurus(net) + toKurus(vat) - toKurus(withholding));
+      if (roundingK !== 0 && Math.abs(roundingK) <= KURUS_TOLERANCE) {
+        net = (toKurus(net) + roundingK) / 100;
+      }
+      // issue_date pg'den yerel gece yarısı Date gelir; toISOString() UTC+3'te bir gün
+      // geri kayıyordu → yerel tarih bileşenleri (toIsoDate).
+      const entryDate = invoice.issue_date ? toIsoDate(invoice.issue_date) : todayIso();
 
-      await this.assertInvoicePeriodOpen(client, entryDate);
+      const periodId = await openPeriodFor(client, entryDate);
 
       // Hesap planı yoksa otomatik kur (fallback TDHP kodları mevcut olsun).
       await ensureChartOfAccountsOn(client);
 
       const lines: Array<{ accountId: string; debit: number; credit: number }> = [];
+      const unresolved = () =>
+        new AppError('VALIDATION_ERROR', 'Muhasebe hesabı çözülemedi (TDHP/hesap eşleme).');
       if (invoice.type === 'sales') {
+        // Satış: 120 B (ödenecek) / 600 A (matrah) + 391 A (KDV − alıcının tevkif ettiği KDV)
         const receivable = await this.resolveAccountByCode(client, '120');
         const salesAcc = await this.resolveMappedAccount(client, 'sales', 'credit', '600');
         const vatAcc = await this.resolveMappedAccount(client, 'vat_output', 'credit', '391');
-        if (!receivable || !salesAcc) {
-          throw new AppError('VALIDATION_ERROR', 'Muhasebe hesabı çözülemedi (TDHP/hesap eşleme).');
-        }
+        if (!receivable || !salesAcc) throw unresolved();
+        const collectedVat = (toKurus(vat) - toKurus(withholding)) / 100;
         lines.push({ accountId: receivable, debit: total, credit: 0 });
         lines.push({ accountId: salesAcc, debit: 0, credit: net });
-        if (vat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: 0, credit: vat });
-      } else {
+        if (collectedVat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: 0, credit: collectedVat });
+      } else if (invoice.type === 'purchase') {
+        // Alış: stok/gider B (matrah) + 191 B (tam KDV) / 320 A (ödenecek) + 360.01.<KDV-2> A (tevkifat)
         const payable = await this.resolveAccountByCode(client, '320');
         const stockAcc = await this.resolveMappedAccount(client, 'purchase', 'debit', '153');
         const vatAcc = await this.resolveMappedAccount(client, 'vat_input', 'debit', '191');
-        if (!payable || !stockAcc) {
-          throw new AppError('VALIDATION_ERROR', 'Muhasebe hesabı çözülemedi (TDHP/hesap eşleme).');
+        if (!payable || !stockAcc) throw unresolved();
+        // Faz 7-2: satır bazında stok (153) / gider (kategori hesabı, ör. 770.xx) ayrımı.
+        for (const d of await this.purchaseDebitAllocation(client, id, rate, stockAcc, net)) {
+          lines.push({ accountId: d.accountId, debit: d.debitK / 100, credit: 0 });
         }
-        lines.push({ accountId: stockAcc, debit: net, credit: 0 });
         if (vat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: vat, credit: 0 });
         lines.push({ accountId: payable, debit: 0, credit: total });
+        for (const w of await this.withholdingAllocation(client, id, rate, withholding)) {
+          lines.push({ accountId: w.accountId, debit: 0, credit: w.creditK / 100 });
+        }
+      } else if (invoice.type === 'credit_note') {
+        // Alınan iade (satıştan iade): 610 B (matrah) + 391 B (KDV) / 120 A
+        const receivable = await this.resolveAccountByCode(client, '120');
+        const returnsAcc = await this.resolveAccountByCode(client, '610');
+        const vatAcc = await this.resolveMappedAccount(client, 'vat_output', 'credit', '391');
+        if (!receivable || !returnsAcc) throw unresolved();
+        lines.push({ accountId: returnsAcc, debit: net, credit: 0 });
+        if (vat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: vat, credit: 0 });
+        lines.push({ accountId: receivable, debit: 0, credit: total });
+      } else {
+        // Verilen iade (alıştan iade): 320 B / stok-gider A (matrah) + 191 A (KDV)
+        const payable = await this.resolveAccountByCode(client, '320');
+        const stockAcc = await this.resolveMappedAccount(client, 'purchase', 'debit', '153');
+        const vatAcc = await this.resolveMappedAccount(client, 'vat_input', 'debit', '191');
+        if (!payable || !stockAcc) throw unresolved();
+        lines.push({ accountId: payable, debit: total, credit: 0 });
+        for (const d of await this.purchaseDebitAllocation(client, id, rate, stockAcc, net)) {
+          lines.push({ accountId: d.accountId, debit: 0, credit: d.debitK / 100 });
+        }
+        if (vat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: 0, credit: vat });
       }
 
-      const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
-      const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
-      if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      const totalDebit = lines.reduce((s, l) => s + toKurus(l.debit), 0) / 100;
+      const totalCredit = lines.reduce((s, l) => s + toKurus(l.credit), 0) / 100;
+      if (toKurus(totalDebit) !== toKurus(totalCredit)) {
         throw new AppError(
           'VALIDATION_ERROR',
           `Fiş dengeli değil: borç ${totalDebit} != alacak ${totalCredit}`,
         );
       }
 
-      await client.query('SELECT pg_advisory_xact_lock(hashtext(current_setting($1)))', [
-        'app.tenant_id',
-      ]);
-      const seq = await client.query(
-        'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
-      );
-      const entryNo = Number(seq.rows[0].next_no);
+      const entryNo = await allocateEntryNo(client);
       const entryId = newId();
       const description = `Fatura ${invoice.number}`;
 
       await client.query(
         `INSERT INTO journal_entries
-           (id, tenant_id, entry_no, entry_date, entry_type, status, description,
+           (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
             source_type, source_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-         VALUES ($1, current_tenant_id(), $2, $3, 'mahsup', 'posted', $4, 'invoice', $5, $6, $7, $8, now(), $8, $8)`,
-        [entryId, entryNo, entryDate, description, id, totalDebit, totalCredit, userId],
+         VALUES ($1, current_tenant_id(), $2, $3, $4, 'mahsup', 'posted', $5, 'invoice', $6, $7, $8, $9, now(), $9, $9)`,
+        [entryId, entryNo, entryDate, periodId, description, id, totalDebit, totalCredit, userId],
       );
 
       let lineNo = 1;
