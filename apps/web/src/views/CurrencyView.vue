@@ -145,8 +145,8 @@
       </div>
       <p v-if="!store.revaluationEntries.length" class="state-msg">
         Değerleme yapılmadı. "Dönem Sonu Değerle" ile dövizli kasa/banka hesaplarının TL
-        karşılığını tarihteki son kura göre yeniden hesaplayın. Fark; kâr için 645, zarar için
-        655 hesabına "kapanış fişi" olarak dengeli yevmiye kaydı üretir (aynı tarih için tek fiş).
+        karşılığını tarihteki son kura göre yeniden hesaplayın. Fark; kâr için 646, zarar için
+        656 hesabına "kapanış fişi" olarak dengeli yevmiye kaydı üretir (aynı tarih için tek fiş).
       </p>
       <div v-else class="table-wrap">
         <table class="data-table">
@@ -295,7 +295,7 @@ async function runRevalue() {
   showRevalue.value = false;
 }
 
-/** Değerleme yapar ve 645/655 hesabına kapanış fişi üretir (Faz 6.6). */
+/** Değerleme yapar ve 646/656 hesabına kapanış fişi üretir (Faz 6.6). */
 async function runBookRevalue() {
   try {
     await store.bookRevaluation(revalueDate.value || undefined);

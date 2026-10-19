@@ -53,9 +53,15 @@ export interface TrialBalanceRow {
   code: string;
   name: string;
   type: string;
+  /** Kümülatif (devir + dönem) borç. */
   debit: number;
+  /** Kümülatif (devir + dönem) alacak. */
   credit: number;
   balance: number;
+  openingDebit: number;
+  openingCredit: number;
+  periodDebit: number;
+  periodCredit: number;
 }
 
 export interface TrialBalance {
@@ -65,15 +71,21 @@ export interface TrialBalance {
   totalDebit: number;
   totalCredit: number;
   balanced: boolean;
+  openingDebit: number;
+  openingCredit: number;
+  periodDebit: number;
+  periodCredit: number;
 }
 
 export interface BalanceSheet {
   as_of: string;
+  year_start: string;
   aktif: { donenVarliklar: number; duranVarliklar: number; toplam: number };
   pasif: {
     kisaVadeliYabanciKaynaklar: number;
     uzunVadeliYabanciKaynaklar: number;
     ozKaynaklar: number;
+    gecmisYillarKarZarari: number;
     donemNetKar: number;
     toplam: number;
   };
@@ -84,12 +96,57 @@ export interface IncomeStatement {
   from: string;
   to: string;
   brutSatislar: number;
+  satisIndirimleri: number;
   netSatislar: number;
   satislarinMaliyeti: number;
   brutKar: number;
   faaliyetGiderleri: number;
+  digerFaaliyetGelirleri: number;
+  digerFaaliyetGiderleri: number;
   faaliyetKari: number;
+  finansmanGiderleri: number;
+  olaganDisiGelirler: number;
+  olaganDisiGiderler: number;
+  vergiKarsiligi: number;
+  maliyetHesaplari7xx: number;
   donemNetKari: number;
+}
+
+/** KDV-2 (alış, sorumlu sıfatıyla) tevkifat satırı; `ledger` 360.01 defter bakiyesi. */
+export interface WithholdingKdv2Row {
+  kdv2Code: string;
+  einvoiceCode: string;
+  name: string | null;
+  /** "4/10" biçiminde oran. */
+  rate: string;
+  documentCount: number;
+  base: number;
+  vat: number;
+  withheld: number;
+  ledger: number;
+  difference: number;
+}
+
+/** KDV-1 kısmi tevkifat satırı (satış). */
+export interface WithholdingKdv1Row {
+  einvoiceCode: string;
+  name: string | null;
+  rate: string;
+  documentCount: number;
+  base: number;
+  vat: number;
+  withheld: number;
+}
+
+export interface WithholdingReport {
+  from: string;
+  to: string;
+  kdv2: WithholdingKdv2Row[];
+  /** Tüm KDV-2 satırlarının tevkif edilen toplamı (sunucu hesabı). */
+  kdv2Total: number;
+  kdv1: WithholdingKdv1Row[];
+  /** Tüm KDV-1 satırlarının tevkif edilen toplamı (sunucu hesabı). */
+  kdv1Total: number;
 }
 
 export const useAccountingStore = defineStore('accounting', () => {
@@ -134,8 +191,16 @@ export const useAccountingStore = defineStore('accounting', () => {
     return response.data as { id: string; entryNo: number | null };
   };
 
-  const reverseEntry = async (id: string) => {
-    await api.post(`/v1/accounting/entries/${id}/reverse`);
+  const reverseEntry = async (id: string, entryDate?: string) => {
+    await api.post(
+      `/v1/accounting/entries/${id}/reverse`,
+      entryDate ? { entry_date: entryDate } : {},
+    );
+  };
+
+  /** Taslak fişi onaylar (gap-free numara + denge + dönem kontrolü sunucuda). */
+  const postEntry = async (id: string) => {
+    await api.post(`/v1/accounting/entries/${id}/post`);
   };
 
   const trialBalance = async (from?: string, to?: string): Promise<TrialBalance> => {
@@ -159,6 +224,13 @@ export const useAccountingStore = defineStore('accounting', () => {
     return response.data;
   };
 
+  const withholdingReport = async (from?: string, to?: string): Promise<WithholdingReport> => {
+    const response = await api.get('/v1/accounting/reports/withholding', {
+      params: { from, to },
+    });
+    return response.data;
+  };
+
   return {
     accounts,
     entries,
@@ -169,8 +241,10 @@ export const useAccountingStore = defineStore('accounting', () => {
     fetchEntries,
     createEntry,
     reverseEntry,
+    postEntry,
     trialBalance,
     balanceSheet,
     incomeStatement,
+    withholdingReport,
   };
 });

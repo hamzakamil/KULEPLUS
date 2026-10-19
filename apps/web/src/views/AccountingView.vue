@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { useAccountingStore, type JournalLine, type TrialBalance } from '@/stores/accounting';
+import {
+  useAccountingStore,
+  type JournalLine,
+  type TrialBalance,
+  type WithholdingReport,
+} from '@/stores/accounting';
 
 const store = useAccountingStore();
 const activeTab = ref<'accounts' | 'entries' | 'reports'>('accounts');
@@ -22,9 +27,11 @@ const STATUS_LABELS: Record<string, string> = {
 
 /** SPEC §22.1 hata sözleşmesinden (`{ error: { message } }`) mesaj çıkarır. */
 function apiErrorMessage(err: unknown, fallback: string): string {
-  const data = (err as {
-    response?: { data?: { error?: { message?: string }; message?: string } };
-  })?.response?.data;
+  const data = (
+    err as {
+      response?: { data?: { error?: { message?: string }; message?: string } };
+    }
+  )?.response?.data;
   return data?.error?.message || data?.message || fallback;
 }
 
@@ -98,6 +105,22 @@ async function submitEntry() {
     info.value = 'Fiş kaydedilemedi (denge veya alanları kontrol edin).';
   }
 }
+async function approve(id: string) {
+  if (
+    !window.confirm(
+      'Taslak fiş onaylansın mı?\n\nOnaylanan fiş yevmiye numarası alır ve artık değiştirilemez.',
+    )
+  )
+    return;
+  info.value = null;
+  try {
+    await store.postEntry(id);
+    await loadEntries();
+    info.value = 'Fiş onaylandı.';
+  } catch (err) {
+    info.value = apiErrorMessage(err, 'Fiş onaylanamadı.');
+  }
+}
 async function reverse(id: string) {
   if (
     !window.confirm(
@@ -116,23 +139,50 @@ async function reverse(id: string) {
 }
 
 // --- Raporlar ---
-const reportType = ref<'trial' | 'balance' | 'income'>('trial');
+const reportType = ref<'trial' | 'balance' | 'income' | 'withholding'>('trial');
 const rangeFrom = ref(yearStart);
 const rangeTo = ref(today);
 const asOf = ref(today);
 const trial = ref<TrialBalance | null>(null);
 const balance = ref<Awaited<ReturnType<typeof store.balanceSheet>> | null>(null);
 const income = ref<Awaited<ReturnType<typeof store.incomeStatement>> | null>(null);
+const withholding = ref<WithholdingReport | null>(null);
 async function runReport() {
   info.value = null;
   try {
     if (reportType.value === 'trial')
       trial.value = await store.trialBalance(rangeFrom.value, rangeTo.value);
     else if (reportType.value === 'balance') balance.value = await store.balanceSheet(asOf.value);
+    else if (reportType.value === 'withholding')
+      withholding.value = await store.withholdingReport(rangeFrom.value, rangeTo.value);
     else income.value = await store.incomeStatement(rangeFrom.value, rangeTo.value);
   } catch {
     info.value = 'Rapor üretilemedi.';
   }
+}
+
+// --- Tevkifat raporu yardımcıları ---
+/**
+ * Defter (360.01) bakiyesi KDV-2 koduna göre gelir; aynı kod birden çok satırda tekrarlanabildiği
+ * için toplamda kod başına bir kez sayılır. Tevkif toplamı sunucunun kdv2Total değeridir.
+ */
+const whTotals = computed(() => {
+  const kdv2 = withholding.value?.kdv2 ?? [];
+  const kdv1 = withholding.value?.kdv1 ?? [];
+  const ledgerByCode = new Map<string, number>();
+  kdv2.forEach((r) => ledgerByCode.set(r.kdv2Code, r.ledger));
+  const kdv2Ledger = [...ledgerByCode.values()].reduce((s, v) => s + v, 0);
+  return {
+    kdv2Base: kdv2.reduce((s, r) => s + r.base, 0),
+    kdv2Vat: kdv2.reduce((s, r) => s + r.vat, 0),
+    kdv2Ledger,
+    kdv2Difference: (withholding.value?.kdv2Total ?? 0) - kdv2Ledger,
+    kdv1Base: kdv1.reduce((s, r) => s + r.base, 0),
+    kdv1Vat: kdv1.reduce((s, r) => s + r.vat, 0),
+  };
+});
+function hasDifference(v: number): boolean {
+  return Math.abs(v) >= 0.005;
 }
 
 onMounted(async () => {
@@ -249,7 +299,16 @@ onMounted(async () => {
               </td>
               <td class="num">
                 <button
-                  v-if="e.status === 'posted'"
+                  v-if="e.status === 'draft'"
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  title="Taslağı onaylar — yevmiye numarası verilir, fiş kilitlenir"
+                  @click="approve(e.id)"
+                >
+                  Onayla
+                </button>
+                <button
+                  v-if="e.status === 'posted' && e.entry_type !== 'ters'"
                   type="button"
                   class="btn btn-secondary btn-sm"
                   title="Onaylı fişi ters kayıtla düzeltir — silmez, yeni 'ters' fişi oluşturur"
@@ -278,6 +337,7 @@ onMounted(async () => {
             <option value="trial">Mizan</option>
             <option value="balance">Bilanço</option>
             <option value="income">Gelir Tablosu</option>
+            <option value="withholding">Tevkifat (KDV-2 / KDV-1)</option>
           </select>
         </label>
         <template v-if="reportType === 'balance'">
@@ -298,8 +358,12 @@ onMounted(async () => {
             <tr>
               <th>Kod</th>
               <th>Hesap</th>
-              <th class="num">Borç</th>
-              <th class="num">Alacak</th>
+              <th class="num">Devir Borç</th>
+              <th class="num">Devir Alacak</th>
+              <th class="num">Dönem Borç</th>
+              <th class="num">Dönem Alacak</th>
+              <th class="num">Toplam Borç</th>
+              <th class="num">Toplam Alacak</th>
               <th class="num">Bakiye</th>
             </tr>
           </thead>
@@ -307,6 +371,10 @@ onMounted(async () => {
             <tr v-for="r in trial.accounts" :key="r.code">
               <td class="mono">{{ r.code }}</td>
               <td>{{ r.name }}</td>
+              <td class="num">{{ formatMoney(r.openingDebit) }}</td>
+              <td class="num">{{ formatMoney(r.openingCredit) }}</td>
+              <td class="num">{{ formatMoney(r.periodDebit) }}</td>
+              <td class="num">{{ formatMoney(r.periodCredit) }}</td>
               <td class="num">{{ formatMoney(r.debit) }}</td>
               <td class="num">{{ formatMoney(r.credit) }}</td>
               <td class="num">{{ formatMoney(r.balance) }}</td>
@@ -315,6 +383,10 @@ onMounted(async () => {
           <tfoot>
             <tr>
               <th colspan="2">Toplam</th>
+              <th class="num">{{ formatMoney(trial.openingDebit) }}</th>
+              <th class="num">{{ formatMoney(trial.openingCredit) }}</th>
+              <th class="num">{{ formatMoney(trial.periodDebit) }}</th>
+              <th class="num">{{ formatMoney(trial.periodCredit) }}</th>
               <th class="num">{{ formatMoney(trial.totalDebit) }}</th>
               <th class="num">{{ formatMoney(trial.totalCredit) }}</th>
               <th class="num">{{ trial.balanced ? 'Dengeli' : 'Dengesiz!' }}</th>
@@ -350,6 +422,10 @@ onMounted(async () => {
             <span>Öz Kaynaklar</span><b>{{ formatMoney(balance.pasif.ozKaynaklar) }}</b>
           </p>
           <p>
+            <span>Geçmiş Yıllar Kâr/Zararı</span
+            ><b>{{ formatMoney(balance.pasif.gecmisYillarKarZarari) }}</b>
+          </p>
+          <p>
             <span>Dönem Net Kârı</span><b>{{ formatMoney(balance.pasif.donemNetKar) }}</b>
           </p>
           <p class="total">
@@ -377,9 +453,128 @@ onMounted(async () => {
         <p>
           <span>Faaliyet Kârı</span><b>{{ formatMoney(income.faaliyetKari) }}</b>
         </p>
+        <p>
+          <span>Diğer Faaliyet Gelirleri</span
+          ><b>{{ formatMoney(income.digerFaaliyetGelirleri) }}</b>
+        </p>
+        <p>
+          <span>Diğer Faaliyet Giderleri</span
+          ><b>{{ formatMoney(income.digerFaaliyetGiderleri) }}</b>
+        </p>
+        <p>
+          <span>Finansman Giderleri</span><b>{{ formatMoney(income.finansmanGiderleri) }}</b>
+        </p>
+        <p>
+          <span>Olağandışı Gelirler</span><b>{{ formatMoney(income.olaganDisiGelirler) }}</b>
+        </p>
+        <p>
+          <span>Olağandışı Giderler</span><b>{{ formatMoney(income.olaganDisiGiderler) }}</b>
+        </p>
+        <p>
+          <span>Vergi Karşılığı</span><b>{{ formatMoney(income.vergiKarsiligi) }}</b>
+        </p>
+        <p>
+          <span>Maliyet Hesapları (7xx)</span><b>{{ formatMoney(income.maliyetHesaplari7xx) }}</b>
+        </p>
         <p class="total">
           <span>Dönem Net Kârı</span><b>{{ formatMoney(income.donemNetKari) }}</b>
         </p>
+      </div>
+
+      <div v-else-if="reportType === 'withholding' && withholding" class="wh-report">
+        <div class="wh-block">
+          <h3>KDV-2 (alışlar — sorumlu sıfatıyla)</h3>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>KDV-2 Kodu</th>
+                  <th>e-Fatura Kodu</th>
+                  <th>İşlem Türü</th>
+                  <th>Oran</th>
+                  <th class="num">Belge</th>
+                  <th class="num">Matrah</th>
+                  <th class="num">KDV</th>
+                  <th class="num">Tevkif Edilen</th>
+                  <th class="num">Defter (360.01)</th>
+                  <th class="num">Fark</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(r, i) in withholding.kdv2" :key="i">
+                  <td class="mono">{{ r.kdv2Code }}</td>
+                  <td class="mono">{{ r.einvoiceCode }}</td>
+                  <td>{{ r.name ?? '—' }}</td>
+                  <td class="mono">{{ r.rate }}</td>
+                  <td class="num">{{ r.documentCount }}</td>
+                  <td class="num">{{ formatMoney(r.base) }}</td>
+                  <td class="num">{{ formatMoney(r.vat) }}</td>
+                  <td class="num">{{ formatMoney(r.withheld) }}</td>
+                  <td class="num">{{ formatMoney(r.ledger) }}</td>
+                  <td class="num" :class="{ 'wh-diff': hasDifference(r.difference) }">
+                    {{ formatMoney(r.difference) }}
+                  </td>
+                </tr>
+                <tr v-if="withholding.kdv2.length === 0">
+                  <td colspan="10" class="muted">Bu dönemde KDV-2 tevkifatlı alış yok.</td>
+                </tr>
+              </tbody>
+              <tfoot v-if="withholding.kdv2.length > 0">
+                <tr>
+                  <th colspan="5">Toplam</th>
+                  <th class="num">{{ formatMoney(whTotals.kdv2Base) }}</th>
+                  <th class="num">{{ formatMoney(whTotals.kdv2Vat) }}</th>
+                  <th class="num">{{ formatMoney(withholding.kdv2Total) }}</th>
+                  <th class="num">{{ formatMoney(whTotals.kdv2Ledger) }}</th>
+                  <th class="num" :class="{ 'wh-diff': hasDifference(whTotals.kdv2Difference) }">
+                    {{ formatMoney(whTotals.kdv2Difference) }}
+                  </th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="wh-block">
+          <h3>KDV-1 kısmi tevkifat (satışlar)</h3>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>e-Fatura Kodu</th>
+                  <th>İşlem Türü</th>
+                  <th>Oran</th>
+                  <th class="num">Belge</th>
+                  <th class="num">Matrah</th>
+                  <th class="num">KDV</th>
+                  <th class="num">Tevkif Edilen</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(r, i) in withholding.kdv1" :key="i">
+                  <td class="mono">{{ r.einvoiceCode }}</td>
+                  <td>{{ r.name ?? '—' }}</td>
+                  <td class="mono">{{ r.rate }}</td>
+                  <td class="num">{{ r.documentCount }}</td>
+                  <td class="num">{{ formatMoney(r.base) }}</td>
+                  <td class="num">{{ formatMoney(r.vat) }}</td>
+                  <td class="num">{{ formatMoney(r.withheld) }}</td>
+                </tr>
+                <tr v-if="withholding.kdv1.length === 0">
+                  <td colspan="7" class="muted">Bu dönemde KDV-1 kısmi tevkifatlı satış yok.</td>
+                </tr>
+              </tbody>
+              <tfoot v-if="withholding.kdv1.length > 0">
+                <tr>
+                  <th colspan="4">Toplam</th>
+                  <th class="num">{{ formatMoney(whTotals.kdv1Base) }}</th>
+                  <th class="num">{{ formatMoney(whTotals.kdv1Vat) }}</th>
+                  <th class="num">{{ formatMoney(withholding.kdv1Total) }}</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -601,5 +796,18 @@ onMounted(async () => {
 }
 .modal-actions .spacer {
   flex: 1;
+}
+.wh-report {
+  display: grid;
+  gap: 20px;
+}
+.wh-block h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+.wh-diff {
+  background: #fef2f2;
+  color: #b42318;
+  font-weight: 700;
 }
 </style>

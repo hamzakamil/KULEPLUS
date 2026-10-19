@@ -544,7 +544,7 @@ const revaluationJournalNo = ref<number | null>(null);
 
   /**
    * Dönem sonu değerleme + KAPANIŞ FİŞİ (Faz 6.6).
-   * POST /v1/cash-bank/exchange-rates/revalue/book — 645/655 hesabına dengeli
+   * POST /v1/cash-bank/exchange-rates/revalue/book — 646/656 hesabına dengeli
    * `mahsup` yevmiye fişi yazar; aynı tarih için idempotenttir.
    */
   const bookRevaluation = async (valuationDate?: string) => {

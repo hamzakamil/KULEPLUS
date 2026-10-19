@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/lib/api';
 
 type GroupId = 'company' | 'finance' | 'reports' | 'management';
-type Tab = { id: string; label: string; kind: 'company' | 'preferences' | 'expense-categories' | 'notifications' | 'rules' };
+type Tab = { id: string; label: string; kind: 'company' | 'preferences' | 'expense-categories' | 'withholding-types' | 'notifications' | 'rules' };
 
 const groups: { id: GroupId; label: string; description: string; tabs: Tab[] }[] = [
   {
@@ -21,6 +21,7 @@ const groups: { id: GroupId; label: string; description: string; tabs: Tab[] }[]
       { id: 'invoices', label: 'Fatura', kind: 'preferences' },
       { id: 'cheques', label: 'Çek / Senet', kind: 'preferences' },
       { id: 'expenses', label: 'Gider kategorileri', kind: 'expense-categories' },
+      { id: 'withholding', label: 'Tevkifat türleri', kind: 'withholding-types' },
     ],
   },
   {
@@ -47,6 +48,9 @@ const ManagementPreferencesView = defineAsyncComponent(
   () => import('@/views/ManagementPreferencesView.vue'),
 );
 const ManagementRulesView = defineAsyncComponent(() => import('@/views/ManagementRulesView.vue'));
+const WithholdingTypesView = defineAsyncComponent(
+  () => import('@/views/WithholdingTypesView.vue'),
+);
 
 const route = useRoute();
 const router = useRouter();
@@ -221,6 +225,7 @@ const embeddedView = computed(() => {
   if (activeTab.value.kind === 'expense-categories') return ExpenseCategoriesView;
   if (activeTab.value.kind === 'notifications') return ManagementPreferencesView;
   if (activeTab.value.kind === 'rules') return ManagementRulesView;
+  if (activeTab.value.kind === 'withholding-types') return WithholdingTypesView;
   return null;
 });
 </script>

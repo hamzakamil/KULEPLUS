@@ -1,5 +1,15 @@
 <template>
   <div class="invoices-workspace">
+    <!-- ── Bildirim (kesinleştirme / iptal sonucu) ── -->
+    <div
+      v-if="notice"
+      class="alert"
+      :class="notice.kind === 'error' ? 'alert-error' : 'alert-success'"
+      role="alert"
+    >
+      {{ notice.text }}
+    </div>
+
     <!-- ── ÜST: Master liste ── -->
     <section class="master-panel" aria-label="Fatura listesi">
       <header class="master-header">
@@ -69,6 +79,7 @@
               <th scope="col">Cari</th>
               <th scope="col" class="num">Toplam</th>
               <th scope="col">Durum</th>
+              <th scope="col">Kesinleşme</th>
             </tr>
           </thead>
           <tbody>
@@ -101,14 +112,32 @@
                   statusLabel(invoice.status)
                 }}</span>
               </td>
+              <td>
+                <span
+                  v-if="invoice.posting_status"
+                  :class="postingBadgeClass(invoice.posting_status)"
+                  >{{ postingLabel(invoice.posting_status) }}</span
+                >
+                <div v-if="canPost(invoice)">
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="actionBusy"
+                    @click.stop="postInvoiceAction(invoice)"
+                    @keydown.stop
+                  >
+                    Kesinleştir
+                  </button>
+                </div>
+              </td>
             </tr>
             <tr v-if="!invoices.length && !loading">
-              <td colspan="7" class="empty-cell">
+              <td colspan="8" class="empty-cell">
                 Henüz fatura bulunmuyor. Yeni fatura oluşturmak için yukarıdaki butonları kullanın.
               </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="7" class="empty-cell">Yükleniyor…</td>
+              <td colspan="8" class="empty-cell">Yükleniyor…</td>
             </tr>
           </tbody>
         </table>
@@ -158,6 +187,14 @@
               }}</span>
             </dd>
           </div>
+          <div v-if="selectedInvoice.posting_status">
+            <dt>Kesinleşme</dt>
+            <dd>
+              <span :class="postingBadgeClass(selectedInvoice.posting_status)">{{
+                postingLabel(selectedInvoice.posting_status)
+              }}</span>
+            </dd>
+          </div>
           <div>
             <dt>Tarih</dt>
             <dd>{{ formatDate(selectedInvoice.issue_date) }}</dd>
@@ -182,6 +219,10 @@
           <span class="label">KDV</span>
           <span class="amount">{{ formatCurrency(selectedInvoice.tax_total) }}</span>
         </div>
+        <div v-if="(selectedInvoice.withholding_total ?? 0) > 0">
+          <span class="label">Tevkifat</span>
+          <span class="amount">−{{ formatCurrency(selectedInvoice.withholding_total) }}</span>
+        </div>
         <div>
           <span class="label">Genel Toplam</span>
           <span class="amount total">{{ formatCurrency(selectedInvoice.total) }}</span>
@@ -201,6 +242,10 @@
           <span class="label">Ödenen</span>
           <span class="amount paid">{{ formatCurrency(selectedInvoice.paid_amount) }}</span>
         </div>
+        <div v-if="(selectedInvoice.returned_amount ?? 0) > 0">
+          <span class="label">İade Edilen</span>
+          <span class="amount">{{ formatCurrency(selectedInvoice.returned_amount) }}</span>
+        </div>
         <div>
           <span class="label">Bakiye</span>
           <span class="amount balance">{{ formatCurrency(selectedInvoice.balance) }}</span>
@@ -210,7 +255,11 @@
       <div class="detail-section">
         <div class="section-head">
           <h3>Satırlar</h3>
-          <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">
+          <button
+            v-if="canEditLines(selectedInvoice)"
+            class="btn btn-secondary btn-sm"
+            @click="editInvoice(selectedInvoice)"
+          >
             Satırları Düzenle
           </button>
         </div>
@@ -278,11 +327,35 @@
       </div>
 
       <div class="detail-actions">
-        <button class="btn btn-secondary btn-sm" @click="editInvoice(selectedInvoice)">
+        <button
+          v-if="canPost(selectedInvoice)"
+          class="btn btn-primary btn-sm"
+          :disabled="actionBusy"
+          @click="postInvoiceAction(selectedInvoice)"
+        >
+          Kesinleştir
+        </button>
+        <button
+          v-if="!isCancelledInvoice(selectedInvoice)"
+          class="btn btn-secondary btn-sm"
+          @click="editInvoice(selectedInvoice)"
+        >
           Düzenle
         </button>
         <button class="btn btn-secondary btn-sm" @click="printInvoice">Yazdır / PDF</button>
-        <button class="btn btn-danger btn-sm" @click="deleteInvoice(selectedInvoice.id)">
+        <button
+          v-if="isPostedInvoice(selectedInvoice)"
+          class="btn btn-danger btn-sm"
+          :disabled="actionBusy"
+          @click="cancelInvoiceAction(selectedInvoice)"
+        >
+          İptal Et
+        </button>
+        <button
+          v-if="!isPostedInvoice(selectedInvoice)"
+          class="btn btn-danger btn-sm"
+          @click="deleteInvoice(selectedInvoice.id)"
+        >
           Sil
         </button>
       </div>
@@ -396,6 +469,10 @@
 
       <div v-show="!panelMinimized" class="wp-body">
         <form @submit.prevent="saveInvoice" class="invoice-form">
+          <p v-if="formPosted" class="muted small">
+            Kesinleşmiş fatura: yalnız not ve vade tarihi değiştirilebilir. Düzeltme için faturayı
+            iptal edin veya iade faturası oluşturun.
+          </p>
           <div class="form-grid">
             <div>
               <label class="field-label" for="f-type">Fatura Tipi *</label>
@@ -404,6 +481,7 @@
                 v-model="draftForm.type"
                 :options="INVOICE_TYPE_OPTIONS"
                 placeholder="Fatura tipi seçin"
+                :disabled="formPosted"
                 @select="onTypeChange"
               />
             </div>
@@ -416,6 +494,19 @@
                 disabled
               />
             </div>
+            <div v-if="draftForm.type === 'purchase'">
+              <label class="field-label" for="f-supplier-no">Tedarikçi belge no</label>
+              <input
+                id="f-supplier-no"
+                v-model="draftForm.supplier_document_no"
+                type="text"
+                maxlength="100"
+                class="input"
+                :disabled="formPosted"
+                placeholder="Tedarikçinin fatura numarası"
+              />
+              <span class="muted small">Aynı cari için tekrar edemez.</span>
+            </div>
             <div>
               <label class="field-label" for="f-issue">Fatura Tarihi *</label>
               <input
@@ -423,6 +514,7 @@
                 v-model="draftForm.issue_date"
                 type="date"
                 class="input"
+                :disabled="formPosted"
                 required
               />
             </div>
@@ -437,7 +529,23 @@
                 v-model="draftForm.contact_id"
                 :options="contactOptions"
                 placeholder="Seçiniz…"
+                :disabled="formPosted"
               />
+            </div>
+            <div v-if="isReturnType && draftForm.contact_id">
+              <label class="field-label" for="f-ref-invoice">Orijinal fatura (isteğe bağlı)</label>
+              <FilterableSelect
+                id="f-ref-invoice"
+                :model-value="draftForm.reference_id ?? ''"
+                :options="referenceOptions"
+                placeholder="Bağlı fatura yok"
+                allow-clear
+                :disabled="invoiceStore.workspaceMode === 'edit'"
+                @update:model-value="(v) => setReferenceInvoice(v)"
+              />
+              <span v-if="invoiceStore.workspaceMode === 'edit'" class="muted small"
+                >Mevcut bağ düzenlemede değiştirilemez.</span
+              >
             </div>
             <div>
               <label class="field-label" for="f-warehouse">Depo</label>
@@ -446,6 +554,7 @@
                 v-model="draftForm.warehouse_id"
                 :options="warehouseOptions"
                 placeholder="Seçiniz…"
+                :disabled="formPosted"
               />
             </div>
             <div>
@@ -455,6 +564,7 @@
                 v-model="draftForm.currency"
                 :options="CURRENCY_OPTIONS"
                 placeholder="Para birimi seçin"
+                :disabled="formPosted"
               />
             </div>
             <div>
@@ -466,6 +576,7 @@
                 min="0.0001"
                 step="0.0001"
                 class="input"
+                :disabled="formPosted"
                 :placeholder="draftForm.currency !== 'TRY' ? 'Otomatik' : '1'"
               />
               <span v-if="draftForm.currency !== 'TRY'" class="muted small"
@@ -479,7 +590,7 @@
                 v-model="draftForm.rate_date"
                 type="date"
                 class="input"
-                :disabled="draftForm.currency === 'TRY'"
+                :disabled="draftForm.currency === 'TRY' || formPosted"
               />
             </div>
           </div>
@@ -488,7 +599,12 @@
             <h3>Satırlar</h3>
             <div class="line-items-tools">
               <span class="muted small">Sütunları sürükleyerek genişletebilirsiniz</span>
-              <button type="button" class="btn btn-secondary btn-sm" @click="addLine">
+              <button
+                v-if="!formPosted"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="addLine"
+              >
                 + Satır Ekle
               </button>
             </div>
@@ -510,10 +626,45 @@
               <tbody>
                 <tr v-for="(line, index) in draftForm.lines" :key="index">
                   <td class="col-product">
+                    <template v-if="draftForm.type === 'purchase'">
+                      <FilterableSelect
+                        :id="`line-kind-${index}`"
+                        :model-value="lineKind(line)"
+                        :options="LINE_KIND_OPTIONS"
+                        placeholder="Cinsi seçin"
+                        aria-label="Cinsi"
+                        class="select"
+                        :disabled="formPosted"
+                        @update:model-value="(v) => setLineKind(line, v)"
+                      />
+                      <FilterableSelect
+                        v-if="lineKind(line) === 'product'"
+                        :id="`line-product-${index}`"
+                        :model-value="line.product_id ?? ''"
+                        :options="productOptions"
+                        placeholder="Stok ürünü seçin"
+                        aria-label="Stok ürünü"
+                        class="select"
+                        :disabled="formPosted"
+                        @update:model-value="(v) => onProductPick(line, v)"
+                      />
+                      <FilterableSelect
+                        v-else-if="lineKind(line) === 'expense'"
+                        :id="`line-expense-${index}`"
+                        :model-value="line.expense_category_id ?? ''"
+                        :options="expenseCategoryOptions"
+                        placeholder="Gider kategorisi seçin"
+                        aria-label="Gider kategorisi"
+                        class="select"
+                        :disabled="formPosted"
+                        @update:model-value="(v) => onExpenseCategoryPick(line, v)"
+                      />
+                    </template>
                     <input
                       v-model="line.description"
                       type="text"
                       class="input"
+                      :disabled="formPosted"
                       placeholder="Açıklama veya ürün ara…"
                       @input="onLineChange"
                     />
@@ -525,6 +676,7 @@
                       min="0.01"
                       step="0.01"
                       class="input num-input"
+                      :disabled="formPosted"
                       @input="onLineChange"
                     />
                   </td>
@@ -535,6 +687,7 @@
                       min="0"
                       step="0.01"
                       class="input num-input"
+                      :disabled="formPosted"
                       @input="onLineChange"
                     />
                   </td>
@@ -546,6 +699,7 @@
                       max="100"
                       step="0.1"
                       class="input num-input"
+                      :disabled="formPosted"
                       @input="onLineChange"
                     />
                   </td>
@@ -555,7 +709,19 @@
                       :options="taxRateOptions"
                       placeholder="%0"
                       class="select"
-                      @select="onLineChange"
+                      :disabled="formPosted"
+                      @select="onTaxPick(line)"
+                    />
+                    <FilterableSelect
+                      v-if="supportsWithholding"
+                      :id="`line-withholding-${index}`"
+                      :model-value="line.withholding_type_id ?? ''"
+                      :options="withholdingOptionsFor(line)"
+                      placeholder="Tevkifat yok"
+                      aria-label="Tevkifat"
+                      class="select"
+                      :disabled="formPosted || taxRateFor(line.tax_rate_id) <= 0"
+                      @update:model-value="(v) => setLineWithholding(line, v)"
                     />
                   </td>
                   <td class="col-toplam">
@@ -563,6 +729,7 @@
                   </td>
                   <td class="col-aksiyon">
                     <button
+                      v-if="!formPosted"
                       type="button"
                       class="wp-btn danger"
                       aria-label="Satırı sil"
@@ -595,6 +762,13 @@
             <div class="totals-row grand">
               <span>Genel Toplam</span><span>{{ formatCurrency(grandTotal) }}</span>
             </div>
+            <div v-if="withholdingTotal > 0" class="totals-row">
+              <span class="muted">Tevkif Edilen KDV</span
+              ><span>−{{ formatCurrency(withholdingTotal) }}</span>
+            </div>
+            <div v-if="withholdingTotal > 0" class="totals-row grand">
+              <span>Ödenecek Tutar</span><span>{{ formatCurrency(payableTotal) }}</span>
+            </div>
           </div>
 
           <div>
@@ -602,6 +776,7 @@
             <textarea id="f-notes" v-model="draftForm.notes" rows="2" class="textarea"></textarea>
           </div>
 
+          <p v-if="storeError" class="form-error">{{ storeError }}</p>
           <div class="panel-actions">
             <button type="button" class="btn btn-secondary" @click="requestClose">Vazgeç</button>
             <button
@@ -642,8 +817,15 @@
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
-import { useInvoiceStore, type InvoiceDraft, type InvoiceLine } from '@/stores/invoices';
+import {
+  useInvoiceStore,
+  type Invoice,
+  type InvoiceDraft,
+  type InvoiceLine,
+} from '@/stores/invoices';
 import { useContactStore, type Contact } from '@/stores/contacts';
+import { useStockStore } from '@/stores/stock';
+import { useExpenseStore } from '@/stores/expense';
 import { formatMoneyTR } from '@kuleplus/shared';
 import FilterableSelect from '@/components/FilterableSelect.vue';
 
@@ -652,8 +834,14 @@ interface Warehouse {
   name: string;
 }
 
+/** Alış satırının cinsi: stok ürünü ya da gider kategorisi. Yalnızca arayüz durumudur, API'ye gönderilmez. */
+type LineCostKind = 'product' | 'expense';
+type DraftLine = InvoiceLine & { cost_kind?: LineCostKind };
+
 const invoiceStore = useInvoiceStore();
 const contactStore = useContactStore();
+const stockStore = useStockStore();
+const expenseStore = useExpenseStore();
 
 const invoices = computed(() => invoiceStore.invoices);
 const loading = computed(() => invoiceStore.loading);
@@ -712,6 +900,23 @@ const taxRateOptions = computed(() => [
   { value: '', label: '%0' },
   ...invoiceStore.taxRates.map((t) => ({ value: t.id, label: `%${t.rate}` })),
 ]);
+/** Alış satırı cinsi seçenekleri ve kaynak listeleri (stok ürünü / gider kategorisi). */
+const LINE_KIND_OPTIONS = [
+  { value: 'product', label: 'Stok ürünü' },
+  { value: 'expense', label: 'Gider' },
+];
+/** addLine'ın koyduğu varsayılan açıklamalar; ürün seçilince bunların yerine ürün adı yazılır. */
+const DEFAULT_LINE_DESCRIPTIONS = ['Alış kalemi', 'Satış kalemi'];
+const productOptions = computed(() =>
+  stockStore.stock
+    .filter((p) => p.is_active !== false)
+    .map((p) => ({ value: p.id, label: `${p.code} – ${p.name}` })),
+);
+const expenseCategoryOptions = computed(() =>
+  expenseStore.categories
+    .filter((c) => c.status === 'active')
+    .map((c) => ({ value: c.id, label: c.name })),
+);
 
 const showPaymentModal = ref(false);
 const paymentForm = ref({
@@ -722,6 +927,9 @@ const paymentForm = ref({
 });
 const paymentSaving = ref(false);
 const saving = ref(false);
+// ── Kesinleştirme / iptal: sonuç bildirimi ve eylem kilidi ──
+const notice = ref<{ kind: 'error' | 'success'; text: string } | null>(null);
+const actionBusy = ref(false);
 
 // ── Workspace panel durumu ──
 const panelEl = ref<HTMLElement | null>(null);
@@ -733,6 +941,83 @@ const panelPos = ref({ left: 0, top: 0 });
 
 const draftForm = ref<InvoiceDraft | null>(null);
 const isDirty = ref(false);
+/** Düzenlenen fatura kesinleşmişse formda yalnız not ve vade değişir (API kuralı). */
+const formPosted = computed(
+  () => invoiceStore.workspaceMode === 'edit' && draftForm.value?.posting_status === 'posted',
+);
+
+// Alış faturasında satır cinsi listeleri (ürünler, gider kategorileri) gerektiğinde yüklenir.
+watch(
+  () => draftForm.value?.type,
+  (type) => {
+    if (type !== 'purchase') return;
+    void stockStore.fetchStock({ limit: 100 });
+    void expenseStore.fetchCategories();
+  },
+  { immediate: true },
+);
+
+// Tevkifat türleri fatura tarihine göre (active_on) yüklenir; tarih değişince yeniden.
+watch(
+  () => draftForm.value?.issue_date,
+  (date) => {
+    if (date) void invoiceStore.fetchWithholdingTypes(date);
+  },
+  { immediate: true },
+);
+
+// ── İade faturası: orijinal fatura bağı (isteğe bağlı) ──
+const sourceInvoices = ref<Invoice[]>([]);
+let referenceSeq = 0;
+const isReturnType = computed(
+  () => draftForm.value?.type === 'credit_note' || draftForm.value?.type === 'debit_note',
+);
+const referenceOptions = computed(() =>
+  sourceInvoices.value.map((i) => ({
+    value: i.id,
+    label: `${i.number} – ${formatDate(i.issue_date)} – ${formatCurrency(i.balance)}`,
+  })),
+);
+/** Alınan iade → satış faturası, verilen iade → alış faturası listelenir (yalnızca kesinleşmiş). */
+async function loadReferenceInvoices(type?: string, contactId?: string) {
+  const seq = ++referenceSeq;
+  const kind = type === 'credit_note' ? 'sales' : type === 'debit_note' ? 'purchase' : null;
+  if (!kind || !contactId) {
+    sourceInvoices.value = [];
+    return;
+  }
+  const list = await invoiceStore.fetchReferenceInvoices(contactId, kind);
+  if (seq !== referenceSeq) return;
+  sourceInvoices.value = list;
+  // Seçili orijinal yeni listede yoksa (cari ya da tür değişti) bağ kaldırılır.
+  const d = draftForm.value;
+  if (d?.reference_id && !list.some((i) => i.id === d.reference_id)) d.reference_id = undefined;
+}
+watch(
+  () => [draftForm.value?.type, draftForm.value?.contact_id],
+  ([type, contactId]) => {
+    void loadReferenceInvoices(type, contactId);
+  },
+  { immediate: true },
+);
+function setReferenceInvoice(id: string) {
+  if (!draftForm.value) return;
+  draftForm.value.reference_id = id || undefined;
+  isDirty.value = true;
+}
+/** Yalnızca oluşturma isteğinde gönderilir (düzenlemede bağ değiştirilemez). */
+function referencePayload(): { reference_type?: string; reference_id?: string } {
+  const d = draftForm.value;
+  if (!d || !isReturnType.value || !d.reference_id) return {};
+  return { reference_type: 'invoice', reference_id: d.reference_id };
+}
+
+/** Alış faturasında tedarikçi belge no'su her kayıtta gönderilir (boşsa '' → düzenlemede de temizlenir). */
+function supplierDocumentPayload(): { supplier_document_no?: string } {
+  const d = draftForm.value;
+  if (!d || d.type !== 'purchase') return {};
+  return { supplier_document_no: (d.supplier_document_no ?? '').trim() };
+}
 
 // Sütun genişlikleri (yerel kalıcılık)
 const colKeys = ['product', 'qty', 'price', 'discount', 'tax', 'total'] as const;
@@ -845,6 +1130,81 @@ const statusBadgeClass = (status: string) =>
     }[status] || 'badge-neutral'
   }`;
 
+// ── Kesinleştirme (muhasebeleştirme) ve kesinleşme durumu ──
+/** Kesinleştirme yalnız satış, alış ve iade faturalarında yapılır (proforma hariç). */
+const POSTABLE_TYPES: Invoice['type'][] = ['sales', 'purchase', 'credit_note', 'debit_note'];
+
+const canPost = (invoice: Invoice) =>
+  invoice.posting_status === 'draft' && POSTABLE_TYPES.includes(invoice.type);
+const isPostedInvoice = (invoice: Invoice) => invoice.posting_status === 'posted';
+const isCancelledInvoice = (invoice: Invoice) =>
+  invoice.posting_status === 'cancelled' || invoice.status === 'cancelled';
+/** Kesinleşmiş ve iptal edilmiş faturanın satırları değiştirilemez. */
+const canEditLines = (invoice: Invoice) =>
+  !isPostedInvoice(invoice) && !isCancelledInvoice(invoice);
+
+const postingLabel = (status?: string) =>
+  ({ draft: 'Taslak', posted: 'Kesinleşti', cancelled: 'İptal' })[status ?? ''] || status || '—';
+
+const postingBadgeClass = (status?: string) =>
+  `badge ${
+    {
+      draft: 'badge-neutral',
+      posted: 'badge-success',
+      cancelled: 'badge-danger',
+    }[status ?? ''] || 'badge-neutral'
+  }`;
+
+/** Düzenleme paneli bu faturayı açıksa kilit durumu sunucu sonucuyla eşitlenir. */
+function syncOpenDraftPosting(id: string, postingStatus: string) {
+  if (draftForm.value?.id === id) draftForm.value.posting_status = postingStatus;
+}
+
+async function postInvoiceAction(invoice: Invoice) {
+  if (
+    !confirm(
+      'Fatura kesinleşsin mi? Kesinleşen fatura muhasebeleştirilir ve artık düzenlenemez/silinemez; düzeltme iptal veya iade faturasıyla yapılır.',
+    )
+  )
+    return;
+  notice.value = null;
+  actionBusy.value = true;
+  try {
+    const result = await invoiceStore.postInvoice(invoice.id);
+    const base = result.alreadyPosted ? 'Fatura zaten kesinleşmiş.' : 'Fatura kesinleşti.';
+    notice.value = {
+      kind: 'success',
+      text: result.entryNo ? `${base} Yevmiye no ${result.entryNo}.` : base,
+    };
+    syncOpenDraftPosting(invoice.id, 'posted');
+  } catch {
+    notice.value = { kind: 'error', text: invoiceStore.error || 'Fatura kesinleştirilemedi.' };
+  } finally {
+    actionBusy.value = false;
+  }
+}
+
+/** Kesinleşmiş faturayı iptal eder; sunucu yevmiye fişini ters kayıtla düzeltir. */
+async function cancelInvoiceAction(invoice: Invoice) {
+  if (
+    !confirm(
+      'Bu fatura iptal edilsin mi? Kesinleşmiş faturanın yevmiye fişi ters kayıtla düzeltilir.',
+    )
+  )
+    return;
+  notice.value = null;
+  actionBusy.value = true;
+  try {
+    await invoiceStore.updateInvoice(invoice.id, { status: 'cancelled' });
+    notice.value = { kind: 'success', text: 'Fatura iptal edildi.' };
+    syncOpenDraftPosting(invoice.id, 'cancelled');
+  } catch {
+    notice.value = { kind: 'error', text: invoiceStore.error || 'Fatura iptal edilemedi.' };
+  } finally {
+    actionBusy.value = false;
+  }
+}
+
 const paymentMethodLabel = (m: string) =>
   ({
     cash: 'Nakit',
@@ -901,6 +1261,56 @@ const taxTotal = computed(
 );
 const grandTotal = computed(() => subtotal.value - discountTotal.value + taxTotal.value);
 
+// ── Tevkifat (KDV tevkifatı; yalnızca satış/alış faturası) ──
+const supportsWithholding = computed(
+  () => draftForm.value?.type === 'sales' || draftForm.value?.type === 'purchase',
+);
+/** Satırın KDV tutarı (tevkifatın uygulandığı tutar). */
+function lineTaxAmount(line: InvoiceLine): number {
+  const base = Number(line.quantity) * Number(line.unit_price);
+  const disc = (base * (Number(line.discount_percent) || 0)) / 100;
+  return (base - disc) * (taxRateFor(line.tax_rate_id) / 100);
+}
+/** Seçili tevkifat türünün oranı (0–1). Tür listede yoksa sunucunun döndüğü oran kullanılır. */
+function withholdingRateFor(line: InvoiceLine): number {
+  if (!line.withholding_type_id) return 0;
+  const t = invoiceStore.withholdingTypes.find((x) => x.id === line.withholding_type_id);
+  if (t) return Number(t.rate_numerator) / (Number(t.rate_denominator) || 10);
+  return Number(line.withholding_rate ?? 0) / 100;
+}
+const withholdingTotal = computed(() =>
+  supportsWithholding.value
+    ? (draftForm.value?.lines ?? []).reduce(
+        (s, l) => s + lineTaxAmount(l) * withholdingRateFor(l),
+        0,
+      )
+    : 0,
+);
+const payableTotal = computed(() => grandTotal.value - withholdingTotal.value);
+function withholdingOptionsFor(line: InvoiceLine) {
+  const options: { value: string; label: string }[] = [
+    { value: '', label: 'Yok' },
+    ...invoiceStore.withholdingTypes.map((t) => ({
+      value: t.id,
+      label: `${t.einvoice_code} – ${t.name} (${t.rate_numerator}/${t.rate_denominator})`,
+    })),
+  ];
+  const id = line.withholding_type_id;
+  if (id && !invoiceStore.withholdingTypes.some((t) => t.id === id)) {
+    options.push({ value: id, label: 'Seçili tür (listede yok)' });
+  }
+  return options;
+}
+function setLineWithholding(line: InvoiceLine, typeId: string) {
+  line.withholding_type_id = typeId || undefined;
+  onLineChange();
+}
+function onTaxPick(line: InvoiceLine) {
+  // %0 KDV'de tevkifat uygulanamaz; seçili tür temizlenir.
+  if (taxRateFor(line.tax_rate_id) <= 0) line.withholding_type_id = undefined;
+  onLineChange();
+}
+
 // ── Panel açma ──
 function emptyDraft(type: 'sales' | 'purchase' = 'sales'): InvoiceDraft {
   return {
@@ -913,11 +1323,13 @@ function emptyDraft(type: 'sales' | 'purchase' = 'sales'): InvoiceDraft {
     exchange_rate: 1,
     rate_date: '',
     notes: '',
+    supplier_document_no: '',
     lines: [],
   };
 }
 
 function startNew(type: 'sales' | 'purchase') {
+  invoiceStore.error = null;
   invoiceStore.openWorkspace('create', emptyDraft(type));
   isDirty.value = false;
   nextTick(() => {
@@ -928,6 +1340,7 @@ function startNew(type: 'sales' | 'purchase') {
 }
 
 function editInvoice(invoice: (typeof invoiceStore.invoices)[0]) {
+  invoiceStore.error = null;
   invoiceStore.openWorkspace('edit', {
     id: invoice.id,
     type: invoice.type as InvoiceDraft['type'],
@@ -939,7 +1352,16 @@ function editInvoice(invoice: (typeof invoiceStore.invoices)[0]) {
     exchange_rate: invoice.exchange_rate,
     rate_date: invoice.rate_date || '',
     notes: invoice.notes || '',
-    lines: invoice.lines.map((l) => ({ ...l })),
+    supplier_document_no: invoice.supplier_document_no || '',
+    posting_status: invoice.posting_status,
+    reference_id:
+      invoice.reference_type === 'invoice' && invoice.reference_id
+        ? invoice.reference_id
+        : undefined,
+    lines: invoice.lines.map((l): DraftLine => ({
+      ...l,
+      cost_kind: l.product_id ? 'product' : l.expense_category_id ? 'expense' : undefined,
+    })),
   });
   isDirty.value = false;
   nextTick(() => {
@@ -973,6 +1395,56 @@ function removeLine(index: number) {
   isDirty.value = true;
 }
 
+function lineKind(line: InvoiceLine): string {
+  return (line as DraftLine).cost_kind ?? '';
+}
+function setLineKind(line: InvoiceLine, kind: string) {
+  const next: LineCostKind | undefined =
+    kind === 'product' || kind === 'expense' ? kind : undefined;
+  const target = line as DraftLine;
+  if (target.cost_kind === next) return;
+  target.cost_kind = next;
+  // Cins değişince önceki seçim (ürün ya da kategori) geçersiz kalır.
+  target.product_id = undefined;
+  target.expense_category_id = undefined;
+  onLineChange();
+}
+function onProductPick(line: InvoiceLine, productId: string) {
+  line.product_id = productId || undefined;
+  line.expense_category_id = undefined;
+  const product = stockStore.stock.find((p) => p.id === productId);
+  const current = (line.description ?? '').trim();
+  if (product && (!current || DEFAULT_LINE_DESCRIPTIONS.includes(current))) {
+    line.description = product.name;
+  }
+  onLineChange();
+}
+function onExpenseCategoryPick(line: InvoiceLine, categoryId: string) {
+  line.expense_category_id = categoryId || undefined;
+  line.product_id = undefined;
+  onLineChange();
+}
+
+/**
+ * API'ye giden satırlar: arayüz alanı (cost_kind) çıkarılır, boş kimlikler gönderilmez,
+ * gider kategorisi yalnızca alış faturasında gönderilir. Ürün ve kategori birlikte gönderilmez.
+ * Tevkifat yalnızca satış/alış faturasında ve KDV'li satırda gönderilir (API aksi halde 400 döner).
+ */
+function toApiLines(lines: InvoiceLine[], type: InvoiceDraft['type']): InvoiceLine[] {
+  const withholdingAllowed = type === 'sales' || type === 'purchase';
+  return lines.map((line) => {
+    const out: DraftLine = { ...(line as DraftLine) };
+    delete out.cost_kind;
+    if (!out.product_id) delete out.product_id;
+    if (!out.expense_category_id || type !== 'purchase') delete out.expense_category_id;
+    if (out.product_id) delete out.expense_category_id;
+    if (!withholdingAllowed || !out.withholding_type_id || taxRateFor(out.tax_rate_id) <= 0) {
+      delete out.withholding_type_id;
+    }
+    return out;
+  });
+}
+
 async function saveInvoice() {
   if (!draftForm.value || draftForm.value.lines.length === 0) return;
   if (!draftForm.value.contact_id) {
@@ -981,7 +1453,13 @@ async function saveInvoice() {
   }
   saving.value = true;
   try {
-    if (invoiceStore.workspaceMode === 'edit' && draftForm.value.id) {
+    if (invoiceStore.workspaceMode === 'edit' && draftForm.value.id && formPosted.value) {
+      // Kesinleşmiş fatura: API yalnız not ve vadeyi kabul eder; satırlar ve diğer alanlar gönderilmez.
+      await invoiceStore.updateInvoice(draftForm.value.id, {
+        due_date: draftForm.value.due_date || undefined,
+        notes: draftForm.value.notes || undefined,
+      });
+    } else if (invoiceStore.workspaceMode === 'edit' && draftForm.value.id) {
       await invoiceStore.updateInvoice(draftForm.value.id, {
         type: draftForm.value.type,
         contact_id: draftForm.value.contact_id || undefined,
@@ -992,8 +1470,12 @@ async function saveInvoice() {
         exchange_rate: draftForm.value.exchange_rate || undefined,
         rate_date: draftForm.value.rate_date || undefined,
         notes: draftForm.value.notes || undefined,
+        ...supplierDocumentPayload(),
       });
-      await invoiceStore.replaceLines(draftForm.value.id, draftForm.value.lines);
+      await invoiceStore.replaceLines(
+        draftForm.value.id,
+        toApiLines(draftForm.value.lines, draftForm.value.type),
+      );
     } else {
       const created = await invoiceStore.createInvoice({
         type: draftForm.value.type,
@@ -1005,7 +1487,9 @@ async function saveInvoice() {
         exchange_rate: draftForm.value.exchange_rate || undefined,
         rate_date: draftForm.value.rate_date || undefined,
         notes: draftForm.value.notes || undefined,
-        lines: draftForm.value.lines,
+        ...referencePayload(),
+        ...supplierDocumentPayload(),
+        lines: toApiLines(draftForm.value.lines, draftForm.value.type),
       });
       selectedId.value = created.id;
       await invoiceStore.fetchInvoice(created.id);
@@ -1115,6 +1599,7 @@ const nextPage = () => {
 async function selectInvoice(id: string) {
   if (selectedId.value === id) return;
   selectedId.value = id;
+  notice.value = null;
   try {
     await invoiceStore.fetchInvoice(id);
   } catch {

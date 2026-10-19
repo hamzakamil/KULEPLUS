@@ -10,7 +10,17 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export type ChequeStatus = 'portfolio' | 'endorsed' | 'collected' | 'bounced' | 'cancelled';
-export type ChequeHolder = 'own' | 'bank' | 'customer' | 'supplier';
+export type ChequeHolder = 'own' | 'bank' | 'pledged' | 'customer' | 'supplier';
+export type ChequeTransactionType =
+  | 'created'
+  | 'endorsed'
+  | 'collected'
+  | 'bounced'
+  | 'cancelled'
+  | 'note'
+  | 'deposited'
+  | 'pledged'
+  | 'released';
 
 export interface Cheque {
   id: string;
@@ -55,7 +65,7 @@ export interface DueCalendarRow {
 export interface ChequeTransaction {
   id: string;
   chequeId: string;
-  transactionType: string;
+  transactionType: ChequeTransactionType;
   fromStatus: string | null;
   toStatus: string;
   transactionDate: string;
@@ -130,6 +140,41 @@ export const useChequeStore = defineStore('cheque', () => {
     await api.post(`/v1/cheques/${id}/collect`, input);
   };
 
+  /** Tahsile ver: alınan, portföydeki, yeri own olan çek → yeri bank olur. */
+  const depositCheque = async (
+    id: string,
+    input: {
+      cash_bank_account_id: string;
+      transaction_date: string;
+      description?: string;
+    },
+  ) => {
+    await api.post(`/v1/cheques/${id}/deposit`, input);
+  };
+
+  /** Teminata ver: alınan, portföydeki, yeri own olan çek → yeri pledged olur. */
+  const pledgeCheque = async (
+    id: string,
+    input: {
+      party_name: string;
+      transaction_date: string;
+      description?: string;
+    },
+  ) => {
+    await api.post(`/v1/cheques/${id}/pledge`, input);
+  };
+
+  /** Portföye geri al: alınan, portföydeki, yeri bank veya pledged olan çek → yeri own olur. */
+  const releaseCheque = async (
+    id: string,
+    input: {
+      transaction_date: string;
+      description?: string;
+    },
+  ) => {
+    await api.post(`/v1/cheques/${id}/release`, input);
+  };
+
   const bounceCheque = async (id: string, input: { transaction_date: string; reason: string }) => {
     await api.post(`/v1/cheques/${id}/bounce`, input);
   };
@@ -185,6 +230,9 @@ export const useChequeStore = defineStore('cheque', () => {
     createCheque,
     endorseCheque,
     collectCheque,
+    depositCheque,
+    pledgeCheque,
+    releaseCheque,
     bounceCheque,
     cancelCheque,
     fetchPortfolioSummary,

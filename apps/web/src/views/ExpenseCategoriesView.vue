@@ -44,6 +44,15 @@
             <option v-for="g in groups" :key="g.key" :value="g.key">{{ g.label }}</option>
           </select>
         </label>
+        <label v-if="store.postingAccountsAvailable">
+          <span>Muhasebe hesabı</span>
+          <select v-model="form.account_id" class="select">
+            <option :value="null">Otomatik (770 altında)</option>
+            <option v-for="a in store.postingAccounts" :key="a.id" :value="a.id">
+              {{ a.code }} – {{ a.name }}
+            </option>
+          </select>
+        </label>
         <label class="check">
           <input v-model="form.is_favorite" type="checkbox" />
           Hızlı girişte öne çıkar
@@ -86,6 +95,7 @@
               <th scope="col">Ad</th>
               <th scope="col">Kod</th>
               <th scope="col">Grup</th>
+              <th scope="col">Muhasebe Hesabı</th>
               <th scope="col">Açıklama</th>
               <th scope="col">Hızlı Giriş</th>
               <th scope="col">Durum</th>
@@ -116,6 +126,20 @@
                 >
                   <option :value="null">Grupsuz</option>
                   <option v-for="g in groups" :key="g.key" :value="g.key">{{ g.label }}</option>
+                </select>
+              </td>
+              <td>
+                <div class="muted small">{{ accountText(cat) }}</div>
+                <select
+                  v-if="store.postingAccountsAvailable"
+                  v-model="drafts[cat.id].account_id"
+                  class="select select-sm"
+                  :aria-label="`${cat.name} muhasebe hesabı`"
+                >
+                  <option :value="null">Otomatik (770 altında)</option>
+                  <option v-for="a in rowAccountOptions(cat)" :key="a.id" :value="a.id">
+                    {{ a.code }} – {{ a.name }}
+                  </option>
                 </select>
               </td>
               <td>
@@ -185,7 +209,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { EXPENSE_GROUPS, useExpenseStore, type ExpenseCategory } from '@/stores/expense';
+import {
+  EXPENSE_GROUPS,
+  useExpenseStore,
+  type ExpenseCategory,
+  type PostingAccount,
+} from '@/stores/expense';
 
 defineProps<{ embedded?: boolean }>();
 
@@ -200,11 +229,21 @@ const form = ref({
   grup: null as string | null,
   is_favorite: false,
   description: '',
+  account_id: null as string | null,
 });
 
 /** Satır taslakları — inputlar doğrudan store'u kirletmesin diye kopya üzerinde düzenlenir. */
 const drafts = reactive<
-  Record<string, { name: string; grup: string | null; description: string; is_favorite: boolean }>
+  Record<
+    string,
+    {
+      name: string;
+      grup: string | null;
+      description: string;
+      is_favorite: boolean;
+      account_id: string | null;
+    }
+  >
 >({});
 
 const syncDrafts = (list: ExpenseCategory[]) => {
@@ -214,12 +253,13 @@ const syncDrafts = (list: ExpenseCategory[]) => {
       grup: c.grup ?? null,
       description: c.description ?? '',
       is_favorite: !!c.is_favorite,
+      account_id: c.account_id ?? null,
     };
   }
 };
 
 onMounted(async () => {
-  await store.fetchCategories();
+  await Promise.all([store.fetchCategories(), store.fetchPostingAccounts()]);
   syncDrafts(store.categories);
 });
 watch(
@@ -250,8 +290,16 @@ const createNew = async () => {
       grup: form.value.grup,
       is_favorite: form.value.is_favorite,
       description: form.value.description.trim() || undefined,
+      account_id: form.value.account_id,
     });
-    form.value = { name: '', code: '', grup: null, is_favorite: false, description: '' };
+    form.value = {
+      name: '',
+      code: '',
+      grup: null,
+      is_favorite: false,
+      description: '',
+      account_id: null,
+    };
   } catch {
     /* hata store'da */
   } finally {
@@ -267,6 +315,7 @@ const saveRow = async (id: string) => {
       grup: drafts[id].grup,
       description: drafts[id].description.trim() || undefined,
       is_favorite: drafts[id].is_favorite,
+      account_id: drafts[id].account_id,
     });
   } catch {
     /* hata store'da */
@@ -295,6 +344,25 @@ const removeRow = async (id: string, name: string) => {
     /* hata store'da (örn. kullanımda) */
   }
 };
+
+/** Satır hesap seçenekleri; kayıtlı hesap listede yoksa (ör. pasife alınmış) yine de gösterilir. */
+const rowAccountOptions = (cat: ExpenseCategory): PostingAccount[] => {
+  const list = [...store.postingAccounts];
+  if (cat.account_id && !list.some((a) => a.id === cat.account_id)) {
+    list.unshift({
+      id: cat.account_id,
+      code: cat.account_code ?? '',
+      name: cat.account_name ?? '',
+      type: '',
+    });
+  }
+  return list;
+};
+
+const accountText = (cat: ExpenseCategory): string =>
+  cat.account_code
+    ? [cat.account_code, cat.account_name].filter(Boolean).join(' – ')
+    : '770 altında otomatik açılacak';
 
 const groupIcon = (grup?: string | null): string => {
   const map: Record<string, string> = {

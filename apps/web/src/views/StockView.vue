@@ -236,6 +236,15 @@
               <input v-model="form.trackInventory" type="checkbox" />
               Stok takibi yap (miktar izlenir)
             </label>
+            <div v-if="!form.trackInventory" class="form-field-full">
+              <label for="st-default-expense">Varsayılan gider kategorisi</label>
+              <FilterableSelect
+                id="st-default-expense"
+                v-model="form.defaultExpenseCategoryId"
+                :options="expenseCategoryOptions"
+                placeholder="Seçiniz…"
+              />
+            </div>
 
             <p v-if="formError" class="form-error">{{ formError }}</p>
             <div class="panel-actions">
@@ -264,10 +273,12 @@ import { computed, onMounted, ref } from 'vue';
 import { EmptyState, trackEvent } from '@kuleplus/ui';
 import { api } from '@/lib/api';
 import { useStockStore, type StockItem } from '@/stores/stock';
+import { useExpenseStore } from '@/stores/expense';
 import FilterableSelect from '@/components/FilterableSelect.vue';
 import StockImportWizard from '@/components/StockImportWizard.vue';
 
 const store = useStockStore();
+const expenseStore = useExpenseStore();
 
 /** CSV içe aktarma sihirbazı durumu — 'products' | 'opening-stock' akışı. */
 const importOpen = ref(false);
@@ -300,6 +311,14 @@ async function downloadCsv() {
 /** Birim seçenekleri (filtreli combobox). */
 const unitOptions = computed(() => store.units.map((u) => ({ value: u.name, label: u.name })));
 
+/** Varsayılan gider kategorisi seçenekleri (yalnızca stok takipsiz ürünlerde gösterilir). */
+const expenseCategoryOptions = computed(() => [
+  { value: '', label: 'Seçiniz…' },
+  ...expenseStore.categories
+    .filter((c) => c.status === 'active')
+    .map((c) => ({ value: c.id, label: c.name })),
+]);
+
 const search = ref('');
 const onlyCritical = ref(false);
 const panelOpen = ref(false);
@@ -322,6 +341,7 @@ const emptyForm = () => ({
   price: '',
   description: '',
   trackInventory: true,
+  defaultExpenseCategoryId: '',
 });
 const form = ref(emptyForm());
 
@@ -367,6 +387,7 @@ const startEdit = (item: StockItem) => {
     price: item.sale_price != null ? String(Number(item.sale_price)) : (item.price ?? ''),
     description: item.description ?? '',
     trackInventory: item.track_inventory !== false,
+    defaultExpenseCategoryId: item.default_expense_category_id ?? '',
   };
   formError.value = null;
   dirty.value = false;
@@ -399,6 +420,11 @@ const save = async () => {
       unit: form.value.unit,
       price: String(norm(price) ?? 0),
       description: form.value.description,
+      track_inventory: form.value.trackInventory,
+      // Stok takibi açıksa gider kategorisi anlamsız; kapalıyken seçilen değer gönderilir.
+      default_expense_category_id: form.value.trackInventory
+        ? null
+        : form.value.defaultExpenseCategoryId || null,
     };
     if (editingId.value) await store.updateStockItem(editingId.value, payload);
     else await store.createStockItem(payload);
@@ -458,6 +484,7 @@ function onDragEnd() {
 onMounted(async () => {
   await store.fetchUnits();
   await store.fetchStock();
+  await expenseStore.fetchCategories();
 });
 </script>
 

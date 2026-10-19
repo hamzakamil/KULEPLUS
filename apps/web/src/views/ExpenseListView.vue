@@ -153,6 +153,9 @@
                 </span>
               </td>
               <td class="num actions">
+                <button v-if="canPay(expense)" class="link" @click="openPayment(expense)">
+                  Ödeme Gir
+                </button>
                 <RouterLink :to="`/expenses/${expense.id}/edit`" class="link">Düzenle</RouterLink>
                 <button class="link danger" @click="confirmDelete(expense.id)">Sil</button>
               </td>
@@ -187,17 +190,73 @@
         </button>
       </div>
     </section>
+
+    <!-- ── Ödeme girişi (carili, kesinleşmiş gider) ── -->
+    <div v-if="paymentTarget" class="modal-backdrop" @click.self="closePayment">
+      <div class="modal-content">
+        <div class="modal-head">
+          <h2>Ödeme Gir</h2>
+          <button class="modal-close" aria-label="Kapat" @click="closePayment">×</button>
+        </div>
+        <p class="muted small">
+          {{ paymentTarget.description }} · {{ paymentTarget.contact_name || 'Cari' }}
+        </p>
+        <form class="form-grid" @submit.prevent="savePayment">
+          <div>
+            <label class="field-label" for="pay-amount">Tutar *</label>
+            <input
+              id="pay-amount"
+              v-model.number="paymentForm.amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              class="input"
+            />
+            <span class="muted small">Tutar kalan borcu aşamaz.</span>
+          </div>
+          <div>
+            <label class="field-label" for="pay-date">Ödeme Tarihi *</label>
+            <input
+              id="pay-date"
+              v-model="paymentForm.payment_date"
+              type="date"
+              required
+              class="input"
+            />
+          </div>
+          <div class="form-field-full">
+            <label class="field-label" for="pay-account">Kasa / Banka Hesabı *</label>
+            <FilterableSelect
+              id="pay-account"
+              v-model="paymentForm.cash_bank_account_id"
+              :options="paymentAccountOptions"
+              placeholder="Hesap seçin"
+            />
+          </div>
+          <p v-if="paymentError" class="form-error">{{ paymentError }}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" @click="closePayment">Vazgeç</button>
+            <button type="submit" class="btn btn-primary" :disabled="paymentSaving">
+              {{ paymentSaving ? 'Kaydediliyor…' : 'Ödemeyi Kaydet' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useExpenseStore, type Expense } from '@/stores/expense';
+import { useCashBankStore } from '@/stores/cash-bank';
 import CategoryQuickAdd from '@/components/CategoryQuickAdd.vue';
 import FilterableSelect from '@/components/FilterableSelect.vue';
 
 const expenseStore = useExpenseStore();
+const cashBank = useCashBankStore();
 const router = useRouter();
 
 const expenses = computed(() => expenseStore.expenses);
@@ -263,6 +322,81 @@ const confirmDelete = async (id: string) => {
     fetchExpenses();
   } catch {
     /* hata store'da tutulur */
+  }
+};
+
+// ── Ödeme girişi: carili, kesinleşmiş ve ödenmemiş/kısmi gider ──
+const paymentTarget = ref<Expense | null>(null);
+const paymentForm = reactive({
+  amount: 0,
+  cash_bank_account_id: '',
+  payment_date: new Date().toISOString().split('T')[0],
+});
+const paymentError = ref('');
+const paymentSaving = ref(false);
+
+const canPay = (expense: Expense) =>
+  Boolean(expense.contact_id) && expense.status === 'posted' && expense.payment_status !== 'paid';
+
+const paymentAccountOptions = computed(() =>
+  cashBank.accounts
+    .filter((a) => a.status === 'active')
+    .map((a) => ({
+      value: a.id,
+      label: `${a.accountName} (${a.accountType === 'cash' ? 'Kasa' : 'Banka'})`,
+    })),
+);
+
+/** Kasa/banka listesi; CashBankView'ın tür filtresini değiştirmeden, geniş sayfa ile çeker. */
+async function loadPaymentAccounts() {
+  const saved = cashBank.filters;
+  cashBank.filters = { ...saved, accountType: undefined, page: 1, limit: 100 };
+  try {
+    await cashBank.fetchAccounts();
+  } finally {
+    cashBank.filters = saved;
+  }
+}
+
+const openPayment = async (expense: Expense) => {
+  paymentTarget.value = expense;
+  paymentForm.amount = expense.amount;
+  paymentForm.cash_bank_account_id = '';
+  paymentForm.payment_date = new Date().toISOString().split('T')[0];
+  paymentError.value = '';
+  await loadPaymentAccounts();
+};
+
+const closePayment = () => {
+  paymentTarget.value = null;
+};
+
+const savePayment = async () => {
+  const target = paymentTarget.value;
+  if (!target) return;
+  if (!(Number(paymentForm.amount) > 0)) {
+    paymentError.value = 'Tutar sıfırdan büyük olmalı.';
+    return;
+  }
+  if (!paymentForm.cash_bank_account_id) {
+    paymentError.value = 'Kasa / banka hesabı seçin.';
+    return;
+  }
+  paymentError.value = '';
+  paymentSaving.value = true;
+  try {
+    await expenseStore.createExpensePayment(target.id, {
+      amount: Number(paymentForm.amount),
+      cash_bank_account_id: paymentForm.cash_bank_account_id,
+      payment_date: paymentForm.payment_date || undefined,
+      currency: target.currency,
+    });
+    paymentTarget.value = null;
+    await fetchExpenses();
+  } catch (err) {
+    paymentError.value = err instanceof Error ? err.message : 'Ödeme kaydedilemedi.';
+  } finally {
+    paymentSaving.value = false;
   }
 };
 

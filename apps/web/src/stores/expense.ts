@@ -3,9 +3,11 @@ import { computed, ref } from 'vue';
 import type { AxiosError } from 'axios';
 import { api } from '@/lib/api';
 
-/** API hatasından kullanıcı mesajı çıkarır. */
+/** API hatasından kullanıcı mesajı çıkarır. API şekli: { error: { code, message } }. */
 function errorMessage(err: unknown, fallback: string): string {
-  return (err as AxiosError<{ message?: string }>).response?.data?.message || fallback;
+  const data = (err as AxiosError<{ message?: string; error?: { message?: string } }>).response
+    ?.data;
+  return data?.error?.message || data?.message || fallback;
 }
 
 /** Kategori adı → kod: "Yiyecek & İçecek" → "YIYECEK_ICECEK" (Türkçe karaktersiz). */
@@ -42,8 +44,21 @@ export interface ExpenseCategory {
   /** Öne çıkan (sık kullanılan) kategori mi? */
   is_favorite?: boolean;
   status: 'active' | 'inactive';
+  /** Bağlı muhasebe hesabı (6xx/7xx). Null ise ilk fişte 770 altında otomatik açılır. */
+  account_id?: string | null;
+  /** Salt okunur: bağlı hesabın kodu ve adı (listede/okumada gelir). */
+  account_code?: string | null;
+  account_name?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Hesap seçici için muhasebe hesabı (GET /v1/accounting, only_posting=true). */
+export interface PostingAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
 }
 
 /** Gider kategorisi grupları — kullanıcıya gösterilecek sıra ve etiketler. */
@@ -63,9 +78,14 @@ export interface CreateCategoryInput {
   grup?: string | null;
   is_favorite?: boolean;
   status?: 'active' | 'inactive';
+  /** null = otomatik (770 altında). */
+  account_id?: string | null;
 }
 
 export type UpdateCategoryInput = Partial<CreateCategoryInput>;
+
+/** Peşin giderin ödeme kaynağı türü: kasa/banka hesabı ya da şirket kredi kartı. */
+export type PaymentSourceType = 'cash_bank' | 'credit_card';
 
 export interface Expense {
   id: string;
@@ -73,9 +93,24 @@ export interface Expense {
   invoice_date?: string;
   expense_date: string;
   category_id: string;
-  contact_id?: string;
+  contact_id?: string | null;
   description: string;
+  /** KDV dahil toplam. Sunucu: amount = net_amount + tax_amount. */
   amount: number;
+  /** Matrah (KDV hariç). */
+  net_amount?: number;
+  /** KDV oranı (%): 0, 1, 10, 20. */
+  tax_rate?: number;
+  /** KDV tutarı (sunucu hesaplar). */
+  tax_amount?: number;
+  /** Peşin gider: satıcı unvanı (carisiz giderde zorunlu, kesinleşmede). */
+  counterparty_name?: string | null;
+  /** Peşin gider: satıcı VKN/TCKN (isteğe bağlı). */
+  counterparty_tax_number?: string | null;
+  /** Peşin gider: ödeme kaynağı türü. */
+  payment_source_type?: PaymentSourceType | null;
+  /** Peşin gider: ödeme kaynağının kimliği (kasa/banka hesabı ya da kredi kartı). */
+  payment_source_id?: string | null;
   currency: string;
   exchange_rate: number;
   base_amount: number;
@@ -92,8 +127,25 @@ export interface Expense {
   updatedAt: Date;
 }
 
+/**
+ * Gider ödemesi gövdesi — POST /v1/expenses/:id/payments.
+ * Yalnız carili ve kesinleşmiş gider; ödeme kalan borcu aşamaz (sunucu doğrular).
+ */
+export interface ExpensePaymentInput {
+  amount: number;
+  cash_bank_account_id: string;
+  payment_date?: string;
+  currency?: string;
+  reference?: string;
+  notes?: string;
+}
+
 export const useExpenseStore = defineStore('expense', () => {
   const categories = ref<ExpenseCategory[]>([]);
+  /** Hesap seçici için 6xx/7xx detay hesapları. */
+  const postingAccounts = ref<PostingAccount[]>([]);
+  /** false ise (403: muhasebe yetkisi/modülü yok ya da hata) hesap seçici gizlenir. */
+  const postingAccountsAvailable = ref(false);
   const expenses = ref<Expense[]>([]);
   const currentExpense = ref<Expense | null>(null);
   const loading = ref(false);
@@ -119,6 +171,34 @@ export const useExpenseStore = defineStore('expense', () => {
       categories.value = response.data;
     } catch (err) {
       console.error('Error fetching categories:', err);
+    }
+  };
+
+  /**
+   * Gider kategorisi hesap seçimi için yazılabilir (detay) muhasebe hesaplarını çeker.
+   * Liste kod sırasıyla ve sayfa başına en fazla 100 kayıt döner; 6xx/7xx hesapların
+   * ilk sayfada olmayabileceği için sayfalanır. Hata durumunda `error` ref'i değiştirilmez
+   * (kategori sayfasındaki uyarı alanı yalnızca kategori hatalarını gösterir).
+   */
+  const fetchPostingAccounts = async () => {
+    const MAX_PAGES = 30;
+    const collected: PostingAccount[] = [];
+    try {
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const response = await api.get('/v1/accounting', {
+          params: { only_posting: true, limit: 100, page },
+        });
+        collected.push(...((response.data.items ?? []) as PostingAccount[]));
+        totalPages = Number(response.data.totalPages ?? 1);
+        page += 1;
+      } while (page <= totalPages && page <= MAX_PAGES);
+      postingAccounts.value = collected.filter((a) => /^[67]/.test(a.code));
+      postingAccountsAvailable.value = true;
+    } catch {
+      postingAccounts.value = [];
+      postingAccountsAvailable.value = false;
     }
   };
 
@@ -278,8 +358,23 @@ export const useExpenseStore = defineStore('expense', () => {
     }
   };
 
+  /**
+   * Gider ödemesi kaydeder (carili ve kesinleşmiş gider). Hata store `error`'una yazılmaz:
+   * liste ekranı `error` doluyken tabloyu gizlediği için çağıran ekran mesajı kendi gösterir.
+   */
+  const createExpensePayment = async (expenseId: string, input: ExpensePaymentInput) => {
+    try {
+      const response = await api.post(`/v1/expenses/${expenseId}/payments`, input);
+      return response.data;
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Ödeme kaydedilemedi'));
+    }
+  };
+
   return {
     categories,
+    postingAccounts,
+    postingAccountsAvailable,
     expenses,
     currentExpense,
     loading,
@@ -290,6 +385,7 @@ export const useExpenseStore = defineStore('expense', () => {
     categoriesByGroup,
     categoryById,
     fetchCategories,
+    fetchPostingAccounts,
     createCategory,
     updateCategory,
     deleteCategory,
@@ -299,5 +395,6 @@ export const useExpenseStore = defineStore('expense', () => {
     createExpense,
     updateExpense,
     deleteExpense,
+    createExpensePayment,
   };
 });

@@ -18,6 +18,8 @@ export interface StockItem {
   list_price?: string | number;
   description?: string | null;
   track_inventory?: boolean;
+  /** Stok takipsiz ürünün alışta kullanılan varsayılan gider kategorisi. */
+  default_expense_category_id?: string | null;
   is_active?: boolean;
   stock_value?: string | number;
   /** Form uyumluluğu için türetilmiş alan. */
@@ -192,6 +194,8 @@ export const useStockStore = defineStore('stock', () => {
         sale_price: Number(data.price ?? data.sale_price ?? 0),
         barcode: data.barcode || undefined,
         description: data.description || undefined,
+        track_inventory: data.track_inventory,
+        default_expense_category_id: data.default_expense_category_id || null,
       };
       const response = await api.post('/v1/stock', payload);
       stock.value.unshift(response.data);
@@ -219,8 +223,13 @@ export const useStockStore = defineStore('stock', () => {
         payload.sale_price = Number(data.price ?? data.sale_price ?? 0);
       }
       if (data.description !== undefined) payload.description = data.description || null;
+      if (data.track_inventory !== undefined) payload.track_inventory = data.track_inventory;
+      if (data.default_expense_category_id !== undefined) {
+        payload.default_expense_category_id = data.default_expense_category_id || null;
+      }
 
-      const response = await api.put(`/v1/stock/${id}`, payload);
+      // API yalnızca PATCH /v1/stock/:id tanımlar (apps/api/src/modules/stock/routes.ts).
+      const response = await api.patch(`/v1/stock/${id}`, payload);
       const index = stock.value.findIndex((s) => s.id === id);
       if (index !== -1) stock.value[index] = { ...stock.value[index], ...response.data };
       return response.data;

@@ -23,8 +23,9 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'İptal',
 };
 const HOLDER_LABELS: Record<string, string> = {
-  own: 'Bizde',
-  bank: 'Bankada',
+  own: 'Portföyde',
+  bank: 'Tahsilde (Banka)',
+  pledged: 'Teminatta',
   customer: 'Müşteride',
   supplier: 'Tedarikçide',
 };
@@ -39,6 +40,9 @@ const TRANSACTION_LABELS: Record<string, string> = {
   bounced: 'Karşılıksız',
   cancelled: 'İptal',
   note: 'Not',
+  deposited: 'Tahsile verildi',
+  pledged: 'Teminata verildi',
+  released: 'Portföye geri alındı',
 };
 
 function formatMoney(v: number | string | null | undefined): string {
@@ -50,6 +54,29 @@ function formatMoney(v: number | string | null | undefined): string {
 const activeCheques = computed(() =>
   store.cheques.filter((c) => c.status === 'portfolio' || c.status === 'endorsed'),
 );
+
+/** Tahsile verme yalnızca banka hesabına yapılır. */
+const bankAccounts = computed(() => cashBank.accounts.filter((a) => a.accountType === 'bank'));
+
+/** Alınan, portföydeki çek: tahsile ver / teminata ver / geri al için ön koşul. */
+function isIncomingInPortfolio(c: Cheque): boolean {
+  return c.direction === 'incoming' && c.status === 'portfolio';
+}
+function canDeposit(c: Cheque): boolean {
+  return isIncomingInPortfolio(c) && c.portfolioHolder === 'own';
+}
+function canPledge(c: Cheque): boolean {
+  return isIncomingInPortfolio(c) && c.portfolioHolder === 'own';
+}
+function canRelease(c: Cheque): boolean {
+  return (
+    isIncomingInPortfolio(c) && (c.portfolioHolder === 'bank' || c.portfolioHolder === 'pledged')
+  );
+}
+/** Karşılıksız: alınan çek, yeri own / bank / pledged. */
+function canBounce(c: Cheque): boolean {
+  return c.direction === 'incoming' && ['own', 'bank', 'pledged'].includes(c.portfolioHolder);
+}
 
 async function loadCheques() {
   await store.fetchCheques({ limit: 50 });
@@ -100,7 +127,7 @@ async function submit() {
 }
 
 // --- Aksiyonlar (ciro / tahsil / karşılıksız / iptal) ---
-type ActionKind = 'endorse' | 'collect' | 'bounce' | 'cancel';
+type ActionKind = 'endorse' | 'collect' | 'deposit' | 'pledge' | 'release' | 'bounce' | 'cancel';
 const actionModal = ref<{ kind: ActionKind; cheque: Cheque } | null>(null);
 const actionForm = reactive({
   party_name: '',
@@ -119,6 +146,12 @@ const actionTitle = computed(() => {
       return 'Karşılıksız İşaretle';
     case 'cancel':
       return 'Çeki İptal Et';
+    case 'deposit':
+      return 'Çeki Tahsile Ver';
+    case 'pledge':
+      return 'Çeki Teminata Ver';
+    case 'release':
+      return 'Çeki Portföye Geri Al';
     default:
       return '';
   }
@@ -126,10 +159,11 @@ const actionTitle = computed(() => {
 function openAction(kind: ActionKind, cheque: Cheque) {
   info.value = null;
   actionModal.value = { kind, cheque };
+  const accounts = kind === 'deposit' ? bankAccounts.value : cashBank.accounts;
   Object.assign(actionForm, {
     party_name: '',
     to_holder: 'supplier',
-    cash_bank_account_id: cashBank.accounts[0]?.id ?? '',
+    cash_bank_account_id: accounts[0]?.id ?? '',
     transaction_date: today,
     reason: '',
   });
@@ -157,6 +191,20 @@ async function submitAction() {
     } else if (kind === 'collect') {
       await store.collectCheque(cheque.id, {
         cash_bank_account_id: actionForm.cash_bank_account_id,
+        transaction_date: actionForm.transaction_date,
+      });
+    } else if (kind === 'deposit') {
+      await store.depositCheque(cheque.id, {
+        cash_bank_account_id: actionForm.cash_bank_account_id,
+        transaction_date: actionForm.transaction_date,
+      });
+    } else if (kind === 'pledge') {
+      await store.pledgeCheque(cheque.id, {
+        party_name: actionForm.party_name,
+        transaction_date: actionForm.transaction_date,
+      });
+    } else if (kind === 'release') {
+      await store.releaseCheque(cheque.id, {
         transaction_date: actionForm.transaction_date,
       });
     } else if (kind === 'bounce') {
@@ -257,8 +305,9 @@ onMounted(async () => {
                 <span class="pill">{{ STATUS_LABELS[c.status] ?? c.status }}</span>
               </td>
               <td class="num act">
-                <template v-if="c.status === 'portfolio' || c.status === 'endorsed'">
+                <template v-if="c.status === 'portfolio'">
                   <button
+                    v-if="c.direction === 'incoming' && c.portfolioHolder === 'own'"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     @click="openAction('endorse', c)"
@@ -273,6 +322,7 @@ onMounted(async () => {
                     Tahsil
                   </button>
                   <button
+                    v-if="canBounce(c)"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     @click="openAction('bounce', c)"
@@ -287,6 +337,30 @@ onMounted(async () => {
                     İptal
                   </button>
                 </template>
+                <button
+                  v-if="canDeposit(c)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAction('deposit', c)"
+                >
+                  Tahsile Ver
+                </button>
+                <button
+                  v-if="canPledge(c)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAction('pledge', c)"
+                >
+                  Teminata Ver
+                </button>
+                <button
+                  v-if="canRelease(c)"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAction('release', c)"
+                >
+                  Portföye Geri Al
+                </button>
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm"
@@ -480,6 +554,37 @@ onMounted(async () => {
                 </option>
               </select>
             </label>
+            <label
+              ><span>Tarih</span
+              ><input v-model="actionForm.transaction_date" type="date" class="input"
+            /></label>
+          </template>
+          <template v-else-if="actionModal.kind === 'deposit'">
+            <label class="full"
+              ><span>Tahsil hesabı (banka) *</span>
+              <select v-model="actionForm.cash_bank_account_id" class="select">
+                <option value="" disabled>Seçin…</option>
+                <option v-for="a in bankAccounts" :key="a.id" :value="a.id">
+                  {{ a.accountName }} ({{ a.currency }})
+                </option>
+              </select>
+            </label>
+            <label
+              ><span>Tarih</span
+              ><input v-model="actionForm.transaction_date" type="date" class="input"
+            /></label>
+          </template>
+          <template v-else-if="actionModal.kind === 'pledge'">
+            <label class="full"
+              ><span>Teminat alan taraf *</span
+              ><input v-model="actionForm.party_name" class="input" maxlength="255"
+            /></label>
+            <label
+              ><span>Tarih</span
+              ><input v-model="actionForm.transaction_date" type="date" class="input"
+            /></label>
+          </template>
+          <template v-else-if="actionModal.kind === 'release'">
             <label
               ><span>Tarih</span
               ><input v-model="actionForm.transaction_date" type="date" class="input"

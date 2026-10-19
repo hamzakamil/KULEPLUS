@@ -4,7 +4,10 @@ import { api } from '@/lib/api';
 
 export interface InvoiceLine {
   id?: string;
+  /** Stok ürünü satırı (alış/satış). Gider kategorisiyle birlikte gönderilemez. */
   product_id?: string;
+  /** Gider kategorisi satırı (alış). Ürünle birlikte gönderilemez. */
+  expense_category_id?: string;
   description: string;
   quantity: number;
   unit_id?: string;
@@ -15,6 +18,13 @@ export interface InvoiceLine {
   /** API'den gelen hesaplanmış alanlar (detay dönüşünde dolu). */
   tax_amount?: number;
   line_total?: number;
+  /** KDV tevkifatı türü (yalnızca satış/alış faturasında ve KDV'li satırda). */
+  withholding_type_id?: string | null;
+  /** Tevkifat alanları (detay dönüşünde dolu; oran yüzde, ör. 40). */
+  withholding_rate?: number;
+  withholding_amount?: number;
+  withholding_einvoice_code?: string | null;
+  withholding_kdv2_code?: string | null;
 }
 
 export interface Invoice {
@@ -42,6 +52,17 @@ export interface Invoice {
   lines: InvoiceLine[];
   payments: Payment[];
   contact_name?: string;
+  /** Tevkif edilen KDV toplamı (satır tevkifatlarının toplamı). */
+  withholding_total?: number;
+  /** Bağlı iadelerle düşülen tutar. */
+  returned_amount?: number;
+  /** Orijinal fatura bağı (iade faturaları için 'invoice'). */
+  reference_type?: string | null;
+  reference_id?: string | null;
+  /** Kesinleşme durumu; iade faturasının orijinali 'posted' olmalıdır. */
+  posting_status?: string;
+  /** Alış faturası: tedarikçinin belge numarası (mükerrer kontrolü; muhasebe aktifken zorunlu). */
+  supplier_document_no?: string | null;
 }
 
 export interface Payment {
@@ -60,6 +81,29 @@ export interface TaxRate {
   rate: number;
 }
 
+/** KDV tevkifatı türü. Oran = rate_numerator / rate_denominator (genelde /10). */
+export interface WithholdingType {
+  id: string;
+  name: string;
+  einvoice_code: string;
+  kdv2_code: string;
+  rate_numerator: number;
+  rate_denominator: number;
+  is_active: boolean;
+  valid_from: string;
+  valid_to: string | null;
+}
+
+/** Kesinleştirme (muhasebeleştirme) sonucu: POST /v1/invoices/:id/post. */
+export interface PostInvoiceResult {
+  invoiceId: string;
+  entryId: string | null;
+  entryNo: string | null;
+  alreadyPosted: boolean;
+  /** Muhasebe modülü kapalıysa false (yevmiye fişi üretilmez). */
+  journal?: boolean;
+}
+
 /** Çalışma alanı ile ilgili kirli durum — draft'ın kalıcılığı (erp-workspace-panels). */
 export interface InvoiceDraft {
   id?: string;
@@ -74,7 +118,21 @@ export interface InvoiceDraft {
   /** Kurun referans alındığı tarih (dövizli belgeler). */
   rate_date?: string;
   notes: string;
+  /** İade faturasının bağlı olduğu orijinal fatura (reference_type='invoice'). */
+  reference_id?: string;
+  /** Alış faturası: tedarikçi belge no (yalnızca alışta gönderilir). */
+  supplier_document_no?: string;
+  /** Düzenlenen faturanın kesinleşme durumu; kesinleşmiş fatura formda kilitlenir (yalnız düzenlemede dolu). */
+  posting_status?: string;
   lines: InvoiceLine[];
+}
+
+/** Idempotency-Key (8–200 karakter). randomUUID yalnızca güvenli bağlamda bulunur; yoksa yedek anahtar. */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 const DRAFT_KEY = 'erp_invoice_draft_v1';
@@ -84,6 +142,7 @@ export const useInvoiceStore = defineStore('invoices', () => {
   const invoices = ref<Invoice[]>([]);
   const currentInvoice = ref<Invoice | null>(null);
   const taxRates = ref<TaxRate[]>([]);
+  const withholdingTypes = ref<WithholdingType[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -213,6 +272,9 @@ export const useInvoiceStore = defineStore('invoices', () => {
     exchange_rate?: number;
     rate_date?: string;
     notes?: string;
+    reference_type?: string;
+    reference_id?: string;
+    supplier_document_no?: string;
     lines: InvoiceLine[];
   }) => {
     loading.value = true;
@@ -240,8 +302,11 @@ export const useInvoiceStore = defineStore('invoices', () => {
       if (index !== -1) invoices.value[index] = response.data;
       if (currentInvoice.value?.id === id) currentInvoice.value = response.data;
       return response.data;
-    } catch (err) {
-      error.value = 'Fatura güncellenirken bir hata oluştu.';
+    } catch (err: unknown) {
+      // Sunucu mesajı (ör. mükerrer belge 409) kullanıcıya gösterilir.
+      const axiosError = err as { response?: { data?: { error?: { message?: string } } } };
+      error.value =
+        axiosError.response?.data?.error?.message || 'Fatura güncellenirken bir hata oluştu.';
       throw err;
     } finally {
       loading.value = false;
@@ -298,12 +363,41 @@ export const useInvoiceStore = defineStore('invoices', () => {
       const index = invoices.value.findIndex((i) => i.id === invoiceId);
       if (index !== -1) invoices.value[index] = response.data;
       return response.data;
-    } catch (err) {
-      error.value = 'Ödeme eklenirken bir hata oluştu.';
+    } catch (err: unknown) {
+      // Muhasebe kuralı (ör. yalnız kesinleşmiş faturaya ödeme) sunucu mesajıyla gösterilir.
+      const axiosError = err as { response?: { data?: { error?: { message?: string } } } };
+      error.value =
+        axiosError.response?.data?.error?.message || 'Ödeme eklenirken bir hata oluştu.';
       throw err;
     } finally {
       loading.value = false;
     }
+  };
+
+  /**
+   * Faturayı kesinleştirir (muhasebeleştirir). Her çağrıda yeni Idempotency-Key gönderilir;
+   * zaten kesinleşmişse sunucu { alreadyPosted: true } döner. Başarıdan sonra detay ve liste tazelenir.
+   */
+  const postInvoice = async (id: string): Promise<PostInvoiceResult> => {
+    loading.value = true;
+    error.value = null;
+    let result: PostInvoiceResult;
+    try {
+      const response = await api.post<PostInvoiceResult>(`/v1/invoices/${id}/post`, undefined, {
+        headers: { 'Idempotency-Key': newIdempotencyKey() },
+      });
+      result = response.data;
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { error?: { message?: string } } } };
+      error.value =
+        axiosError.response?.data?.error?.message || 'Fatura kesinleştirilirken bir hata oluştu.';
+      loading.value = false;
+      throw err;
+    }
+    // Kesinleşme sunucuda tamamlandı; tazeleme hatası kesinleşmeyi geri almaz.
+    await Promise.allSettled([fetchInvoice(id), fetchInvoices()]);
+    loading.value = false;
+    return result;
   };
 
   const fetchTaxRates = async () => {
@@ -312,6 +406,45 @@ export const useInvoiceStore = defineStore('invoices', () => {
       taxRates.value = response.data.data ?? [];
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  let withholdingSeq = 0;
+  /** Tevkifat türleri; activeOn verilirse o tarihte geçerli aktif türler gelir. */
+  const fetchWithholdingTypes = async (activeOn?: string) => {
+    const seq = ++withholdingSeq;
+    const query = activeOn ? `?active_on=${encodeURIComponent(activeOn)}` : '';
+    try {
+      const response = await api.get(`/v1/invoices/withholding-types${query}`);
+      // Tarih hızla değişirse yalnızca son isteğin sonucu yazılır.
+      if (seq === withholdingSeq) withholdingTypes.value = response.data.data ?? [];
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  /**
+   * İade faturası bağı için carinin kesinleşmiş faturaları (mevcut listeleme uç noktası).
+   * Ana liste durumuna (invoices / filters / pagination) dokunmaz.
+   */
+  const fetchReferenceInvoices = async (
+    contactId: string,
+    type: 'sales' | 'purchase',
+  ): Promise<Invoice[]> => {
+    const params = new URLSearchParams({
+      type,
+      contact_id: contactId,
+      sort: 'issue_date',
+      order: 'desc',
+      limit: '100',
+    });
+    try {
+      const response = await api.get(`/v1/invoices?${params.toString()}`);
+      const rows = (response.data.data ?? []) as Invoice[];
+      return rows.filter((i) => i.posting_status === 'posted');
+    } catch (err) {
+      console.error(err);
+      return [];
     }
   };
 
@@ -338,6 +471,7 @@ export const useInvoiceStore = defineStore('invoices', () => {
     invoices,
     currentInvoice,
     taxRates,
+    withholdingTypes,
     loading,
     error,
     pagination,
@@ -359,7 +493,10 @@ export const useInvoiceStore = defineStore('invoices', () => {
     replaceLines,
     deleteInvoice,
     addPayment,
+    postInvoice,
     fetchTaxRates,
+    fetchWithholdingTypes,
+    fetchReferenceInvoices,
     setFilters,
     resetFilters,
   };
