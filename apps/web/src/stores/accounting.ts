@@ -158,6 +158,81 @@ export interface TrialBalance {
   periodCredit: number;
 }
 
+/** Yevmiye defteri fişi (kapanış/açılış fişleri dahil). */
+export interface JournalBookEntry {
+  entry_id: string;
+  fiscal_year: number;
+  entry_no: number;
+  entry_date: string;
+  entry_type: string;
+  description: string | null;
+  source_type: string | null;
+  total_debit: number;
+  total_credit: number;
+  lines: {
+    account_code: string;
+    account_name: string;
+    description: string | null;
+    debit: number;
+    credit: number;
+  }[];
+}
+
+export interface JournalBook {
+  from: string;
+  to: string;
+  entries: JournalBookEntry[];
+  total_entries: number;
+  /** En çok 5000 fiş döner; true ise liste kısaltılmıştır. */
+  truncated: boolean;
+  total_debit: number;
+  total_credit: number;
+}
+
+export interface GeneralLedgerRow {
+  entry_id: string;
+  fiscal_year: number;
+  entry_no: number;
+  entry_date: string;
+  description: string | null;
+  debit: number;
+  credit: number;
+  /** Yürüyen bakiye: borç − alacak (pozitif B, negatif A). */
+  balance: number;
+}
+
+export interface GeneralLedgerAccount {
+  code: string;
+  name: string;
+  opening: { debit: number; credit: number; balance: number };
+  period: { debit: number; credit: number };
+  closing: { balance: number; side: 'B' | 'A' | '' };
+  rows: GeneralLedgerRow[];
+}
+
+export interface GeneralLedger {
+  from: string;
+  to: string;
+  level: 'detail' | 'main';
+  truncated: boolean;
+  accounts: GeneralLedgerAccount[];
+}
+
+export interface GeneralLedgerParams {
+  from: string;
+  to: string;
+  level: 'detail' | 'main';
+  only_active: boolean;
+  code_prefix?: string;
+}
+
+/** Yazdırma başlığı için şirket kimliği (`GET /v1/company/settings`). */
+export interface CompanyProfile {
+  name: string;
+  tax_office: string | null;
+  tax_number: string | null;
+}
+
 export interface BalanceSheet {
   as_of: string;
   year_start: string;
@@ -421,6 +496,70 @@ export const useAccountingStore = defineStore('accounting', () => {
     return response.data;
   };
 
+  const journalBook = async (from: string, to: string): Promise<JournalBook> => {
+    const response = await api.get('/v1/accounting/reports/journal-book', { params: { from, to } });
+    return response.data;
+  };
+
+  const generalLedgerQuery = (p: GeneralLedgerParams) => ({
+    from: p.from,
+    to: p.to,
+    level: p.level,
+    only_active: p.only_active ? 'true' : 'false',
+    code_prefix: p.code_prefix || undefined,
+  });
+
+  const generalLedger = async (p: GeneralLedgerParams): Promise<GeneralLedger> => {
+    const response = await api.get('/v1/accounting/reports/general-ledger', {
+      params: generalLedgerQuery(p),
+    });
+    return response.data;
+  };
+
+  /** CSV'yi kimlik header'ıyla blob olarak indirip tarayıcıya kaydettirir. */
+  const saveBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const downloadJournalBookCsv = async (from: string, to: string) => {
+    const response = await api.get('/v1/accounting/reports/journal-book.csv', {
+      params: { from, to },
+      responseType: 'blob',
+    });
+    saveBlob(response.data as Blob, `yevmiye-defteri-${from}_${to}.csv`);
+  };
+
+  const downloadGeneralLedgerCsv = async (p: GeneralLedgerParams) => {
+    const response = await api.get('/v1/accounting/reports/general-ledger.csv', {
+      params: generalLedgerQuery(p),
+      responseType: 'blob',
+    });
+    saveBlob(response.data as Blob, `defter-i-kebir-${p.from}_${p.to}.csv`);
+  };
+
+  /** Şirket unvanı + vergi bilgisi; alınamazsa null (çağıran yalnızca ad gösterir). */
+  const fetchCompanyProfile = async (): Promise<CompanyProfile | null> => {
+    try {
+      const response = await api.get('/v1/company/settings');
+      const t = response.data?.tenant;
+      if (!t) return null;
+      return {
+        name: t.trade_name || t.name || '',
+        tax_office: t.tax_office ?? null,
+        tax_number: t.tax_number ?? null,
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const balanceSheet = async (asOf?: string): Promise<BalanceSheet> => {
     const response = await api.get('/v1/accounting/reports/balance-sheet', {
       params: { as_of: asOf },
@@ -503,6 +642,11 @@ export const useAccountingStore = defineStore('accounting', () => {
     reverseEntry,
     postEntry,
     trialBalance,
+    journalBook,
+    generalLedger,
+    downloadJournalBookCsv,
+    downloadGeneralLedgerCsv,
+    fetchCompanyProfile,
     balanceSheet,
     incomeStatement,
     withholdingReport,

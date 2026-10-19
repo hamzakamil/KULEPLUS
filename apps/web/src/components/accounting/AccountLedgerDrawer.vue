@@ -140,6 +140,18 @@ watch(
   },
 );
 
+// Panel kapalıyken açılırsa, çağıran "kapanış fişi dahil" istediyse kutuyu baştan işaretle
+// (sync: yükleme izleyicisi ilk istekte doğru değeri görsün).
+watch(
+  () => drawer.open,
+  (isOpen, wasOpen) => {
+    if (isOpen && !wasOpen && drawer.includeClosing !== undefined) {
+      includeClosing.value = drawer.includeClosing;
+    }
+  },
+  { flush: 'sync' },
+);
+
 // Hesap/ön ek değişince (ya da panel açılınca) listeye dön, eski veriyi temizle.
 let lastFocus: HTMLElement | null = null;
 watch(

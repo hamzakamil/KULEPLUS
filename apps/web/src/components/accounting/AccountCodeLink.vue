@@ -17,6 +17,8 @@ const props = defineProps<{
   title?: string;
   /** Tek aralıklı (mono olmayan) görünüm: kalem adları gibi düz metin etiketler için. */
   plain?: boolean;
+  /** Panel "Kapanış fişi dahil" işaretli açılsın (defter raporları). */
+  includeClosing?: boolean;
 }>();
 
 const drawer = useLedgerDrawerStore();
@@ -34,6 +36,7 @@ function openDrawer() {
     to: props.to,
     excludeSources: props.excludeSources,
     title: props.title,
+    includeClosing: props.includeClosing,
   };
   if (props.code) drawer.openAccount(props.code, opts);
   else if (props.prefix) drawer.openPrefix(props.prefix, opts);

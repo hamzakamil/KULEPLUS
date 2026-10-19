@@ -78,6 +78,7 @@ import {
 } from './service';
 import { postVatOffset, previewVatOffset } from './vat';
 import { accountLedger } from './muavin';
+import { generalLedger, generalLedgerCsv, journalBook, journalBookCsv } from './books';
 import {
   closeYear,
   getTaxSettings,
@@ -306,6 +307,90 @@ router.get(
           (req as TenantRequest).tenantId,
         ),
       );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const bookDate = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+
+/** Yevmiye defteri: onaylı fişler, mali yıl + madde no sırasıyla (kapanış/açılış dahil). */
+router.get(
+  '/reports/journal-book',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      res.json(
+        await journalBook(
+          { from: bookDate(q.from), to: bookDate(q.to) },
+          (req as TenantRequest).tenantId,
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/reports/journal-book.csv',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      const body = await journalBookCsv(
+        { from: bookDate(q.from), to: bookDate(q.to) },
+        (req as TenantRequest).tenantId,
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="yevmiye-defteri.csv"');
+      res.send(body);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+const ledgerQuery = (q: Record<string, string | undefined>) => ({
+  from: bookDate(q.from),
+  to: bookDate(q.to),
+  level: q.level === 'main' ? ('main' as const) : ('detail' as const),
+  only_active: q.only_active !== 'false',
+  code_prefix: q.code_prefix,
+});
+
+/** Defter-i kebir: hesap bazlı bloklar (devir, hareketler, yürüyen bakiye, dönem toplamı). */
+router.get(
+  '/reports/general-ledger',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(
+        await generalLedger(
+          ledgerQuery(req.query as Record<string, string | undefined>),
+          (req as TenantRequest).tenantId,
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/reports/general-ledger.csv',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = await generalLedgerCsv(
+        ledgerQuery(req.query as Record<string, string | undefined>),
+        (req as TenantRequest).tenantId,
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="defter-i-kebir.csv"');
+      res.send(body);
     } catch (error) {
       next(error);
     }

@@ -8,6 +8,8 @@ export interface LedgerDrawerOptions {
   excludeSources?: string[];
   /** Başlıkta hesap adı yerine gösterilecek metin. */
   title?: string;
+  /** Panel açılırken "Kapanış fişi dahil" kutusunu bu değere ayarlar (verilmezse dokunmaz). */
+  includeClosing?: boolean;
 }
 
 function localIso(d: Date): string {
@@ -29,6 +31,7 @@ export const useLedgerDrawerStore = defineStore('ledgerDrawer', () => {
   const to = ref('');
   const excludeSources = ref<string[]>([]);
   const title = ref<string | undefined>(undefined);
+  const includeClosing = ref<boolean | undefined>(undefined);
   /** Panelden fiş kaydedilince `Date.now()` ile güncellenir. */
   const lastSavedAt = ref(0);
 
@@ -39,6 +42,7 @@ export const useLedgerDrawerStore = defineStore('ledgerDrawer', () => {
     to.value = end;
     excludeSources.value = opts.excludeSources ? [...opts.excludeSources] : [];
     title.value = opts.title;
+    includeClosing.value = opts.includeClosing;
     open.value = true;
   }
 
@@ -72,6 +76,7 @@ export const useLedgerDrawerStore = defineStore('ledgerDrawer', () => {
     to,
     excludeSources,
     title,
+    includeClosing,
     lastSavedAt,
     openAccount,
     openPrefix,

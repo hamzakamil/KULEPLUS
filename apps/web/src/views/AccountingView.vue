@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import AccountCodeLink from '@/components/accounting/AccountCodeLink.vue';
+import GeneralLedgerReport from '@/components/accounting/GeneralLedgerReport.vue';
+import JournalBookReport from '@/components/accounting/JournalBookReport.vue';
 import AccountLedgerDrawer from '@/components/accounting/AccountLedgerDrawer.vue';
 import PeriodEndPanel from '@/components/accounting/PeriodEndPanel.vue';
 import {
@@ -215,7 +217,12 @@ async function reverse(id: string) {
 }
 
 // --- Raporlar ---
-const reportType = ref<'trial' | 'balance' | 'income' | 'withholding'>('trial');
+const reportType = ref<
+  'trial' | 'balance' | 'income' | 'withholding' | 'journalBook' | 'generalLedger'
+>('trial');
+// Defter raporları kendi yüklemesini yapar; "Raporla" onları şu başvurular üzerinden tetikler.
+const journalBookRef = ref<InstanceType<typeof JournalBookReport> | null>(null);
+const generalLedgerRef = ref<InstanceType<typeof GeneralLedgerReport> | null>(null);
 const rangeFrom = ref(yearStart);
 const rangeTo = ref(today);
 const asOf = ref(today);
@@ -229,6 +236,8 @@ async function runReport() {
     if (reportType.value === 'trial')
       trial.value = await store.trialBalance(rangeFrom.value, rangeTo.value);
     else if (reportType.value === 'balance') balance.value = await store.balanceSheet(asOf.value);
+    else if (reportType.value === 'journalBook') await journalBookRef.value?.load();
+    else if (reportType.value === 'generalLedger') await generalLedgerRef.value?.load();
     else if (reportType.value === 'withholding')
       withholding.value = await store.withholdingReport(rangeFrom.value, rangeTo.value);
     else income.value = await store.incomeStatement(rangeFrom.value, rangeTo.value);
@@ -300,7 +309,9 @@ watch(
         (reportType.value === 'trial' && trial.value) ||
         (reportType.value === 'balance' && balance.value) ||
         (reportType.value === 'income' && income.value) ||
-        (reportType.value === 'withholding' && withholding.value)
+        (reportType.value === 'withholding' && withholding.value) ||
+        (reportType.value === 'journalBook' && journalBookRef.value?.hasData) ||
+        (reportType.value === 'generalLedger' && generalLedgerRef.value?.hasData)
       )
         await runReport();
     }
@@ -538,6 +549,8 @@ watch(
             <option value="balance">Bilanço</option>
             <option value="income">Gelir Tablosu</option>
             <option value="withholding">Tevkifat (KDV-2 / KDV-1)</option>
+            <option value="journalBook">Yevmiye Defteri</option>
+            <option value="generalLedger">Defter-i Kebir</option>
           </select>
         </label>
         <template v-if="reportType === 'balance'">
@@ -552,7 +565,20 @@ watch(
         <button type="button" class="btn btn-primary btn-sm" @click="runReport">Raporla</button>
       </div>
 
-      <div v-if="reportType === 'trial' && trial">
+      <JournalBookReport
+        v-if="reportType === 'journalBook'"
+        ref="journalBookRef"
+        :from="rangeFrom"
+        :to="rangeTo"
+      />
+      <GeneralLedgerReport
+        v-else-if="reportType === 'generalLedger'"
+        ref="generalLedgerRef"
+        :from="rangeFrom"
+        :to="rangeTo"
+      />
+
+      <div v-else-if="reportType === 'trial' && trial">
         <label class="trial-toggle">
           <input v-model="showOpening" type="checkbox" />
           Devir sütunlarını göster
