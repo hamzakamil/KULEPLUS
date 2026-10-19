@@ -185,6 +185,29 @@ function hasDifference(v: number): boolean {
   return Math.abs(v) >= 0.005;
 }
 
+// --- Mizan: devir sütunları ve bakiye kolonları ---
+const showOpening = ref(false);
+/** Mizan satırları: tek bakiye alanı pozitifse borç, negatifse alacak bakiyesine yazılır. */
+const trialRows = computed(() =>
+  (trial.value?.accounts ?? []).map((row) => {
+    const value = Number(row.balance);
+    return {
+      ...row,
+      debitBalance: value > 0 ? value : null,
+      creditBalance: value < 0 ? -value : null,
+    };
+  }),
+);
+const trialBalanceTotals = computed(() =>
+  trialRows.value.reduce(
+    (sum, row) => ({
+      debit: sum.debit + (row.debitBalance ?? 0),
+      credit: sum.credit + (row.creditBalance ?? 0),
+    }),
+    { debit: 0, credit: 0 },
+  ),
+);
+
 onMounted(async () => {
   await loadAccounts();
   await loadEntries();
@@ -352,47 +375,60 @@ onMounted(async () => {
         <button type="button" class="btn btn-primary btn-sm" @click="runReport">Raporla</button>
       </div>
 
-      <div v-if="reportType === 'trial' && trial" class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Kod</th>
-              <th>Hesap</th>
-              <th class="num">Devir Borç</th>
-              <th class="num">Devir Alacak</th>
-              <th class="num">Dönem Borç</th>
-              <th class="num">Dönem Alacak</th>
-              <th class="num">Toplam Borç</th>
-              <th class="num">Toplam Alacak</th>
-              <th class="num">Bakiye</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in trial.accounts" :key="r.code">
-              <td class="mono">{{ r.code }}</td>
-              <td>{{ r.name }}</td>
-              <td class="num">{{ formatMoney(r.openingDebit) }}</td>
-              <td class="num">{{ formatMoney(r.openingCredit) }}</td>
-              <td class="num">{{ formatMoney(r.periodDebit) }}</td>
-              <td class="num">{{ formatMoney(r.periodCredit) }}</td>
-              <td class="num">{{ formatMoney(r.debit) }}</td>
-              <td class="num">{{ formatMoney(r.credit) }}</td>
-              <td class="num">{{ formatMoney(r.balance) }}</td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colspan="2">Toplam</th>
-              <th class="num">{{ formatMoney(trial.openingDebit) }}</th>
-              <th class="num">{{ formatMoney(trial.openingCredit) }}</th>
-              <th class="num">{{ formatMoney(trial.periodDebit) }}</th>
-              <th class="num">{{ formatMoney(trial.periodCredit) }}</th>
-              <th class="num">{{ formatMoney(trial.totalDebit) }}</th>
-              <th class="num">{{ formatMoney(trial.totalCredit) }}</th>
-              <th class="num">{{ trial.balanced ? 'Dengeli' : 'Dengesiz!' }}</th>
-            </tr>
-          </tfoot>
-        </table>
+      <div v-if="reportType === 'trial' && trial">
+        <label class="trial-toggle">
+          <input v-model="showOpening" type="checkbox" />
+          Devir sütunlarını göster
+        </label>
+        <div class="table-wrap">
+          <table class="data-table trial-table">
+            <thead>
+              <tr>
+                <th>Kod</th>
+                <th>Hesap</th>
+                <th v-if="showOpening" class="num">Devir Borç</th>
+                <th v-if="showOpening" class="num">Devir Alacak</th>
+                <th class="num">Dönem Borç</th>
+                <th class="num">Dönem Alacak</th>
+                <th class="num">Toplam Borç</th>
+                <th class="num">Toplam Alacak</th>
+                <th class="num">Borç Bakiyesi</th>
+                <th class="num">Alacak Bakiyesi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in trialRows" :key="r.code">
+                <td class="mono">{{ r.code }}</td>
+                <td>{{ r.name }}</td>
+                <td v-if="showOpening" class="num">{{ formatMoney(r.openingDebit) }}</td>
+                <td v-if="showOpening" class="num">{{ formatMoney(r.openingCredit) }}</td>
+                <td class="num">{{ formatMoney(r.periodDebit) }}</td>
+                <td class="num">{{ formatMoney(r.periodCredit) }}</td>
+                <td class="num">{{ formatMoney(r.debit) }}</td>
+                <td class="num">{{ formatMoney(r.credit) }}</td>
+                <td class="num">
+                  {{ r.debitBalance === null ? '—' : formatMoney(r.debitBalance) }}
+                </td>
+                <td class="num">
+                  {{ r.creditBalance === null ? '—' : formatMoney(r.creditBalance) }}
+                </td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colspan="2">Toplam ({{ trial.balanced ? 'Dengeli' : 'Dengesiz!' }})</th>
+                <th v-if="showOpening" class="num">{{ formatMoney(trial.openingDebit) }}</th>
+                <th v-if="showOpening" class="num">{{ formatMoney(trial.openingCredit) }}</th>
+                <th class="num">{{ formatMoney(trial.periodDebit) }}</th>
+                <th class="num">{{ formatMoney(trial.periodCredit) }}</th>
+                <th class="num">{{ formatMoney(trial.totalDebit) }}</th>
+                <th class="num">{{ formatMoney(trial.totalCredit) }}</th>
+                <th class="num">{{ formatMoney(trialBalanceTotals.debit) }}</th>
+                <th class="num">{{ formatMoney(trialBalanceTotals.credit) }}</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
       <div v-else-if="reportType === 'balance' && balance" class="bs-grid">
@@ -687,6 +723,24 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Mizan: 8 sütun kartın içine sığsın — hesap adı satır kırar, hücreler sıkı. */
+.trial-table th,
+.trial-table td {
+  padding: 0.5rem 0.5rem;
+}
+.trial-table th {
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+}
+.trial-table td:nth-child(2) {
+  white-space: normal;
+  min-width: 8rem;
+  max-width: 13rem;
+}
+.trial-table td.num,
+.trial-table th.num {
+  font-size: 0.875rem;
+}
 .tabs {
   display: flex;
   gap: 4px;
@@ -809,5 +863,14 @@ onMounted(async () => {
   background: #fef2f2;
   color: #b42318;
   font-weight: 700;
+}
+.trial-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+  color: #555;
+  cursor: pointer;
 }
 </style>

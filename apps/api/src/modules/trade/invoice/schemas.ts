@@ -44,6 +44,31 @@ export const createInvoiceSchema = z.object({
     .min(1),
 });
 
+/**
+ * Tek ekrandan fatura (Faz 8): kaydet → (isteğe bağlı) kesinleştir → (isteğe bağlı) peşin
+ * ödeme/tahsilat. Hepsi TEK transaction'da çalışır; bir adım hata verirse hiçbiri kalıcı olmaz.
+ *  - finalize: true → fatura kesinleştirilir (muhasebe aktifse yevmiye fişi),
+ *  - payment: verilirse kesinleştirme de yapılır; `amount` boşsa faturanın ödenecek tutarı.
+ */
+export const quickInvoiceSchema = createInvoiceSchema.extend({
+  finalize: z.boolean().default(false),
+  payment: z
+    .object({
+      amount: z.number().positive().optional(),
+      payment_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional(),
+      payment_method: z.enum(['cash', 'bank_transfer', 'check', 'credit_card', 'other']),
+      cash_bank_account_id: z.string().uuid().optional(),
+      credit_card_id: z.string().uuid().optional(),
+      reference: z.string().optional(),
+      notes: z.string().optional(),
+    })
+    .optional(),
+});
+export type QuickInvoiceInput = z.infer<typeof quickInvoiceSchema>;
+
 export const updateInvoiceSchema = z.object({
   type: z.enum(['sales', 'purchase', 'proforma', 'credit_note', 'debit_note']).optional(),
   contact_id: z.string().uuid().nullable().optional(),

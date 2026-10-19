@@ -104,6 +104,36 @@ export interface PostInvoiceResult {
   journal?: boolean;
 }
 
+/** Yeni fatura gövdesi (POST /v1/invoices ve POST /v1/invoices/quick ortak). */
+export interface CreateInvoiceInput {
+  type: string;
+  contact_id?: string;
+  warehouse_id?: string;
+  issue_date?: string;
+  due_date?: string;
+  currency: string;
+  exchange_rate?: number;
+  rate_date?: string;
+  notes?: string;
+  reference_type?: string;
+  reference_id?: string;
+  supplier_document_no?: string;
+  lines: InvoiceLine[];
+}
+
+/** Tek ekran akışında peşin ödeme/tahsilat (POST /v1/invoices/quick gövdesi). */
+export interface QuickPaymentInput {
+  /** Boşsa faturanın ödenecek tutarı kullanılır. */
+  amount?: number;
+  payment_date?: string;
+  payment_method: 'cash' | 'bank_transfer' | 'check' | 'credit_card' | 'other';
+  cash_bank_account_id?: string;
+  /** Yalnızca alışta şirket kredi kartı. */
+  credit_card_id?: string;
+  reference?: string;
+  notes?: string;
+}
+
 /** Çalışma alanı ile ilgili kirli durum — draft'ın kalıcılığı (erp-workspace-panels). */
 export interface InvoiceDraft {
   id?: string;
@@ -262,21 +292,7 @@ export const useInvoiceStore = defineStore('invoices', () => {
     }
   };
 
-  const createInvoice = async (data: {
-    type: string;
-    contact_id?: string;
-    warehouse_id?: string;
-    issue_date?: string;
-    due_date?: string;
-    currency: string;
-    exchange_rate?: number;
-    rate_date?: string;
-    notes?: string;
-    reference_type?: string;
-    reference_id?: string;
-    supplier_document_no?: string;
-    lines: InvoiceLine[];
-  }) => {
+  const createInvoice = async (data: CreateInvoiceInput) => {
     loading.value = true;
     error.value = null;
     try {
@@ -291,6 +307,56 @@ export const useInvoiceStore = defineStore('invoices', () => {
     } finally {
       loading.value = false;
     }
+  };
+
+  /** Son tek-ekran isteğinin anahtarı; ağ hatasında aynı gövde yeniden gönderilirse aynı anahtar kullanılır. */
+  let pendingQuick: { key: string; fingerprint: string } | null = null;
+
+  /**
+   * Tek transaction'da kaydet [+ kesinleştir] [+ peşin ödeme/tahsilat] (POST /v1/invoices/quick).
+   * Hata varsa hiçbir kayıt kalıcı olmaz; store.error sunucu mesajıyla yazılır ve istek yeniden fırlatılır.
+   * Başarıda liste tazelenir ve oluşan fatura döner.
+   */
+  const createInvoiceQuick = async (
+    data: CreateInvoiceInput,
+    options: { finalize?: boolean; payment?: QuickPaymentInput } = {},
+  ): Promise<Invoice> => {
+    const body = {
+      ...data,
+      finalize: options.finalize ?? false,
+      ...(options.payment ? { payment: options.payment } : {}),
+    };
+    const fingerprint = JSON.stringify(body);
+    const key =
+      pendingQuick && pendingQuick.fingerprint === fingerprint
+        ? pendingQuick.key
+        : newIdempotencyKey();
+    pendingQuick = { key, fingerprint };
+
+    loading.value = true;
+    error.value = null;
+    let created: Invoice;
+    try {
+      const response = await api.post<Invoice>('/v1/invoices/quick', body, {
+        headers: { 'Idempotency-Key': key },
+      });
+      created = response.data;
+      pendingQuick = null;
+    } catch (err: unknown) {
+      // Yanıt gelmediyse (ağ hatası) sonuç belirsizdir; anahtar korunur. Yanıt geldiyse istek sonlanmıştır.
+      const axiosError = err as {
+        response?: { data?: { error?: { message?: string } } };
+      };
+      if (axiosError.response) pendingQuick = null;
+      error.value =
+        axiosError.response?.data?.error?.message || 'Fatura kaydedilirken bir hata oluştu.';
+      loading.value = false;
+      throw err;
+    }
+    // Kayıt sunucuda tamamlandı; tazeleme hatası kaydı geri almaz (fetchInvoices kendi hatasını yazar).
+    await fetchInvoices();
+    loading.value = false;
+    return created;
   };
 
   const updateInvoice = async (id: string, data: Partial<Invoice>) => {
@@ -489,6 +555,7 @@ export const useInvoiceStore = defineStore('invoices', () => {
     fetchInvoices,
     fetchInvoice,
     createInvoice,
+    createInvoiceQuick,
     updateInvoice,
     replaceLines,
     deleteInvoice,

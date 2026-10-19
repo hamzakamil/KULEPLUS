@@ -26,6 +26,7 @@ import type {
   PaymentInput,
   ListInvoicesQuery,
   WithholdingTypeInput,
+  QuickInvoiceInput,
 } from './schemas.js';
 
 interface LineWithTax {
@@ -64,6 +65,35 @@ interface LockedInvoice {
   total: string | number;
   reference_type: string | null;
   reference_id: string | null;
+}
+
+/**
+ * Tek bir açık transaction'ı paylaştıran sahte havuz: `connect()` aynı bağlantıyı döndürür;
+ * BEGIN/COMMIT/ROLLBACK/release çağrıları etkisizdir (gerçek transaction'ı çağıran yönetir).
+ * Böylece `createInvoice` + `postInvoice` + `addPayment` aynı transaction içinde birleştirilir:
+ * hata olursa çağıran ROLLBACK yapar ve hiçbir adım kalıcı olmaz.
+ */
+function sharedTransactionPool(client: PoolClient): Pool {
+  const control = new Set(['BEGIN', 'COMMIT', 'ROLLBACK']);
+  const wrapped = new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === 'release') return () => undefined;
+      if (prop === 'query') {
+        return (...args: unknown[]) => {
+          const first = args[0];
+          if (typeof first === 'string' && control.has(first.trim())) {
+            return Promise.resolve({ rows: [], rowCount: 0 });
+          }
+          return (target.query as (...a: unknown[]) => unknown)(...args);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return {
+    connect: async () => wrapped,
+    query: (...args: unknown[]) => (client.query as (...a: unknown[]) => unknown)(...args),
+  } as unknown as Pool;
 }
 
 export class InvoiceService {
@@ -141,7 +171,10 @@ export class InvoiceService {
     const subtotal = calculatedLines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
     const discountTotal = calculatedLines.reduce((sum, l) => sum + l.discount_amount, 0);
     const taxTotal = calculatedLines.reduce((sum, l) => sum + l.tax_amount, 0);
-    const withholdingTotal = calculatedLines.reduce((sum, l) => sum + (l.withholding_amount ?? 0), 0);
+    const withholdingTotal = calculatedLines.reduce(
+      (sum, l) => sum + (l.withholding_amount ?? 0),
+      0,
+    );
     // `total` = ödenecek tutar (matrah + KDV − tevkif edilen KDV); `tax_total` tam KDV.
     const total = subtotal - discountTotal + taxTotal - withholdingTotal;
 
@@ -624,7 +657,12 @@ export class InvoiceService {
       if (data.currency) {
         const normalized = data.currency.toUpperCase();
         if (normalized !== 'TRY' && data.exchange_rate === undefined) {
-          const resolved = await this.resolveInvoiceRate(client, normalized, undefined, data.rate_date);
+          const resolved = await this.resolveInvoiceRate(
+            client,
+            normalized,
+            undefined,
+            data.rate_date,
+          );
           data.exchange_rate = resolved.exchangeRate;
           if (resolved.rateDate) data.rate_date = resolved.rateDate;
         } else if (normalized === 'TRY' && data.exchange_rate === undefined) {
@@ -921,7 +959,12 @@ export class InvoiceService {
       let paymentRate = invoiceRate;
       if (gainAccount && lossAccount && invoiceCurrency !== 'TRY') {
         try {
-          const resolved = await this.resolveInvoiceRate(client, invoiceCurrency, undefined, paymentDate);
+          const resolved = await this.resolveInvoiceRate(
+            client,
+            invoiceCurrency,
+            undefined,
+            paymentDate,
+          );
           paymentRate = resolved.exchangeRate;
         } catch {
           /* kur çözülemedi → fatura kuru kullanılır */
@@ -935,6 +978,13 @@ export class InvoiceService {
       const newPaidAmount = Number(invoice.paid_amount) + data.amount;
       const newBalance =
         Number(invoice.total) - newPaidAmount - Number(invoice.returned_amount ?? 0);
+      // Fazla ödeme/tahsilat engeli: ödeme kalan bakiyeyi aşamaz (avans akışı ayrı bir özelliktir).
+      if (toKurus(newBalance) < 0) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Ödeme tutarı kalan bakiyeyi (${Number(invoice.total) - Number(invoice.paid_amount) - Number(invoice.returned_amount ?? 0)}) aşamaz.`,
+        );
+      }
 
       let newStatus = invoice.balance > 0 ? 'partial' : 'draft';
       if (newBalance <= 0) newStatus = 'paid';
@@ -1081,6 +1131,54 @@ export class InvoiceService {
     }
   }
 
+  /**
+   * Tek ekran akışı (Faz 8): fatura oluştur → [kesinleştir] → [peşin ödeme/tahsilat], tek
+   * transaction'da. Ödeme verilirse kesinleştirme zorunlu olarak yapılır; tutar boşsa faturanın
+   * ödenecek tutarı kullanılır (tevkifat düşülmüş `total`).
+   */
+  async createAndFinalize(data: QuickInvoiceInput, userId: string) {
+    const { finalize, payment, ...invoiceInput } = data;
+    const pool = this.getPoolInstance();
+    const client = await pool.connect();
+    let invoiceId: string;
+    try {
+      await client.query('BEGIN');
+      const tx = new InvoiceService(sharedTransactionPool(client));
+      const created = (await tx.createInvoice(invoiceInput as CreateInvoiceInput, userId)) as {
+        id?: string;
+        invoice?: { id: string; total?: number | string };
+        total?: number | string;
+      };
+      invoiceId = (created.id ?? created.invoice?.id) as string;
+      if (finalize || payment) {
+        await tx.postInvoice(invoiceId, userId);
+      }
+      if (payment) {
+        const row = await client.query(
+          `SELECT total, paid_amount, returned_amount FROM invoices
+            WHERE id = $1 AND tenant_id = current_tenant_id()`,
+          [invoiceId],
+        );
+        const due =
+          Number(row.rows[0].total) -
+          Number(row.rows[0].paid_amount) -
+          Number(row.rows[0].returned_amount ?? 0);
+        await tx.addPayment(
+          invoiceId,
+          { ...payment, amount: payment.amount ?? due } as PaymentInput,
+          userId,
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return this.getInvoice(invoiceId);
+  }
+
   async getTaxRates() {
     const pool = this.getPoolInstance();
     const result = await pool.query(
@@ -1209,7 +1307,10 @@ export class InvoiceService {
         );
       }
       if (!(Number(line.tax_rate) > 0)) {
-        throw new AppError('VALIDATION_ERROR', `Satır ${i + 1}: KDV'siz satıra tevkifat uygulanamaz.`);
+        throw new AppError(
+          'VALIDATION_ERROR',
+          `Satır ${i + 1}: KDV'siz satıra tevkifat uygulanamaz.`,
+        );
       }
       line.withholding_rate = (Number(t.rate_numerator) / Number(t.rate_denominator)) * 100;
       line.withholding_einvoice_code = String(t.einvoice_code);
@@ -1265,10 +1366,7 @@ export class InvoiceService {
    * ve aynı para biriminde olmalı; iade tutarı orijinalin kalan bakiyesini aşamaz. Tutar
    * orijinalin bakiyesinden düşülür, iadenin kendi bakiyesi kapanır.
    */
-  private async applyReturnLink(
-    client: PoolClient,
-    note: Record<string, unknown>,
-  ): Promise<void> {
+  private async applyReturnLink(client: PoolClient, note: Record<string, unknown>): Promise<void> {
     if (!['credit_note', 'debit_note'].includes(String(note.type))) return;
     if (note.reference_type !== 'invoice' || !note.reference_id) return;
     const orig = await client.query(
@@ -1294,7 +1392,10 @@ export class InvoiceService {
       throw new AppError('VALIDATION_ERROR', 'İade ile orijinal fatura aynı cariye ait olmalı.');
     }
     if (String(note.currency ?? 'TRY').trim() !== String(o.currency ?? 'TRY').trim()) {
-      throw new AppError('VALIDATION_ERROR', 'İade ile orijinal fatura aynı para biriminde olmalı.');
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'İade ile orijinal fatura aynı para biriminde olmalı.',
+      );
     }
     const amount = Number(note.total);
     if (toKurus(amount) > toKurus(Number(o.balance))) {
@@ -1364,7 +1465,10 @@ export class InvoiceService {
           `Satır ${index} ("${row.description}"): stok ürünü veya gider kategorisi seçin.`,
         );
       }
-      byAccount.set(accountId, (byAccount.get(accountId) ?? 0) + toKurus(Number(row.taxable) * rate));
+      byAccount.set(
+        accountId,
+        (byAccount.get(accountId) ?? 0) + toKurus(Number(row.taxable) * rate),
+      );
     }
     const parts = [...byAccount.entries()].map(([accountId, debitK]) => ({ accountId, debitK }));
     const residual = toKurus(net) - parts.reduce((sum, p) => sum + p.debitK, 0);
@@ -1482,6 +1586,14 @@ export class InvoiceService {
       await this.applyReturnLink(client, invoice);
 
       const accountingActive = await isAccountingActive(client);
+      // Alış faturası: cari (tedarikçi) zorunlu — 320 her zaman bir tedarikçiye ait olur, mükerrer
+      // belge kontrolü ve cari mutabakatı çalışır. Carisiz alım için Giderler ekranı (peşin) kullanılır.
+      if (invoice.type === 'purchase' && !invoice.contact_id) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Alış faturasında cari (tedarikçi) seçilmelidir. Carisiz (peşin) alım için Giderler ekranını kullanın.',
+        );
+      }
       // Alış faturası: tedarikçi belge no (muhasebe aktifken zorunlu) + mükerrer belge engeli.
       if (invoice.type === 'purchase') {
         if (accountingActive && !String(invoice.supplier_document_no ?? '').trim()) {
@@ -1519,7 +1631,13 @@ export class InvoiceService {
           },
         });
         await client.query('COMMIT');
-        return { invoiceId: id, entryId: null, entryNo: null, alreadyPosted: false, journal: false };
+        return {
+          invoiceId: id,
+          entryId: null,
+          entryNo: null,
+          alreadyPosted: false,
+          journal: false,
+        };
       }
 
       // Çoklu para birimi (SPEC §9.2): fiş TRY (yerel) cinsinden üretilir — belge tutarları
@@ -1559,7 +1677,8 @@ export class InvoiceService {
         const collectedVat = (toKurus(vat) - toKurus(withholding)) / 100;
         lines.push({ accountId: receivable, debit: total, credit: 0 });
         lines.push({ accountId: salesAcc, debit: 0, credit: net });
-        if (collectedVat > 0 && vatAcc) lines.push({ accountId: vatAcc, debit: 0, credit: collectedVat });
+        if (collectedVat > 0 && vatAcc)
+          lines.push({ accountId: vatAcc, debit: 0, credit: collectedVat });
       } else if (invoice.type === 'purchase') {
         // Alış: stok/gider B (matrah) + 191 B (tam KDV) / 320 A (ödenecek) + 360.01.<KDV-2> A (tevkifat)
         const payable = await this.resolveAccountByCode(client, '320');

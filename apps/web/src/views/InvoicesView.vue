@@ -79,7 +79,6 @@
               <th scope="col">Cari</th>
               <th scope="col" class="num">Toplam</th>
               <th scope="col">Durum</th>
-              <th scope="col">Kesinleşme</th>
             </tr>
           </thead>
           <tbody>
@@ -108,16 +107,7 @@
                 </div>
               </td>
               <td>
-                <span :class="statusBadgeClass(invoice.status)">{{
-                  statusLabel(invoice.status)
-                }}</span>
-              </td>
-              <td>
-                <span
-                  v-if="invoice.posting_status"
-                  :class="postingBadgeClass(invoice.posting_status)"
-                  >{{ postingLabel(invoice.posting_status) }}</span
-                >
+                <span :class="invoiceState(invoice).badge">{{ invoiceState(invoice).label }}</span>
                 <div v-if="canPost(invoice)">
                   <button
                     type="button"
@@ -132,12 +122,12 @@
               </td>
             </tr>
             <tr v-if="!invoices.length && !loading">
-              <td colspan="8" class="empty-cell">
+              <td colspan="7" class="empty-cell">
                 Henüz fatura bulunmuyor. Yeni fatura oluşturmak için yukarıdaki butonları kullanın.
               </td>
             </tr>
             <tr v-if="loading">
-              <td colspan="8" class="empty-cell">Yükleniyor…</td>
+              <td colspan="7" class="empty-cell">Yükleniyor…</td>
             </tr>
           </tbody>
         </table>
@@ -182,16 +172,8 @@
           <div>
             <dt>Durum</dt>
             <dd>
-              <span :class="statusBadgeClass(selectedInvoice.status)">{{
-                statusLabel(selectedInvoice.status)
-              }}</span>
-            </dd>
-          </div>
-          <div v-if="selectedInvoice.posting_status">
-            <dt>Kesinleşme</dt>
-            <dd>
-              <span :class="postingBadgeClass(selectedInvoice.posting_status)">{{
-                postingLabel(selectedInvoice.posting_status)
+              <span :class="invoiceState(selectedInvoice).badge">{{
+                invoiceState(selectedInvoice).label
               }}</span>
             </dd>
           </div>
@@ -776,10 +758,111 @@
             <textarea id="f-notes" v-model="draftForm.notes" rows="2" class="textarea"></textarea>
           </div>
 
+          <!-- Peşin ödeme / tahsilat: yalnız yeni fatura; üçüncü eylemle satır içi açılır. -->
+          <section
+            v-if="isNewWorkspace && canQuickPay && quickPaymentOpen"
+            class="quick-pay"
+            aria-label="Peşin ödeme veya tahsilat"
+          >
+            <div class="line-items-head">
+              <h3>{{ draftForm.type === 'purchase' ? 'Peşin ödeme' : 'Peşin tahsilat' }}</h3>
+              <button
+                type="button"
+                class="wp-btn"
+                aria-label="Ödeme bölümünü kapat"
+                title="Ödeme bölümünü kapat"
+                @click="quickPaymentOpen = false"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="form-grid">
+              <div>
+                <label class="field-label" for="qp-method">Ödeme yöntemi *</label>
+                <FilterableSelect
+                  id="qp-method"
+                  :model-value="quickPayment.method"
+                  :options="quickMethodOptions"
+                  placeholder="Yöntem seçin"
+                  :disabled="saving"
+                  @update:model-value="(v) => setQuickMethod(v)"
+                />
+              </div>
+              <div>
+                <label class="field-label" for="qp-account"
+                  >{{ QUICK_ACCOUNT_LABEL[quickPayment.method] }} *</label
+                >
+                <FilterableSelect
+                  id="qp-account"
+                  :model-value="quickPayment.accountId"
+                  :options="quickAccountOptions"
+                  placeholder="Seçiniz…"
+                  :disabled="saving"
+                  @update:model-value="(v) => setQuickAccount(v)"
+                />
+                <span v-if="!quickAccountOptions.length" class="muted small">{{
+                  quickAccountEmptyText
+                }}</span>
+              </div>
+              <div>
+                <label class="field-label" for="qp-amount">Tutar *</label>
+                <input
+                  id="qp-amount"
+                  v-model.number="quickPayment.amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  class="input"
+                  :disabled="saving"
+                  @input="quickAmountTouched = true"
+                />
+              </div>
+              <div>
+                <label class="field-label" for="qp-date">Ödeme tarihi *</label>
+                <input
+                  id="qp-date"
+                  v-model="quickPayment.date"
+                  type="date"
+                  class="input"
+                  :disabled="saving"
+                  @input="quickDateTouched = true"
+                />
+              </div>
+            </div>
+          </section>
+
           <p v-if="storeError" class="form-error">{{ storeError }}</p>
           <div class="panel-actions">
             <button type="button" class="btn btn-secondary" @click="requestClose">Vazgeç</button>
+            <div v-if="isNewWorkspace" class="panel-actions-group">
+              <button
+                type="submit"
+                class="btn btn-secondary"
+                :disabled="saving || draftForm.lines.length === 0"
+              >
+                {{ savingKind === 'draft' ? 'Kaydediliyor…' : 'Taslak Kaydet' }}
+              </button>
+              <button
+                v-if="canQuickFinalize"
+                type="button"
+                class="btn btn-primary"
+                :disabled="saving || draftForm.lines.length === 0"
+                @click="submitQuick('finalize')"
+              >
+                {{ savingKind === 'finalize' ? 'Kaydediliyor…' : 'Kaydet ve Kesinleştir' }}
+              </button>
+              <button
+                v-if="canQuickPay"
+                type="button"
+                class="btn btn-primary"
+                :disabled="saving || draftForm.lines.length === 0"
+                @click="submitQuick('payment')"
+              >
+                {{ savingKind === 'payment' ? 'Kaydediliyor…' : quickPayLabel }}
+              </button>
+            </div>
             <button
+              v-else
               type="submit"
               class="btn btn-primary"
               :disabled="saving || draftForm.lines.length === 0"
@@ -819,10 +902,13 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import {
   useInvoiceStore,
+  type CreateInvoiceInput,
   type Invoice,
   type InvoiceDraft,
   type InvoiceLine,
+  type QuickPaymentInput,
 } from '@/stores/invoices';
+import { useCashBankStore } from '@/stores/cash-bank';
 import { useContactStore, type Contact } from '@/stores/contacts';
 import { useStockStore } from '@/stores/stock';
 import { useExpenseStore } from '@/stores/expense';
@@ -842,6 +928,7 @@ const invoiceStore = useInvoiceStore();
 const contactStore = useContactStore();
 const stockStore = useStockStore();
 const expenseStore = useExpenseStore();
+const cashBankStore = useCashBankStore();
 
 const invoices = computed(() => invoiceStore.invoices);
 const loading = computed(() => invoiceStore.loading);
@@ -927,6 +1014,8 @@ const paymentForm = ref({
 });
 const paymentSaving = ref(false);
 const saving = ref(false);
+/** Sürmekte olan gönderimin türü; yalnız yeni fatura düğmelerinde etiket değiştirir. */
+const savingKind = ref<'draft' | 'finalize' | 'payment' | null>(null);
 // ── Kesinleştirme / iptal: sonuç bildirimi ve eylem kilidi ──
 const notice = ref<{ kind: 'error' | 'success'; text: string } | null>(null);
 const actionBusy = ref(false);
@@ -1108,28 +1197,6 @@ const typeBadgeClass = (type: string) =>
     }[type] || 'badge-neutral'
   }`;
 
-const statusLabel = (status: string) =>
-  ({
-    draft: 'Taslak',
-    sent: 'Gönderildi',
-    paid: 'Ödendi',
-    partial: 'Kısmi',
-    cancelled: 'İptal',
-    overdue: 'Gecikmiş',
-  })[status] || status;
-
-const statusBadgeClass = (status: string) =>
-  `badge ${
-    {
-      draft: 'badge-neutral',
-      sent: 'badge-info',
-      paid: 'badge-success',
-      partial: 'badge-warning',
-      cancelled: 'badge-danger',
-      overdue: 'badge-danger',
-    }[status] || 'badge-neutral'
-  }`;
-
 // ── Kesinleştirme (muhasebeleştirme) ve kesinleşme durumu ──
 /** Kesinleştirme yalnız satış, alış ve iade faturalarında yapılır (proforma hariç). */
 const POSTABLE_TYPES: Invoice['type'][] = ['sales', 'purchase', 'credit_note', 'debit_note'];
@@ -1143,17 +1210,17 @@ const isCancelledInvoice = (invoice: Invoice) =>
 const canEditLines = (invoice: Invoice) =>
   !isPostedInvoice(invoice) && !isCancelledInvoice(invoice);
 
-const postingLabel = (status?: string) =>
-  ({ draft: 'Taslak', posted: 'Kesinleşti', cancelled: 'İptal' })[status ?? ''] || status || '—';
-
-const postingBadgeClass = (status?: string) =>
-  `badge ${
-    {
-      draft: 'badge-neutral',
-      posted: 'badge-success',
-      cancelled: 'badge-danger',
-    }[status ?? ''] || 'badge-neutral'
-  }`;
+/**
+ * Listede ve detayda tek durum etiketi: iptal, ödeme ve kesinleşme bilgisi birlikte değerlendirilir.
+ * Öncelik: iptal > ödendi > kısmi ödendi > kesinleşmiş (açık) > taslak.
+ */
+const invoiceState = (invoice: Invoice): { label: string; badge: string } => {
+  if (isCancelledInvoice(invoice)) return { label: 'İptal', badge: 'badge-danger' };
+  if (invoice.status === 'paid') return { label: 'Ödendi', badge: 'badge-success' };
+  if (invoice.status === 'partial') return { label: 'Kısmi Ödendi', badge: 'badge-warning' };
+  if (isPostedInvoice(invoice)) return { label: 'Açık', badge: 'badge-info' };
+  return { label: 'Taslak', badge: 'badge-neutral' };
+};
 
 /** Düzenleme paneli bu faturayı açıksa kilit durumu sunucu sonucuyla eşitlenir. */
 function syncOpenDraftPosting(id: string, postingStatus: string) {
@@ -1332,6 +1399,7 @@ function startNew(type: 'sales' | 'purchase') {
   invoiceStore.error = null;
   invoiceStore.openWorkspace('create', emptyDraft(type));
   isDirty.value = false;
+  quickPaymentOpen.value = false;
   nextTick(() => {
     panelMaximized.value = true;
     attachResize();
@@ -1436,6 +1504,8 @@ function toApiLines(lines: InvoiceLine[], type: InvoiceDraft['type']): InvoiceLi
     const out: DraftLine = { ...(line as DraftLine) };
     delete out.cost_kind;
     if (!out.product_id) delete out.product_id;
+    // %0 seçimi boş değer üretir; API boş metni UUID olarak reddeder, alan gönderilmez.
+    if (!out.tax_rate_id) delete out.tax_rate_id;
     if (!out.expense_category_id || type !== 'purchase') delete out.expense_category_id;
     if (out.product_id) delete out.expense_category_id;
     if (!withholdingAllowed || !out.withholding_type_id || taxRateFor(out.tax_rate_id) <= 0) {
@@ -1445,13 +1515,62 @@ function toApiLines(lines: InvoiceLine[], type: InvoiceDraft['type']): InvoiceLi
   });
 }
 
+/**
+ * Yeni fatura gönderiminden önce istemci kontrolü (sunucuya gitmeden anlaşılır mesaj).
+ * Cari her gönderimde; ürün/gider kategorisi ve tedarikçi belge no yalnız kesinleştirmede zorunlu
+ * (sunucu bu kuralları kesinleştirmede uygular, taslak kaydı engellemez).
+ */
+function createFormProblem(finalize: boolean): string | null {
+  const d = draftForm.value;
+  if (!d) return null;
+  if (!d.contact_id) {
+    return d.type === 'purchase'
+      ? 'Alış faturasında cari (tedarikçi) seçilmelidir.'
+      : 'Lütfen bir cari seçin.';
+  }
+  if (!finalize || d.type !== 'purchase') return null;
+  const lineIndex = d.lines.findIndex((l) => !l.product_id && !l.expense_category_id);
+  if (lineIndex !== -1) return `Satır ${lineIndex + 1}: stok ürünü veya gider kategorisi seçin.`;
+  if (!(d.supplier_document_no ?? '').trim()) {
+    return 'Alış faturasında tedarikçi belge no zorunludur.';
+  }
+  return null;
+}
+
+/** Yeni fatura gövdesi: taslak ve tek ekran gönderimi aynı hazırlığı kullanır. */
+function buildCreatePayload(d: InvoiceDraft): CreateInvoiceInput {
+  return {
+    type: d.type,
+    contact_id: d.contact_id || undefined,
+    warehouse_id: d.warehouse_id || undefined,
+    issue_date: d.issue_date,
+    due_date: d.due_date || undefined,
+    currency: d.currency,
+    exchange_rate: d.exchange_rate || undefined,
+    rate_date: d.rate_date || undefined,
+    notes: d.notes || undefined,
+    ...referencePayload(),
+    ...supplierDocumentPayload(),
+    lines: toApiLines(d.lines, d.type),
+  };
+}
+
 async function saveInvoice() {
   if (!draftForm.value || draftForm.value.lines.length === 0) return;
-  if (!draftForm.value.contact_id) {
-    invoiceStore.error = 'Lütfen bir cari seçin.';
-    return;
+  if (invoiceStore.workspaceMode === 'edit') {
+    if (!draftForm.value.contact_id) {
+      invoiceStore.error = 'Lütfen bir cari seçin.';
+      return;
+    }
+  } else {
+    const problem = createFormProblem(false);
+    if (problem) {
+      invoiceStore.error = problem;
+      return;
+    }
   }
   saving.value = true;
+  savingKind.value = 'draft';
   try {
     if (invoiceStore.workspaceMode === 'edit' && draftForm.value.id && formPosted.value) {
       // Kesinleşmiş fatura: API yalnız not ve vadeyi kabul eder; satırlar ve diğer alanlar gönderilmez.
@@ -1477,31 +1596,220 @@ async function saveInvoice() {
         toApiLines(draftForm.value.lines, draftForm.value.type),
       );
     } else {
-      const created = await invoiceStore.createInvoice({
-        type: draftForm.value.type,
-        contact_id: draftForm.value.contact_id || undefined,
-        warehouse_id: draftForm.value.warehouse_id || undefined,
-        issue_date: draftForm.value.issue_date,
-        due_date: draftForm.value.due_date || undefined,
-        currency: draftForm.value.currency,
-        exchange_rate: draftForm.value.exchange_rate || undefined,
-        rate_date: draftForm.value.rate_date || undefined,
-        notes: draftForm.value.notes || undefined,
-        ...referencePayload(),
-        ...supplierDocumentPayload(),
-        lines: toApiLines(draftForm.value.lines, draftForm.value.type),
-      });
+      const created = await invoiceStore.createInvoice(buildCreatePayload(draftForm.value));
       selectedId.value = created.id;
       await invoiceStore.fetchInvoice(created.id);
+      notice.value = { kind: 'success', text: 'Fatura kaydedildi.' };
     }
     invoiceStore.discardDraft();
     isDirty.value = false;
+    quickPaymentOpen.value = false;
     await invoiceStore.fetchInvoices();
   } catch (err) {
     /* hata store'da */
   } finally {
     saving.value = false;
+    savingKind.value = null;
   }
+}
+
+// ── Yeni fatura: tek formdan kaydet / kesinleştir / peşin ödeme-tahsilat (POST /v1/invoices/quick) ──
+const isNewWorkspace = computed(() => invoiceStore.workspaceMode === 'create');
+/** Kesinleştirilebilen türler (proforma hariç). */
+const canQuickFinalize = computed(() =>
+  POSTABLE_TYPES.includes(draftForm.value?.type as Invoice['type']),
+);
+/** Peşin ödeme/tahsilat yalnız satış ve alış faturasında. */
+const canQuickPay = computed(
+  () => draftForm.value?.type === 'sales' || draftForm.value?.type === 'purchase',
+);
+const quickPayLabel = computed(() =>
+  draftForm.value?.type === 'purchase'
+    ? 'Kaydet, Kesinleştir ve Öde'
+    : 'Kaydet, Kesinleştir ve Tahsil Et',
+);
+
+type QuickPayMethod = 'cash' | 'bank_transfer' | 'credit_card';
+/** Hesap seçicinin etiketi; kart yalnız alışta seçilebilir. */
+const QUICK_ACCOUNT_LABEL: Record<QuickPayMethod, string> = {
+  cash: 'Kasa',
+  bank_transfer: 'Banka hesabı',
+  credit_card: 'Şirket kredi kartı',
+};
+const roundMoney = (n: number) => Math.round(n * 100) / 100;
+
+const quickPaymentOpen = ref(false);
+const quickPayment = ref<{
+  method: QuickPayMethod;
+  accountId: string;
+  amount: number;
+  date: string;
+}>({ method: 'cash', accountId: '', amount: 0, date: '' });
+/** Kullanıcı tutarı ya da tarihi elle değiştirdiyse form değiştikçe varsayılan yeniden yazılmaz. */
+const quickAmountTouched = ref(false);
+const quickDateTouched = ref(false);
+
+const quickMethodOptions = computed(() => [
+  { value: 'cash', label: 'Kasa' },
+  { value: 'bank_transfer', label: 'Banka' },
+  ...(draftForm.value?.type === 'purchase'
+    ? [{ value: 'credit_card', label: 'Şirket kredi kartı' }]
+    : []),
+]);
+const quickAccountOptions = computed(() => {
+  const method = quickPayment.value.method;
+  if (method === 'credit_card') {
+    return cashBankStore.creditCards
+      .filter((c) => c.status === 'active')
+      .map((c) => ({
+        value: c.id,
+        label: c.cardNumberLast4 ? `${c.cardLabel} (•••• ${c.cardNumberLast4})` : c.cardLabel,
+      }));
+  }
+  const accountType = method === 'cash' ? 'cash' : 'bank';
+  return cashBankStore.accounts
+    .filter((a) => a.accountType === accountType && a.status === 'active')
+    .map((a) => ({ value: a.id, label: `${a.accountName} (${a.currency})` }));
+});
+const quickAccountEmptyText = computed(
+  () =>
+    `Kayıtlı ${QUICK_ACCOUNT_LABEL[quickPayment.value.method].toLocaleLowerCase('tr-TR')} bulunamadı.`,
+);
+
+/** Seçenek listesi değişince geçerli hesap kalmazsa: tek seçenek varsa o seçilir, değilse boş bırakılır. */
+watch(quickAccountOptions, (options) => {
+  const current = quickPayment.value.accountId;
+  if (options.some((o) => o.value === current)) return;
+  quickPayment.value.accountId = options.length === 1 ? options[0].value : '';
+});
+
+function setQuickMethod(method: string) {
+  if (method === quickPayment.value.method) return;
+  quickPayment.value.method = method as QuickPayMethod;
+  quickPayment.value.accountId = '';
+}
+function setQuickAccount(id: string) {
+  quickPayment.value.accountId = id;
+}
+
+/** Kasa/banka ve kart listesi: tüm hesap türleri, en fazla 100; paylaşılan filtreler sonra geri yüklenir. */
+async function loadQuickAccounts() {
+  const f = cashBankStore.filters;
+  const saved = { accountType: f.accountType, status: f.status, limit: f.limit };
+  f.accountType = undefined;
+  f.status = undefined;
+  f.limit = 100;
+  try {
+    await Promise.all([cashBankStore.fetchAccounts(), cashBankStore.fetchCreditCards()]);
+  } finally {
+    Object.assign(f, saved);
+  }
+}
+
+/** Üçüncü düğme: bölümü açar, tutar ve tarihi varsayılanla doldurur. */
+function openQuickPayment() {
+  quickPaymentOpen.value = true;
+  quickAmountTouched.value = false;
+  quickDateTouched.value = false;
+  quickPayment.value = {
+    method: 'cash',
+    accountId: '',
+    amount: roundMoney(payableTotal.value),
+    date: draftForm.value?.issue_date ?? '',
+  };
+  void loadQuickAccounts();
+}
+
+watch(payableTotal, (total) => {
+  if (quickPaymentOpen.value && !quickAmountTouched.value) {
+    quickPayment.value.amount = roundMoney(total);
+  }
+});
+watch(
+  () => draftForm.value?.issue_date,
+  (date) => {
+    if (quickPaymentOpen.value && !quickDateTouched.value) quickPayment.value.date = date ?? '';
+  },
+);
+watch(
+  () => draftForm.value?.type,
+  (type) => {
+    if (type !== 'sales' && type !== 'purchase') quickPaymentOpen.value = false;
+    else if (type !== 'purchase' && quickPayment.value.method === 'credit_card') {
+      setQuickMethod('cash');
+    }
+  },
+);
+
+/** Ödeme bölümü açıksa hesap ve tutar kontrolü; sunucuya gitmeden uyarır. */
+function quickPaymentProblem(): string | null {
+  const p = quickPayment.value;
+  const verb = draftForm.value?.type === 'purchase' ? 'Ödeme' : 'Tahsilat';
+  if (!p.accountId) {
+    return `${verb} için ${QUICK_ACCOUNT_LABEL[p.method].toLocaleLowerCase('tr-TR')} seçin.`;
+  }
+  if (!(p.amount > 0)) return 'Ödeme tutarı sıfırdan büyük olmalıdır.';
+  if (!p.date) return 'Ödeme tarihi seçin.';
+  return null;
+}
+
+function buildQuickPayment(): QuickPaymentInput {
+  const p = quickPayment.value;
+  const card = p.method === 'credit_card';
+  return {
+    amount: roundMoney(p.amount),
+    payment_date: p.date,
+    payment_method: p.method,
+    cash_bank_account_id: card ? undefined : p.accountId,
+    credit_card_id: card ? p.accountId : undefined,
+  };
+}
+
+/**
+ * Tek ekran gönderimi. 'finalize': kaydet + kesinleştir. 'payment': + peşin ödeme/tahsilat.
+ * Ödeme düğmesinin ilk basışı bölümü açar; hesap ve tutar onaylandıktan sonra ikinci basışta gönderir.
+ * Hata olursa form açık kalır ve girilen veriler korunur.
+ */
+async function submitQuick(kind: 'finalize' | 'payment') {
+  const d = draftForm.value;
+  if (!d || d.lines.length === 0 || saving.value) return;
+  if (kind === 'payment' && !quickPaymentOpen.value) {
+    openQuickPayment();
+    return;
+  }
+  const problem = createFormProblem(true) ?? (kind === 'payment' ? quickPaymentProblem() : null);
+  if (problem) {
+    invoiceStore.error = problem;
+    return;
+  }
+  saving.value = true;
+  savingKind.value = kind;
+  let created: Invoice;
+  try {
+    created = await invoiceStore.createInvoiceQuick(buildCreatePayload(d), {
+      finalize: true,
+      payment: kind === 'payment' ? buildQuickPayment() : undefined,
+    });
+  } catch {
+    /* hata store'da (error.message) */
+    return;
+  } finally {
+    saving.value = false;
+    savingKind.value = null;
+  }
+  // Kayıt tamam: detay gösterilir, form kapanır. Liste store tarafında tazelendi.
+  selectedId.value = created.id;
+  await invoiceStore.fetchInvoice(created.id).catch(() => undefined);
+  isDirty.value = false;
+  quickPaymentOpen.value = false;
+  invoiceStore.discardDraft();
+  notice.value = {
+    kind: 'success',
+    text:
+      kind === 'payment'
+        ? 'Fatura kesinleştirildi ve ödeme/tahsilat kaydedildi.'
+        : 'Fatura kesinleştirildi.',
+  };
 }
 
 function requestClose() {
@@ -2197,6 +2505,21 @@ watch(
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+.panel-actions-group {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+/* Peşin ödeme/tahsilat bölümü: .totals ile aynı yüzey ve kenar. */
+.quick-pay {
+  display: grid;
+  gap: 0.75rem;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
 }
 .wp-foot {
   padding: 0.625rem 1.25rem;

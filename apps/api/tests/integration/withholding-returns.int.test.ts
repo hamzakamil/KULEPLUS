@@ -22,6 +22,7 @@ describe.skipIf(!integrationEnabled)('Faz 7-3 — tevkifat ve iade', () => {
   let kdv20: string;
   let kdv0: string;
   let kira: string;
+  let supplierId: string;
   const types = new Map<string, string>();
   const m = () => getPool('migrator');
   const invoices = new InvoiceService();
@@ -38,7 +39,9 @@ describe.skipIf(!integrationEnabled)('Faz 7-3 — tevkifat ve iade', () => {
           currency: 'TRY',
           issue_date: '2026-05-10',
           lines,
-          ...(type === 'purchase' ? { supplier_document_no: `SUP-${newId()}` } : {}),
+          ...(type === 'purchase'
+            ? { supplier_document_no: `SUP-${newId()}`, contact_id: supplierId }
+            : {}),
           ...extra,
         } as never,
         t.userId,
@@ -80,6 +83,11 @@ describe.skipIf(!integrationEnabled)('Faz 7-3 — tevkifat ve iade', () => {
   beforeAll(async () => {
     t = await createTestTenant();
     await grantAccounting(t);
+    supplierId = newId();
+    await m().query(
+      `INSERT INTO contacts (id, tenant_id, code, name) VALUES ($1, $2, 'TED1', 'Tedarikçi')`,
+      [supplierId, t.tenantId],
+    );
     const c = await m().connect();
     try {
       await c.query('BEGIN');
@@ -105,6 +113,12 @@ describe.skipIf(!integrationEnabled)('Faz 7-3 — tevkifat ve iade', () => {
     ).rows[0].id;
   });
   afterAll(async () => {
+    await m().query(
+      'DELETE FROM invoice_lines WHERE invoice_id IN (SELECT id FROM invoices WHERE tenant_id = $1)',
+      [t.tenantId],
+    );
+    await m().query('DELETE FROM invoices WHERE tenant_id = $1', [t.tenantId]);
+    await m().query('DELETE FROM contacts WHERE tenant_id = $1', [t.tenantId]);
     await m().query('DELETE FROM withholding_types WHERE tenant_id = $1', [t.tenantId]);
     await m().query('DELETE FROM expense_categories WHERE tenant_id = $1', [t.tenantId]);
     await cleanupTestTenant(t);

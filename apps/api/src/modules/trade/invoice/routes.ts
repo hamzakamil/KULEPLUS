@@ -8,6 +8,7 @@ import { idempotency } from '../../../middleware/idempotency.js';
 import { validate } from '../../../middleware/validate.js';
 import {
   createInvoiceSchema,
+  quickInvoiceSchema,
   updateInvoiceSchema,
   replaceInvoiceLinesSchema,
   paymentSchema,
@@ -103,6 +104,34 @@ router.post(
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const result = await service.createInvoice(req.body, req.user?.sub);
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Tek ekran akışı: kaydet [+ kesinleştir] [+ peşin ödeme/tahsilat] — tek transaction.
+ * Kesinleştirme/ödeme istenirse `trade.invoice.approve` yetkisi gerekir; idempotenttir.
+ */
+const quickApprovalGuard = (req: Request, res: Response, next: NextFunction) => {
+  const body = req.body as { finalize?: boolean; payment?: unknown } | undefined;
+  if (body?.finalize || body?.payment) {
+    return requirePermission('trade.invoice.approve')(req, res, next);
+  }
+  next();
+};
+router.post(
+  '/quick',
+  idempotency(),
+  quickApprovalGuard,
+  validate(quickInvoiceSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      const result = await service.createAndFinalize(req.body, userId);
       res.status(201).json(result);
     } catch (error) {
       next(error);
