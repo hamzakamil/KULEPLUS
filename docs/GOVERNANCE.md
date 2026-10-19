@@ -143,3 +143,4 @@ Detay `TECHNICAL_SPEC §0`'dadır. Özet:
 | 0019 | [Timezone — `Europe/Istanbul` Varsayılan, Tenant Bazlı](adr/0019-timezone.md) | **Kabul** |
 | 0020 | [Mimari — Modüler Monolit, Paylaşılan Kernel](adr/0020-mimari-karar.md) | **Kabul** |
 | 0024 | [KDV Tevkifat Türleri ve Yardımcı (Alt) Hesaplar](adr/0024-kdv-tevkifat-turleri-ve-alt-hesaplar.md) | **Kabul** |
+| 0025 | [Yıl Bazlı Madde Numarası, KDV Mahsubu ve Yıl Sonu Kapanış](adr/0025-yil-sonu-kapanis-ve-madde-numarasi.md) | **Kabul** |

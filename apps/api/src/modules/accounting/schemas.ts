@@ -2,7 +2,16 @@ import { z } from 'zod';
 
 /** Ortak sabitler — SPEC §15. */
 export const ACCOUNT_TYPES = ['group', 'detail'] as const;
-export const ENTRY_TYPES = ['mahsup', 'tahsil', 'tediye', 'acilis', 'duzeltme', 'ters'] as const;
+export const ENTRY_TYPES = [
+  'mahsup',
+  'tahsil',
+  'tediye',
+  'acilis',
+  'duzeltme',
+  'ters',
+  'donem_sonu',
+  'kapanis',
+] as const;
 export const ENTRY_STATUSES = ['draft', 'posted', 'cancelled'] as const;
 export const PERIOD_STATUSES = ['open', 'closed'] as const;
 export const MAPPING_DIRECTIONS = ['debit', 'credit'] as const;

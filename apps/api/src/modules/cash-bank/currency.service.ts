@@ -469,7 +469,7 @@ export async function bookRevaluationJournal(
     // Gap-free fiş numarası (aynı tenant içinde eşzamanlılık kilidinde — SPEC §12.3).
     // Dönem kapısı: kapalı döneme / kilit tarihinden önceye değerleme fişi yazılamaz.
     const periodId = await openPeriodFor(client, valuationDate);
-    const entryNo = await allocateEntryNo(client);
+    const entryNo = await allocateEntryNo(client, periodId);
     const entryId = newId();
     const description = `Dönem sonu kur değerleme ${valuationDate} (${report.entries.length} döviz hesap)`;
 

@@ -69,12 +69,24 @@ import {
   updateMapping,
   deleteMapping,
   getNextEntryNo,
+  resequenceYear,
   trialBalance,
   balanceSheet,
   incomeStatement,
   withholdingReport,
   ensureChartOfAccounts,
 } from './service';
+import { postVatOffset, previewVatOffset } from './vat';
+import { accountLedger } from './muavin';
+import {
+  closeYear,
+  getTaxSettings,
+  previewYearEnd,
+  taxSettingsSchema,
+  undoYearEnd,
+  updateTaxSettings,
+  yearEndInputSchema,
+} from './closing';
 
 const router = Router();
 
@@ -143,6 +155,157 @@ router.get(
         (req as TenantRequest).tenantId,
       );
       res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+function parseYearMonth(src: Record<string, unknown> | undefined) {
+  const year = Number(src?.year);
+  const month = Number(src?.month);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new AppError('VALIDATION_ERROR', 'year ve month (1-12) gerekli');
+  }
+  return { year, month };
+}
+
+/** Aylık KDV mahsup fişi önizlemesi: 391 / 191 / 190 bakiyeleri, ödenecek / devreden KDV. */
+router.get(
+  '/vat-offset/preview',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { year, month } = parseYearMonth(req.query as Record<string, unknown>);
+      res.json(await previewVatOffset(year, month, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Aylık KDV mahsup fişini ay sonu tarihiyle keser (onaylı). */
+router.post(
+  '/vat-offset',
+  requirePermission('accounting.entry.approve'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      const { year, month } = parseYearMonth(req.body as Record<string, unknown>);
+      res
+        .status(201)
+        .json(await postVatOffset(year, month, userId, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// ==================== Yıl sonu kapanış sihirbazı (Faz 9-3) ====================
+
+/** Vergi ayarları: mükellef türü (kurumlar / gelir) ve kurumlar vergisi oranı. */
+router.get(
+  '/year-end/tax-settings',
+  requirePermission('accounting.period.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(await getTaxSettings((req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.put(
+  '/year-end/tax-settings',
+  requirePermission('accounting.period.manage'),
+  validate(taxSettingsSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      res.json(await updateTaxSettings(req.body, userId, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Önizleme: kesilecek fişler, vergi hesabı, kontroller — hiçbir şey kalıcı yazılmaz. */
+router.post(
+  '/year-end/preview',
+  requirePermission('accounting.period.read'),
+  validate(yearEndInputSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      res.json(await previewYearEnd(req.body, userId, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Kapanışı yap: yansıtma, 690/691/692/590, kapanış + açılış fişleri, dönemi kapat. */
+router.post(
+  '/year-end/close',
+  requirePermission('accounting.period.close'),
+  validate(yearEndInputSchema),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      res.status(201).json(await closeYear(req.body, userId, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Kontrollü geri alma: kapanıştan sonra yeni yılda fiş yoksa tüm sihirbaz fişlerini kaldırır. */
+router.post(
+  '/year-end/undo',
+  requirePermission('accounting.period.close'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      const year = Number((req.body as { fiscal_year?: unknown } | undefined)?.fiscal_year);
+      if (!Number.isInteger(year)) throw new AppError('VALIDATION_ERROR', 'fiscal_year gerekli');
+      res.json(await undoYearEnd(year, userId, (req as TenantRequest).tenantId));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Hesap muavini: `code` (alt hesaplarıyla) veya `prefix` (ör. 63), `from`/`to`, devir +
+ * hareketler + yürüyen bakiye. `exclude_sources` virgülle ayrılmış kaynak türleri.
+ */
+router.get(
+  '/reports/account-ledger',
+  requirePermission('accounting.report.read'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const q = req.query as Record<string, string | undefined>;
+      const date = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+      res.json(
+        await accountLedger(
+          {
+            code: q.code,
+            prefix: q.prefix,
+            from: date(q.from),
+            to: date(q.to),
+            include_closing: q.include_closing === 'true',
+            exclude_sources: q.exclude_sources ? q.exclude_sources.split(',').filter(Boolean) : [],
+            limit: q.limit ? Number(q.limit) : undefined,
+          },
+          (req as TenantRequest).tenantId,
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -335,6 +498,28 @@ router.post(
         (req.body as { entry_date?: string } | undefined)?.entry_date,
       );
       res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * "Yeniden sırala": mali yılın kilitli olmayan fişlerinin madde numaralarını tarih sırasına
+ * dizer. Kilit konurken ve dönem kapatılırken otomatik de çalışır.
+ */
+router.post(
+  '/entries/resequence',
+  requirePermission('accounting.period.manage'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?.sub;
+      if (!userId) throw new AppError('UNAUTHENTICATED', 'Kimlik doğrulama gerekli');
+      const year = Number((req.body as { fiscal_year?: unknown } | undefined)?.fiscal_year);
+      if (!Number.isInteger(year) || year < 1900 || year > 2999) {
+        throw new AppError('VALIDATION_ERROR', 'fiscal_year (mali yıl) gerekli');
+      }
+      res.json(await resequenceYear(year, userId, (req as TenantRequest).tenantId));
     } catch (error) {
       next(error);
     }
@@ -797,7 +982,8 @@ router.get(
   requirePermission('accounting.entry.read'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await getNextEntryNo((req as TenantRequest).tenantId);
+      const year = req.query.fiscal_year ? Number(req.query.fiscal_year) : undefined;
+      const result = await getNextEntryNo((req as TenantRequest).tenantId, year);
       res.json(result);
     } catch (error) {
       next(error);

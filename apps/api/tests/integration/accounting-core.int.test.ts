@@ -102,10 +102,13 @@ describe.skipIf(!integrationEnabled)('Faz 1 — fiş yaşam döngüsü (A1–A3)
       { code: '600', credit: 40 },
     ]);
     const rev = await accountingService.reverseEntry(e.id, t.userId, t.tenantId, '2026-04-01');
-    const detail = (await accountingService.getEntryById(rev.id, t.tenantId)) as EntryDetail & {
-      entry_date: Date;
+    const detail = (await accountingService.getEntryById(
+      rev.id,
+      t.tenantId,
+    )) as unknown as EntryDetail & {
+      entry_date: string;
     };
-    expect(detail.entry_date.getMonth()).toBe(3);
+    expect(detail.entry_date).toBe('2026-04-01');
     await expect(accountingService.reverseEntry(rev.id, t.userId, t.tenantId)).rejects.toThrow();
   });
 

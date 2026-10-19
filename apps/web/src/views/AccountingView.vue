@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import AccountCodeLink from '@/components/accounting/AccountCodeLink.vue';
+import AccountLedgerDrawer from '@/components/accounting/AccountLedgerDrawer.vue';
+import PeriodEndPanel from '@/components/accounting/PeriodEndPanel.vue';
 import {
+  errorMessage as storeErrorMessage,
   useAccountingStore,
+  type EntryDetail,
   type JournalLine,
   type TrialBalance,
   type WithholdingReport,
 } from '@/stores/accounting';
+import { useLedgerDrawerStore } from '@/stores/ledgerDrawer';
 
 const store = useAccountingStore();
-const activeTab = ref<'accounts' | 'entries' | 'reports'>('accounts');
+const ledgerDrawer = useLedgerDrawerStore();
+const activeTab = ref<'accounts' | 'entries' | 'reports' | 'periodEnd'>('accounts');
 const info = ref<string | null>(null);
 
 function formatMoney(v: number | string | null | undefined): string {
@@ -24,6 +31,18 @@ const STATUS_LABELS: Record<string, string> = {
   posted: 'Onaylı',
   cancelled: 'İptal',
 };
+const ENTRY_TYPE_LABELS: Record<string, string> = {
+  donem_sonu: 'Dönem sonu',
+  kapanis: 'Kapanış',
+};
+const entryTypeLabel = (t: string) => ENTRY_TYPE_LABELS[t] ?? t;
+/** Madde numarası her mali yılda 1'den başlar: 2026/12. */
+const entryNoLabel = (e: { entry_no: number | null; fiscal_year?: number }) =>
+  e.entry_no === null || e.entry_no === undefined
+    ? '—'
+    : e.fiscal_year
+      ? `${e.fiscal_year}/${e.entry_no}`
+      : String(e.entry_no);
 
 /** SPEC §22.1 hata sözleşmesinden (`{ error: { message } }`) mesaj çıkarır. */
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -55,6 +74,23 @@ async function bootstrapChart() {
 // --- Yevmiye fişleri ---
 async function loadEntries() {
   await store.fetchEntries({ limit: 50 });
+}
+
+// Yeniden sırala (madde numaralarını yıl bazında 1'den yeniden verir)
+const resequenceYear = ref(new Date().getFullYear());
+const resequenceBusy = ref(false);
+async function resequence() {
+  info.value = null;
+  resequenceBusy.value = true;
+  try {
+    const res = await store.resequenceEntries(Number(resequenceYear.value));
+    await loadEntries();
+    info.value = `${res.changed} fişin numarası güncellendi.`;
+  } catch (err) {
+    info.value = storeErrorMessage(err, 'Fişler yeniden sıralanamadı.');
+  } finally {
+    resequenceBusy.value = false;
+  }
 }
 const showEntryModal = ref(false);
 const entryForm = reactive({
@@ -105,6 +141,46 @@ async function submitEntry() {
     info.value = 'Fiş kaydedilemedi (denge veya alanları kontrol edin).';
   }
 }
+
+// Fiş satırları: listeden açılır alan (GET /entries/:id), hesap kodları muavine bağlanır.
+interface EntryExpand {
+  loading: boolean;
+  error: string | null;
+  detail: EntryDetail | null;
+}
+const expandedEntries = reactive<Record<string, EntryExpand>>({});
+async function toggleEntry(id: string) {
+  if (expandedEntries[id]) {
+    delete expandedEntries[id];
+    return;
+  }
+  expandedEntries[id] = { loading: true, error: null, detail: null };
+  await loadExpanded(id);
+}
+async function loadExpanded(id: string) {
+  const slot = expandedEntries[id];
+  if (!slot) return;
+  slot.loading = true;
+  slot.error = null;
+  try {
+    slot.detail = await store.fetchEntryDetail(id);
+  } catch (err) {
+    slot.error = storeErrorMessage(err, 'Fiş satırları yüklenemedi.');
+  } finally {
+    slot.loading = false;
+  }
+}
+/** Fişin mali yılı: kod bağlantıları o yılın muavinini açar. */
+/** YYYY-MM-DD → GG.AA.YYYY (saat dilimi kayması olmadan). */
+function formatDay(s?: string | null): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s ?? '');
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : (s ?? '—');
+}
+
+function entryYear(e: { fiscal_year?: number | null; entry_date: string }): number {
+  return e.fiscal_year || new Date(e.entry_date).getFullYear() || new Date().getFullYear();
+}
+
 async function approve(id: string) {
   if (
     !window.confirm(
@@ -212,6 +288,24 @@ onMounted(async () => {
   await loadAccounts();
   await loadEntries();
 });
+
+// Muavin panelinden düzeltme fişi kaydedilince açık ekranlar kendini yeniler.
+watch(
+  () => ledgerDrawer.lastSavedAt,
+  async () => {
+    await loadEntries();
+    for (const id of Object.keys(expandedEntries)) void loadExpanded(id);
+    if (activeTab.value === 'reports') {
+      if (
+        (reportType.value === 'trial' && trial.value) ||
+        (reportType.value === 'balance' && balance.value) ||
+        (reportType.value === 'income' && income.value) ||
+        (reportType.value === 'withholding' && withholding.value)
+      )
+        await runReport();
+    }
+  },
+);
 </script>
 
 <template>
@@ -251,6 +345,14 @@ onMounted(async () => {
       >
         Raporlar
       </button>
+      <button
+        type="button"
+        class="tab"
+        :class="{ active: activeTab === 'periodEnd' }"
+        @click="activeTab = 'periodEnd'"
+      >
+        Dönem Sonu
+      </button>
     </nav>
 
     <section v-if="activeTab === 'accounts'" class="card">
@@ -272,7 +374,9 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-for="a in store.accounts" :key="a.id">
-              <td class="mono">{{ a.code }}</td>
+              <td class="mono">
+                <AccountCodeLink :code="a.code" :from="yearStart" :to="today" />
+              </td>
               <td>{{ a.name }}</td>
               <td>{{ a.type === 'group' ? 'Grup' : 'Detay' }}</td>
               <td class="num">{{ formatMoney(a.openingBalance) }}</td>
@@ -294,6 +398,27 @@ onMounted(async () => {
           ＋ Yeni Fiş
         </button>
       </div>
+      <div class="resequence-bar">
+        <label>
+          <span>Yıl</span>
+          <input
+            v-model.number="resequenceYear"
+            type="number"
+            min="2000"
+            max="2100"
+            class="input"
+          />
+        </label>
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          :disabled="resequenceBusy"
+          title="Seçili yılın onaylı fişlerine madde numarasını 1'den başlayarak yeniden verir"
+          @click="resequence"
+        >
+          Yeniden sırala
+        </button>
+      </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -309,38 +434,88 @@ onMounted(async () => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="e in store.entries" :key="e.id">
-              <td class="mono">{{ e.entry_no ?? '—' }}</td>
-              <td>{{ e.entry_date }}</td>
-              <td>{{ e.entry_type }}</td>
-              <td>{{ e.description }}</td>
-              <td class="num">{{ formatMoney(e.totalDebit) }}</td>
-              <td class="num">{{ formatMoney(e.totalCredit) }}</td>
-              <td>
-                <span v-if="e.entry_type === 'ters'" class="pill pill-rev">TERS KAYIT</span>
-                <span class="pill">{{ STATUS_LABELS[e.status] ?? e.status }}</span>
-              </td>
-              <td class="num">
-                <button
-                  v-if="e.status === 'draft'"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  title="Taslağı onaylar — yevmiye numarası verilir, fiş kilitlenir"
-                  @click="approve(e.id)"
-                >
-                  Onayla
-                </button>
-                <button
-                  v-if="e.status === 'posted' && e.entry_type !== 'ters'"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  title="Onaylı fişi ters kayıtla düzeltir — silmez, yeni 'ters' fişi oluşturur"
-                  @click="reverse(e.id)"
-                >
-                  Ters Kayıt
-                </button>
-              </td>
-            </tr>
+            <template v-for="e in store.entries" :key="e.id">
+              <tr>
+                <td class="mono">
+                  <button
+                    type="button"
+                    class="entry-toggle mono"
+                    :aria-expanded="!!expandedEntries[e.id]"
+                    :aria-controls="`entry-lines-${e.id}`"
+                    title="Fiş satırlarını göster/gizle"
+                    @click="toggleEntry(e.id)"
+                  >
+                    <span aria-hidden="true">{{ expandedEntries[e.id] ? '▾' : '▸' }}</span>
+                    {{ entryNoLabel(e) }}
+                  </button>
+                </td>
+                <td>{{ formatDay(e.entry_date) }}</td>
+                <td>{{ entryTypeLabel(e.entry_type) }}</td>
+                <td>{{ e.description }}</td>
+                <td class="num">{{ formatMoney(e.totalDebit) }}</td>
+                <td class="num">{{ formatMoney(e.totalCredit) }}</td>
+                <td>
+                  <span v-if="e.entry_type === 'ters'" class="pill pill-rev">TERS KAYIT</span>
+                  <span class="pill">{{ STATUS_LABELS[e.status] ?? e.status }}</span>
+                </td>
+                <td class="num">
+                  <button
+                    v-if="e.status === 'draft'"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    title="Taslağı onaylar — yevmiye numarası verilir, fiş kilitlenir"
+                    @click="approve(e.id)"
+                  >
+                    Onayla
+                  </button>
+                  <button
+                    v-if="e.status === 'posted' && e.entry_type !== 'ters'"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    title="Onaylı fişi ters kayıtla düzeltir — silmez, yeni 'ters' fişi oluşturur"
+                    @click="reverse(e.id)"
+                  >
+                    Ters Kayıt
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="expandedEntries[e.id]" :id="`entry-lines-${e.id}`" class="entry-lines-row">
+                <td colspan="8">
+                  <p v-if="expandedEntries[e.id].loading" class="muted" role="status">
+                    Satırlar yükleniyor…
+                  </p>
+                  <p v-else-if="expandedEntries[e.id].error" class="alert alert-error" role="alert">
+                    {{ expandedEntries[e.id].error }}
+                  </p>
+                  <table v-else-if="expandedEntries[e.id].detail" class="data-table entry-lines">
+                    <thead>
+                      <tr>
+                        <th scope="col">Hesap kodu</th>
+                        <th scope="col">Hesap adı</th>
+                        <th scope="col">Satır açıklaması</th>
+                        <th scope="col" class="num">Borç</th>
+                        <th scope="col" class="num">Alacak</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(l, i) in expandedEntries[e.id].detail!.lines" :key="l.id ?? i">
+                        <td class="mono">
+                          <AccountCodeLink
+                            :code="l.account_code"
+                            :from="`${entryYear(e)}-01-01`"
+                            :to="`${entryYear(e)}-12-31`"
+                          />
+                        </td>
+                        <td>{{ l.account_name }}</td>
+                        <td class="muted">{{ l.description || '' }}</td>
+                        <td class="num">{{ l.debit ? formatMoney(l.debit) : '—' }}</td>
+                        <td class="num">{{ l.credit ? formatMoney(l.credit) : '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            </template>
             <tr v-if="store.entries.length === 0">
               <td colspan="8" class="muted">Kayıt yok.</td>
             </tr>
@@ -348,6 +523,8 @@ onMounted(async () => {
         </table>
       </div>
     </section>
+
+    <PeriodEndPanel v-else-if="activeTab === 'periodEnd'" />
 
     <section v-else class="card">
       <div class="card-head">
@@ -398,7 +575,9 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr v-for="r in trialRows" :key="r.code">
-                <td class="mono">{{ r.code }}</td>
+                <td class="mono">
+                  <AccountCodeLink :code="r.code" :from="trial.from" :to="trial.to" />
+                </td>
                 <td>{{ r.name }}</td>
                 <td v-if="showOpening" class="num">{{ formatMoney(r.openingDebit) }}</td>
                 <td v-if="showOpening" class="num">{{ formatMoney(r.openingCredit) }}</td>
@@ -435,10 +614,24 @@ onMounted(async () => {
         <div class="bs-col">
           <h3>Aktif</h3>
           <p>
-            <span>Dönen Varlıklar</span><b>{{ formatMoney(balance.aktif.donenVarliklar) }}</b>
+            <span
+              ><AccountCodeLink
+                plain
+                prefix="1"
+                label="Dönen Varlıklar"
+                :from="balance.year_start"
+                :to="balance.as_of" /></span
+            ><b>{{ formatMoney(balance.aktif.donenVarliklar) }}</b>
           </p>
           <p>
-            <span>Duran Varlıklar</span><b>{{ formatMoney(balance.aktif.duranVarliklar) }}</b>
+            <span
+              ><AccountCodeLink
+                plain
+                prefix="2"
+                label="Duran Varlıklar"
+                :from="balance.year_start"
+                :to="balance.as_of" /></span
+            ><b>{{ formatMoney(balance.aktif.duranVarliklar) }}</b>
           </p>
           <p class="total">
             <span>Aktif Toplam</span><b>{{ formatMoney(balance.aktif.toplam) }}</b>
@@ -447,15 +640,34 @@ onMounted(async () => {
         <div class="bs-col">
           <h3>Pasif</h3>
           <p>
-            <span>Kısa Vadeli Yab. Kaynak</span
+            <span
+              ><AccountCodeLink
+                plain
+                prefix="3"
+                label="Kısa Vadeli Yab. Kaynak"
+                :from="balance.year_start"
+                :to="balance.as_of" /></span
             ><b>{{ formatMoney(balance.pasif.kisaVadeliYabanciKaynaklar) }}</b>
           </p>
           <p>
-            <span>Uzun Vadeli Yab. Kaynak</span
+            <span
+              ><AccountCodeLink
+                plain
+                prefix="4"
+                label="Uzun Vadeli Yab. Kaynak"
+                :from="balance.year_start"
+                :to="balance.as_of" /></span
             ><b>{{ formatMoney(balance.pasif.uzunVadeliYabanciKaynaklar) }}</b>
           </p>
           <p>
-            <span>Öz Kaynaklar</span><b>{{ formatMoney(balance.pasif.ozKaynaklar) }}</b>
+            <span
+              ><AccountCodeLink
+                plain
+                prefix="5"
+                label="Öz Kaynaklar"
+                :from="balance.year_start"
+                :to="balance.as_of" /></span
+            ><b>{{ formatMoney(balance.pasif.ozKaynaklar) }}</b>
           </p>
           <p>
             <span>Geçmiş Yıllar Kâr/Zararı</span
@@ -472,45 +684,123 @@ onMounted(async () => {
 
       <div v-else-if="reportType === 'income' && income" class="is-list">
         <p>
-          <span>Brüt Satışlar</span><b>{{ formatMoney(income.brutSatislar) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="60"
+              label="Brüt Satışlar"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.brutSatislar) }}</b>
         </p>
         <p>
           <span>Net Satışlar</span><b>{{ formatMoney(income.netSatislar) }}</b>
         </p>
         <p>
-          <span>Satışların Maliyeti</span><b>{{ formatMoney(income.satislarinMaliyeti) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="62"
+              label="Satışların Maliyeti"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.satislarinMaliyeti) }}</b>
         </p>
         <p>
           <span>Brüt Kâr</span><b>{{ formatMoney(income.brutKar) }}</b>
         </p>
         <p>
-          <span>Faaliyet Giderleri</span><b>{{ formatMoney(income.faaliyetGiderleri) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="63"
+              label="Faaliyet Giderleri"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.faaliyetGiderleri) }}</b>
         </p>
         <p>
           <span>Faaliyet Kârı</span><b>{{ formatMoney(income.faaliyetKari) }}</b>
         </p>
         <p>
-          <span>Diğer Faaliyet Gelirleri</span
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="64"
+              label="Diğer Faaliyet Gelirleri"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
           ><b>{{ formatMoney(income.digerFaaliyetGelirleri) }}</b>
         </p>
         <p>
-          <span>Diğer Faaliyet Giderleri</span
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="65"
+              label="Diğer Faaliyet Giderleri"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
           ><b>{{ formatMoney(income.digerFaaliyetGiderleri) }}</b>
         </p>
         <p>
-          <span>Finansman Giderleri</span><b>{{ formatMoney(income.finansmanGiderleri) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="66"
+              label="Finansman Giderleri"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.finansmanGiderleri) }}</b>
         </p>
         <p>
-          <span>Olağandışı Gelirler</span><b>{{ formatMoney(income.olaganDisiGelirler) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="67"
+              label="Olağandışı Gelirler"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.olaganDisiGelirler) }}</b>
         </p>
         <p>
-          <span>Olağandışı Giderler</span><b>{{ formatMoney(income.olaganDisiGiderler) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="68"
+              label="Olağandışı Giderler"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.olaganDisiGiderler) }}</b>
         </p>
         <p>
-          <span>Vergi Karşılığı</span><b>{{ formatMoney(income.vergiKarsiligi) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="691"
+              label="Vergi Karşılığı"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.vergiKarsiligi) }}</b>
         </p>
         <p>
-          <span>Maliyet Hesapları (7xx)</span><b>{{ formatMoney(income.maliyetHesaplari7xx) }}</b>
+          <span
+            ><AccountCodeLink
+              plain
+              prefix="7"
+              label="Maliyet Hesapları (7xx)"
+              :from="income.from"
+              :to="income.to"
+              :exclude-sources="['year_end_result']" /></span
+          ><b>{{ formatMoney(income.maliyetHesaplari7xx) }}</b>
         </p>
         <p class="total">
           <span>Dönem Net Kârı</span><b>{{ formatMoney(income.donemNetKari) }}</b>
@@ -538,7 +828,14 @@ onMounted(async () => {
               </thead>
               <tbody>
                 <tr v-for="(r, i) in withholding.kdv2" :key="i">
-                  <td class="mono">{{ r.kdv2Code }}</td>
+                  <td class="mono">
+                    <AccountCodeLink
+                      :code="`360.01.${r.kdv2Code}`"
+                      :label="r.kdv2Code"
+                      :from="withholding.from"
+                      :to="withholding.to"
+                    />
+                  </td>
                   <td class="mono">{{ r.einvoiceCode }}</td>
                   <td>{{ r.name ?? '—' }}</td>
                   <td class="mono">{{ r.rate }}</td>
@@ -719,6 +1016,8 @@ onMounted(async () => {
         </p>
       </div>
     </div>
+
+    <AccountLedgerDrawer />
   </div>
 </template>
 
@@ -747,6 +1046,28 @@ onMounted(async () => {
   margin: 12px 0;
   border-bottom: 1px solid #e5e7eb;
 }
+.entry-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--c-primary, #1d4ed8);
+}
+.entry-toggle:focus-visible {
+  outline: 2px solid var(--c-primary, #1d4ed8);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.entry-lines-row > td {
+  background: var(--c-bg, #f8fafc);
+  padding: 0.5rem 0.875rem 0.875rem;
+}
+.entry-lines {
+  background: var(--c-surface, #fff);
+}
 .pill-rev {
   margin-right: 6px;
   background: #fef3c7;
@@ -764,6 +1085,22 @@ onMounted(async () => {
 .tab.active {
   color: var(--c-primary, #1d4ed8);
   border-bottom: 2px solid var(--c-primary, #1d4ed8);
+}
+.resequence-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 8px 0;
+}
+.resequence-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: #555;
+}
+.resequence-bar .input {
+  width: 6rem;
 }
 .card-head {
   display: flex;

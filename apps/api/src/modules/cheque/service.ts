@@ -1093,7 +1093,7 @@ class AccountingJournalPort implements JournalPort {
         WHERE je.tenant_id = current_tenant_id() AND je.source_type = 'cheque' AND je.source_id = $1
           AND je.status = 'posted' AND je.entry_type <> 'ters'
           AND NOT EXISTS (SELECT 1 FROM journal_entries r WHERE r.reversal_of_id = je.id)
-        ORDER BY je.entry_no DESC`,
+        ORDER BY je.fiscal_year DESC, je.entry_no DESC`,
       [chequeId],
     );
     for (const row of r.rows) {
@@ -1163,7 +1163,7 @@ class AccountingJournalPort implements JournalPort {
     creditAccountId: string,
   ): Promise<string> {
     const periodId = await openPeriodFor(client, ctx.transactionDate);
-    const entryNo = await allocateEntryNo(client);
+    const entryNo = await allocateEntryNo(client, periodId);
     const entryId = newId();
     const amount = round2(ctx.amount);
     await client.query(

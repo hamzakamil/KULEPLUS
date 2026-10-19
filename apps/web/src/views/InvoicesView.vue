@@ -900,6 +900,7 @@
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   useInvoiceStore,
   type CreateInvoiceInput,
@@ -935,6 +936,7 @@ const loading = computed(() => invoiceStore.loading);
 const pagination = computed(() => invoiceStore.pagination);
 const storeError = computed(() => invoiceStore.error);
 
+const route = useRoute();
 const selectedId = ref<string | null>(null);
 const searchQuery = ref('');
 const typeFilter = ref('');
@@ -1983,7 +1985,16 @@ onMounted(async () => {
   loadColWidths();
   window.addEventListener('resize', clampPanel);
   window.addEventListener('keydown', onKeydown);
+  // Muavin panelindeki "Belgeyi yeni sekmede aç" bağlantısı: /invoices?id=<faturaId>
+  if (typeof route.query.id === 'string' && route.query.id) await selectInvoice(route.query.id);
 });
+
+watch(
+  () => route.query.id,
+  (id) => {
+    if (typeof id === 'string' && id) void selectInvoice(id);
+  },
+);
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', clampPanel);

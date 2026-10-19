@@ -865,7 +865,7 @@ export class ExpenseService {
     },
   ): Promise<string> {
     const periodId = await openPeriodFor(client, input.entryDate);
-    const entryNo = await allocateEntryNo(client);
+    const entryNo = await allocateEntryNo(client, periodId);
     const entryId = newId();
     const debit = input.lines.reduce((sum, l) => sum + toKurus(l.debit), 0) / 100;
     const credit = input.lines.reduce((sum, l) => sum + toKurus(l.credit), 0) / 100;

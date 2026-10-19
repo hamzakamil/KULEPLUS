@@ -3,7 +3,16 @@ import { AppError, newId } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { ensureChartOfAccountsOn } from './chart';
 import { linkAllSubledgers } from './subledger';
-import { allocateEntryNo, openPeriodFor, round2, toIsoDate, toKurus, todayIso } from './ledger';
+import { entrySourceOn, type EntrySourceSummary } from './source-summary';
+import {
+  allocateEntryNo,
+  openPeriodFor,
+  resequenceEntries,
+  round2,
+  toIsoDate,
+  toKurus,
+  todayIso,
+} from './ledger';
 import type {
   CreateAccountInput,
   UpdateAccountInput,
@@ -44,6 +53,13 @@ const AUTO_SOURCE_TYPES = [
   'revaluation',
   'expense',
   'expense_payment',
+  // Yıl sonu sihirbazı fişleri (Faz 9-3) — yalnızca sihirbazın "geri al" işlemiyle kaldırılır.
+  'year_end_reflect',
+  'year_end_result',
+  'year_end_tax',
+  'year_end_closing',
+  'year_end_opening',
+  'year_end_transfer',
 ];
 
 export class AccountingService {
@@ -60,7 +76,7 @@ export class AccountingService {
     return this.pool;
   }
 
-  private async withTenantClient<T>(
+  async withTenantClient<T>(
     tenantId: string | undefined,
     fn: (client: PoolClient) => Promise<T>,
   ): Promise<T> {
@@ -364,8 +380,22 @@ export class AccountingService {
     return { ...header, lines: lines.rows.map(mapLineRow) };
   }
 
+  /** Fiş detayı + kaynak belge özeti (fatura/gider/çek …) — muavin panelinde gösterilir. */
   async getEntryById(id: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, (client) => this.loadEntry(client, id));
+    return this.withTenantClient(tenantId, async (client) => {
+      const entry = (await this.loadEntry(client, id)) as
+        (MappedRow & { lines: MappedRow[] }) | null;
+      if (!entry) return null;
+      const source = await entrySourceOn(
+        client,
+        (entry.source_type as string | null) ?? null,
+        (entry.source_id as string | null) ?? null,
+      );
+      return { ...entry, source } as MappedRow & {
+        lines: MappedRow[];
+        source: EntrySourceSummary | null;
+      };
+    });
   }
 
   /**
@@ -413,59 +443,63 @@ export class AccountingService {
 
   /** Fis olusturur; status=posted ise onaylar (denge + donem + gap-free). */
   async createEntry(input: CreateJournalEntryInput, userId: string, tenantId?: string) {
-    return this.withTenantClient(tenantId, async (client) => {
-      const totals = this.validateLines(input.lines);
-      const postNow = input.status === 'posted';
-      let postPeriodId: string | null = null;
-      if (postNow) {
-        this.assertPostable(input.lines, totals);
-        postPeriodId = await openPeriodFor(client, input.entry_date);
-      }
+    return this.withTenantClient(tenantId, (client) => this.createEntryOn(client, input, userId));
+  }
 
-      const entryId = newId();
-      const entryNo = postNow ? await allocateEntryNo(client) : null;
-      const periodId = input.period_id ?? postPeriodId;
+  /** `createEntry`'nin açık transaction içindeki hali (KDV mahsubu, kapanış sihirbazı kullanır). */
+  async createEntryOn(client: PoolClient, input: CreateJournalEntryInput, userId: string) {
+    const totals = this.validateLines(input.lines);
+    const postNow = input.status === 'posted';
+    let postPeriodId: string | null = null;
+    if (postNow) {
+      this.assertPostable(input.lines, totals);
+      postPeriodId = await openPeriodFor(client, input.entry_date);
+    }
 
-      await client.query(
-        `INSERT INTO journal_entries
-           (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
-            source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
-        [
-          entryId,
-          entryNo,
-          input.entry_date,
-          periodId,
-          input.entry_type,
-          input.status,
-          input.description,
-          input.source_type ?? null,
-          input.source_id ?? null,
-          null,
-          totals.debit,
-          totals.credit,
-          postNow ? userId : null,
-          postNow ? new Date() : null,
-          userId,
-        ],
-      );
-      await this.insertLines(client, entryId, input.lines, userId);
-      await this.writeAudit(client, {
+    const entryId = newId();
+    // Onaylı fiş daima tarihini kapsayan döneme yazılır (madde no o dönemin mali yılında).
+    const periodId = postPeriodId ?? input.period_id ?? null;
+    const entryNo = postPeriodId ? await allocateEntryNo(client, postPeriodId) : null;
+
+    await client.query(
+      `INSERT INTO journal_entries
+         (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
+          source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
+      [
+        entryId,
+        entryNo,
+        input.entry_date,
+        periodId,
+        input.entry_type,
+        input.status,
+        input.description,
+        input.source_type ?? null,
+        input.source_id ?? null,
+        null,
+        totals.debit,
+        totals.credit,
+        postNow ? userId : null,
+        postNow ? new Date() : null,
         userId,
-        action: 'create',
-        entityId: entryId,
-        newValues: {
-          entry_no: entryNo,
-          entry_date: input.entry_date,
-          entry_type: input.entry_type,
-          status: input.status,
-          description: input.description,
-          total_debit: totals.debit,
-          total_credit: totals.credit,
-        },
-      });
-      return { id: entryId, entryNo, status: input.status, totals };
+      ],
+    );
+    await this.insertLines(client, entryId, input.lines, userId);
+    await this.writeAudit(client, {
+      userId,
+      action: 'create',
+      entityId: entryId,
+      newValues: {
+        entry_no: entryNo,
+        entry_date: input.entry_date,
+        entry_type: input.entry_type,
+        status: input.status,
+        description: input.description,
+        total_debit: totals.debit,
+        total_credit: totals.credit,
+      },
     });
+    return { id: entryId, entryNo, status: input.status, totals };
   }
 
   private async insertLines(
@@ -552,7 +586,7 @@ export class AccountingService {
 
       const reversalDate = entryDate ?? todayIso();
       const periodId = await openPeriodFor(client, reversalDate);
-      const entryNo = await allocateEntryNo(client);
+      const entryNo = await allocateEntryNo(client, periodId);
       const reversalId = newId();
 
       await client.query(
@@ -565,7 +599,7 @@ export class AccountingService {
           entryNo,
           reversalDate,
           periodId,
-          `${orig.description} - TERS KAYIT (fis no ${orig.entry_no})`,
+          `${orig.description} - TERS KAYIT`,
           orig.source_type,
           orig.source_id,
           id,
@@ -739,7 +773,7 @@ export class AccountingService {
     this.assertPostable(lines, totals);
     const entryDate = toIsoDate(entry.entry_date);
     const periodId = await openPeriodFor(client, entryDate);
-    const entryNo = await allocateEntryNo(client);
+    const entryNo = await allocateEntryNo(client, periodId);
     await client.query(
       `UPDATE journal_entries SET
          status = 'posted', entry_no = $1, period_id = COALESCE(period_id, $2),
@@ -1114,6 +1148,8 @@ export class AccountingService {
             `Dönemde ${drafts} taslak fiş var; kapatmadan önce onaylayın veya silin.`,
           );
         }
+        // Kapanan yılın madde numaraları tarih sırasına dizilir (yevmiye defteri bu sırayla basılır).
+        await resequenceEntries(client, Number(cur.year));
       }
       await client.query(
         `UPDATE fiscal_periods SET
@@ -1216,6 +1252,9 @@ export class AccountingService {
     return this.withTenantClient(tenantId, async (client) => {
       const period = await this.loadRow(client, 'fiscal_periods', input.period_id);
       if (!period) throw new AppError('NOT_FOUND', 'Mali donem bulunamadi');
+      // Kilitlenecek aralığın madde numaraları, kilit konmadan ÖNCE tarih sırasına dizilir;
+      // kilitten sonra bu numaralar bir daha değişmez.
+      await this.resequenceBefore(client, input.lock_date);
       await client.query(
         `INSERT INTO period_locks (id, tenant_id, period_id, lock_date, reason, locked_by, locked_at, created_by, updated_by)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, now(), $6, $6)`,
@@ -1230,6 +1269,49 @@ export class AccountingService {
       });
       const row = await this.loadRow(client, 'period_locks', lockId);
       return row ? mapLockRow(row) : null;
+    });
+  }
+
+  /** Kilit tarihine kadar (henüz kilitli olmayan) fişleri olan her mali yılı yeniden sıralar. */
+  private async resequenceBefore(client: PoolClient, untilDate: string) {
+    const years = await client.query(
+      `SELECT DISTINCT fiscal_year FROM journal_entries
+        WHERE tenant_id = current_tenant_id() AND entry_no IS NOT NULL AND entry_date < $1::date
+          AND entry_date >= COALESCE(
+                (SELECT MAX(lock_date) FROM period_locks WHERE tenant_id = current_tenant_id()),
+                '-infinity'::date)
+        ORDER BY fiscal_year`,
+      [untilDate],
+    );
+    for (const r of years.rows) await resequenceEntries(client, Number(r.fiscal_year));
+  }
+
+  /**
+   * "Yeniden sırala": mali yılın kilitli olmayan fişlerinin madde numaralarını tarih sırasına
+   * dizer (açılış → olağan → dönem sonu → kapanış). Kapalı yılda çalışmaz.
+   */
+  async resequenceYear(fiscalYear: number, userId: string, tenantId?: string) {
+    return this.withTenantClient(tenantId, async (client) => {
+      const period = await client.query(
+        'SELECT id, status FROM fiscal_periods WHERE tenant_id = current_tenant_id() AND year = $1',
+        [fiscalYear],
+      );
+      if (!period.rows[0]) throw new AppError('NOT_FOUND', `${fiscalYear} mali dönemi bulunamadı`);
+      if (period.rows[0].status === 'closed') {
+        throw new AppError(
+          'PERIOD_LOCKED',
+          'Kapatılmış mali yılın madde numaraları değiştirilemez.',
+        );
+      }
+      const changed = await resequenceEntries(client, fiscalYear);
+      await this.writeAudit(client, {
+        userId,
+        action: 'resequence',
+        entityType: 'fiscal_periods',
+        entityId: String(period.rows[0].id),
+        newValues: { fiscal_year: fiscalYear, changed },
+      });
+      return { fiscal_year: fiscalYear, changed };
     });
   }
 
@@ -1489,10 +1571,14 @@ export class AccountingService {
 
   // ==================== Denge Kurali ====================
 
-  async getNextEntryNo(tenantId?: string) {
+  /** Verilen (varsayılan: bugünün) mali yılındaki bir sonraki madde numarası — yalnızca bilgi amaçlı. */
+  async getNextEntryNo(tenantId?: string, fiscalYear?: number) {
     return this.withTenantClient(tenantId, async (client) => {
+      const year = fiscalYear ?? Number(todayIso().slice(0, 4));
       const seq = await client.query(
-        'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
+        `SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries
+          WHERE tenant_id = current_tenant_id() AND fiscal_year = $1`,
+        [year],
       );
       return Number(seq.rows[0].next_no);
     });
@@ -1635,11 +1721,17 @@ export class AccountingService {
    * Onaylı fiş satırlarını hesap bazında toplar. `from`'dan önceki hareketler `prior_*`,
    * [from, to] arası `debit/credit` (dönem) olarak ayrılır; hesabın açılış bakiyesi
    * (`opening_*`) başlangıç devridir (SPEC §15 açılış/devir).
+   *
+   * Yıl sonu (Faz 9-3): `to` tarihinin mali yılına ait KAPANIŞ fişi raporlara girmez (aksi halde
+   * kapatılan yılın bilançosu/mizanı sıfır görünür); sonraki yıl raporlarında kapanış devirde
+   * kalır ve açılış fişiyle dengelenir. `excludeSources` ile ek kaynaklar dışlanabilir
+   * (gelir tablosu 6xx→690 devir fişlerini dışlar).
    */
   private async aggregateAccountBalances(
     client: PoolClient,
     from: string | null,
     to: string,
+    excludeSources: string[] = [],
   ): Promise<DbRow[]> {
     const result = await client.query(
       `SELECT aa.code, aa.name, aa.type, aa.opening_debit, aa.opening_credit,
@@ -1653,10 +1745,16 @@ export class AccountingService {
          LEFT JOIN journal_entries je
            ON je.id = jl.entry_id AND je.tenant_id = jl.tenant_id
           AND je.status = 'posted' AND je.entry_date <= $1::date
+          AND NOT (je.entry_type = 'kapanis' AND je.fiscal_year = COALESCE(
+                (SELECT fp.year FROM fiscal_periods fp
+                  WHERE fp.tenant_id = current_tenant_id() AND $1::date BETWEEN fp.start_date AND fp.end_date
+                  ORDER BY fp.start_date DESC LIMIT 1),
+                EXTRACT(YEAR FROM $1::date)::int))
+          AND NOT (COALESCE(je.source_type, '') = ANY($3::text[]))
         WHERE aa.tenant_id = current_tenant_id()
         GROUP BY aa.code, aa.name, aa.type, aa.opening_debit, aa.opening_credit
         ORDER BY aa.code`,
-      [to, from ?? '0001-01-01'],
+      [to, from ?? '0001-01-01', excludeSources],
     );
     return result.rows as DbRow[];
   }
@@ -1753,7 +1851,7 @@ export class AccountingService {
         ozKaynaklar +
         gecmisYillarKarZarari +
         donemNetKar;
-      const t = (k: number) => k / 100;
+      const t = (k: number) => k / 100 + 0; // -0 → 0
       return {
         as_of: asOf,
         year_start: yearStart,
@@ -1784,7 +1882,8 @@ export class AccountingService {
   async incomeStatement(input: { from?: string; to?: string }, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const { from, to } = this.normalizeRange(input);
-      const rows = await this.aggregateAccountBalances(client, from, to);
+      // 6xx→690 ve 690/691→692→590 devir fişleri gelir tablosunu sıfırlamasın.
+      const rows = await this.aggregateAccountBalances(client, from, to, ['year_end_result']);
       const g = this.summarizeByPrefix(rows, 2, 'period');
       const g1 = this.summarizeByPrefix(rows, 1, 'period');
       // kuruş cinsinden net: gelir (alacak − borç) / gider (borç − alacak)
@@ -1793,7 +1892,7 @@ export class AccountingService {
         return e.creditK - e.debitK;
       };
       const expense = (prefix: string) => -income(prefix);
-      const t = (k: number) => k / 100;
+      const t = (k: number) => k / 100 + 0; // -0 → 0
 
       const brutSatislar = income('60');
       const satisIndirimleri = expense('61');
@@ -1891,7 +1990,8 @@ export function mapEntryRow(row: DbRow): MappedRow {
     created_at: toDate(row.created_at),
     updated_at: toDate(row.updated_at),
     posted_at: row.posted_at ? toDate(row.posted_at) : null,
-    entry_date: toDate(row.entry_date),
+    // Takvim günü (YYYY-MM-DD): Date olarak dönerse JSON'da UTC'ye çevrilip bir gün geri kayıyordu.
+    entry_date: toIsoDate(row.entry_date),
   };
 }
 
@@ -2142,8 +2242,12 @@ export async function deleteMapping(id: string, tenantId?: string) {
   return accountingService.deleteMapping(id, tenantId);
 }
 
-export async function getNextEntryNo(tenantId?: string) {
-  return accountingService.getNextEntryNo(tenantId);
+export async function getNextEntryNo(tenantId?: string, fiscalYear?: number) {
+  return accountingService.getNextEntryNo(tenantId, fiscalYear);
+}
+
+export async function resequenceYear(fiscalYear: number, userId: string, tenantId?: string) {
+  return accountingService.resequenceYear(fiscalYear, userId, tenantId);
 }
 
 // ==================== Muhasebe Raporları (Faz 5) ====================

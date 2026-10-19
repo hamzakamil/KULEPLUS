@@ -1071,7 +1071,7 @@ export class InvoiceService {
           // farklıdır (eski kod başlığa baseAmount yazıyordu → başlık/satır uyuşmazlığı).
           const headDebit = lines.reduce((sum, l) => sum + toKurus(l.debit), 0) / 100;
           const headCredit = lines.reduce((sum, l) => sum + toKurus(l.credit), 0) / 100;
-          const entryNo = await allocateEntryNo(client);
+          const entryNo = await allocateEntryNo(client, periodId);
           await client.query(
             `INSERT INTO journal_entries
                (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
@@ -1725,7 +1725,7 @@ export class InvoiceService {
         );
       }
 
-      const entryNo = await allocateEntryNo(client);
+      const entryNo = await allocateEntryNo(client, periodId);
       const entryId = newId();
       const description = `Fatura ${invoice.number}`;
 

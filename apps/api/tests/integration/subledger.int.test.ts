@@ -3,6 +3,7 @@
  * Kasa/banka → 100.xx/102.xx, şirket kredi kartı → 309.xx; fatura ödemesi seçilen
  * kartın alt hesabına yazılır; migration mevcut kartları bağlar ve idempotenttir.
  */
+import type { PoolClient } from 'pg';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -39,7 +40,7 @@ describe.skipIf(!integrationEnabled)('Faz 7-1 — alt hesaplar', () => {
   const m = () => getPool('migrator');
 
   /** Tenant GUC'u kurulu tek transaction'da fonksiyonu çalıştırır. */
-  const inTx = async <T>(fn: (c: import('pg').PoolClient) => Promise<T>): Promise<T> => {
+  const inTx = async <T>(fn: (c: PoolClient) => Promise<T>): Promise<T> => {
     const c = await getPool('app').connect();
     try {
       await c.query('BEGIN');

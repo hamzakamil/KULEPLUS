@@ -16,20 +16,95 @@ export function round2(amount: number | string | null | undefined): number {
   return toKurus(amount) / 100;
 }
 
-/**
- * Gap-free yevmiye madde numarası (SPEC §15). Aynı tenant'taki tüm fiş üreticileri
- * AYNI advisory lock anahtarını kullanmalıdır; aksi halde eşzamanlı iki işlem aynı
- * MAX+1 değerini okuyabilir. Çağıran açık bir transaction içinde olmalıdır
- * (`pg_advisory_xact_lock` transaction sonunda bırakılır).
- */
-export async function allocateEntryNo(client: PoolClient): Promise<number> {
-  await client.query(
-    "SELECT pg_advisory_xact_lock(hashtext('journal_entry_no:' || COALESCE(current_setting('app.tenant_id', true), '')))",
+/** Dönemin mali yılı (`fiscal_periods.year`); fişin `fiscal_year` kolonu trigger ile aynı değeri alır. */
+export async function fiscalYearOfPeriod(client: PoolClient, periodId: string): Promise<number> {
+  const r = await client.query(
+    'SELECT year FROM fiscal_periods WHERE id = $1 AND tenant_id = current_tenant_id()',
+    [periodId],
   );
+  if (!r.rows[0]) throw new AppError('NOT_FOUND', 'Mali dönem bulunamadı');
+  return Number(r.rows[0].year);
+}
+
+/** Yevmiye numarası kilidi: tenant + mali yıl başına tek advisory lock (transaction sonunda bırakılır). */
+export async function lockEntryNumbering(client: PoolClient, fiscalYear: number): Promise<void> {
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('journal_entry_no:' || COALESCE(current_setting('app.tenant_id', true), '') || ':' || $1::text))",
+    [fiscalYear],
+  );
+}
+
+/**
+ * Gap-free yevmiye madde numarası (SPEC §15) — her mali yılda 1'den başlar (yevmiye defteri /
+ * e-Defter). Fişin yazılacağı dönemin id'si verilir; numara o dönemin mali yılı içinde MAX+1'dir.
+ * Aynı yıl için tüm fiş üreticileri AYNI advisory lock'u kullanır; çağıran açık bir transaction
+ * içinde olmalıdır.
+ */
+export async function allocateEntryNo(client: PoolClient, periodId: string): Promise<number> {
+  const year = await fiscalYearOfPeriod(client, periodId);
+  await lockEntryNumbering(client, year);
   const seq = await client.query(
-    'SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries WHERE tenant_id = current_tenant_id()',
+    `SELECT COALESCE(MAX(entry_no), 0) + 1 AS next_no FROM journal_entries
+      WHERE tenant_id = current_tenant_id() AND fiscal_year = $1`,
+    [year],
   );
   return Number(seq.rows[0].next_no);
+}
+
+/** Aynı gün içindeki fişlerin defter sırası: açılış → olağan fişler → dönem sonu → kapanış. */
+export const ENTRY_TYPE_ORDER_SQL = `CASE entry_type WHEN 'acilis' THEN 0 WHEN 'donem_sonu' THEN 2 WHEN 'kapanis' THEN 3 ELSE 1 END`;
+
+/**
+ * Yevmiye madde numaralarını tarih sırasına göre yeniden dizer ("Yeniden sırala").
+ * Onay sırasında verilen numara, geriye tarihli fişler yüzünden tarih sırasını bozabilir; defter
+ * basılmadan / kilitlenmeden önce bu fonksiyon numaraları tarih sırasıyla boşluksuz yeniden verir.
+ *
+ * Kilitli kısım DOKUNULMAZ: tenant kilit tarihinden (`period_locks`) önceki fişler basılmış /
+ * e-Defter'e girmiş kabul edilir; yalnızca kilit tarihi ve sonrasındaki fişler, kilitli kısmın
+ * son numarasından devam edecek şekilde sıralanır. Değişen fiş sayısını döndürür.
+ */
+export async function resequenceEntries(client: PoolClient, fiscalYear: number): Promise<number> {
+  await lockEntryNumbering(client, fiscalYear);
+  const lock = await client.query(
+    `SELECT MAX(lock_date) AS lock_date FROM period_locks WHERE tenant_id = current_tenant_id()`,
+  );
+  const lockDate = lock.rows[0]?.lock_date ? toIsoDate(lock.rows[0].lock_date) : null;
+  const base = await client.query(
+    `SELECT COALESCE(MAX(entry_no), 0) AS base FROM journal_entries
+      WHERE tenant_id = current_tenant_id() AND fiscal_year = $1 AND entry_no IS NOT NULL
+        AND $2::date IS NOT NULL AND entry_date < $2::date`,
+    [fiscalYear, lockDate],
+  );
+  const start = Number(base.rows[0].base);
+  const changed = await client.query(
+    `WITH ranked AS (
+       SELECT id, entry_no,
+              $3::bigint + row_number() OVER (
+                ORDER BY entry_date, ${ENTRY_TYPE_ORDER_SQL}, entry_no, created_at, id
+              ) AS rn
+         FROM journal_entries
+        WHERE tenant_id = current_tenant_id() AND fiscal_year = $1 AND entry_no IS NOT NULL
+          AND ($2::date IS NULL OR entry_date >= $2::date)
+     )
+     SELECT id, rn FROM ranked WHERE entry_no <> rn`,
+    [fiscalYear, lockDate, start],
+  );
+  if (changed.rows.length === 0) return 0;
+  const ids = changed.rows.map((r) => r.id as string);
+  const nos = changed.rows.map((r) => Number(r.rn));
+  // İki aşama: önce negatife al (tekil indeks çakışmasın), sonra yeni numaraları yaz.
+  await client.query(
+    `UPDATE journal_entries SET entry_no = -entry_no
+      WHERE tenant_id = current_tenant_id() AND id = ANY($1::uuid[])`,
+    [ids],
+  );
+  await client.query(
+    `UPDATE journal_entries je SET entry_no = v.no, updated_at = now()
+       FROM unnest($1::uuid[], $2::bigint[]) AS v(id, no)
+      WHERE je.id = v.id AND je.tenant_id = current_tenant_id()`,
+    [ids, nos],
+  );
+  return ids.length;
 }
 
 /**
