@@ -40,6 +40,27 @@ section.card.closed{padding-top:12px;padding-bottom:12px}
 .wx .sep{opacity:.45;padding:0 .3em}
 .wx .chg{opacity:.72}
 
+/* ---- Başlık eylemleri: sağ üstte tek "hamburger" ----
+   Başlıkta yan yana duran düğmeler (Yenile, Tümünü aç/kapat, Düzenle ve düzenleme
+   araçları) artık GİZLİDİR; sağ üstteki üç çizgili düğme tıklanınca açılır menüde
+   görünürler. Kimlikler (#refreshBtn, #allToggle, #editBtn, ...) korunur: mevcut
+   davranış kodu değişmeden çalışmaya devam eder. */
+.topactions{position:relative;margin-left:auto;display:flex;align-items:center;flex:none}
+#menuBtn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
+#menuBtn:hover{background:var(--bg)}
+#menuBtn[aria-expanded="true"]{background:var(--sig);border-color:var(--sig);color:#141b24}
+.hbars,.hbars::before,.hbars::after{display:block;width:18px;height:2px;border-radius:2px;background:currentColor}
+.hbars{position:relative}
+.hbars::before,.hbars::after{content:"";position:absolute;left:0}
+.hbars::before{top:-6px}.hbars::after{top:6px}
+#topMenu{display:none;position:absolute;top:calc(100% + 10px);right:0;z-index:30;min-width:216px;max-width:min(280px,calc(100vw - 24px));padding:6px;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:0 16px 36px rgba(5,9,14,.18);flex-direction:column;gap:2px}
+#topMenu.open{display:flex}
+#topMenu .b{display:flex;width:100%;justify-content:flex-start;text-align:left;padding:9px 10px;border-color:transparent;background:var(--card)}
+#topMenu .b:hover{background:var(--bg);border-color:var(--line)}
+#topMenu .b.ok{background:var(--sig);border-color:var(--sig)}
+#topMenu .menu-sep{display:none;height:1px;margin:4px 2px;background:var(--line)}
+body.editing #topMenu .menu-sep{display:block}
+
 .grid{display:grid;align-items:start;gap:10px;padding:14px 12px 20px;max-width:1280px;margin:0 auto;grid-template-columns:minmax(0,1fr)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -149,14 +170,11 @@ body.editing .grid>.slot{outline:none;border:2px dashed var(--sig);border-radius
 .grid>*.lift[data-mag=off]::after{content:"✋ Serbest";background:#e3e6eb}
 .rz{display:none;position:absolute;right:4px;bottom:4px;width:18px;height:18px;border-radius:4px;background:var(--sig);cursor:nwse-resize;touch-action:none;z-index:3}
 body.editing .rz{display:block}
-#resetBtn{display:none}
-body.editing #resetBtn{display:inline-block}
-#prevBtn{display:none}
-body.editing #prevBtn{display:inline-block}
-#magBtn{display:none}
-body.editing #magBtn{display:inline-block}
-#freeBtn{display:none}
-body.editing #freeBtn{display:inline-block}
+/* Düzenleme araçları yalnızca düzenleme modunda menüde görünür. Seçiciler
+   `#topMenu #...` yazılır: yukarıdaki `#topMenu .b{display:flex}` kuralı tek
+   kimlikle (0,1,1,0) eşleştiği için sade `#resetBtn` kuralını ezerdi. */
+#topMenu #resetBtn,#topMenu #prevBtn,#topMenu #magBtn,#topMenu #freeBtn{display:none}
+body.editing #topMenu #resetBtn,body.editing #topMenu #prevBtn,body.editing #topMenu #magBtn,body.editing #topMenu #freeBtn{display:flex}
 body.free-on .grid{display:block;position:relative}
 body.free-on .grid>*{position:absolute!important;grid-column:auto!important;grid-row:auto!important;margin:0}
 body.free-on .grid>*.fdrag{z-index:50;opacity:.95}
@@ -166,25 +184,24 @@ body.free-on .grid>*.fdrag{z-index:50;opacity:.95}
 #mobEdit{display:none;position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:40;border-radius:99px;padding:10px 22px;box-shadow:0 6px 20px rgba(0,0,0,.25)}
 #mobEdit.show{display:block}
 @media (min-width:1000px){#mobEdit{display:none!important}}
-@media (max-width:999px){#editBtn,#freeBtn{display:none!important}}
-/* Telefon (≤699px): başlık 4 satıra akar — 1) marka + düğmeler, 2) selamlama + rozet,
-   3) kur şeridi (tek satır, yatay kaydırılabilir), 4) düzenleme araçları. Başlık
-   yapışkan değil; içerikle birlikte kayar, böylece ekran içerik için kalır. */
+/* Telefon (≤699px): başlık 3 satıra akar — 1) marka + menü (sağ üst), 2) selamlama
+   + rozet, 3) kur şeridi (tek satır, yatay kaydırılabilir). Grid kullanılır: menü
+   her zaman sağ üstte kalır (esnek satırda `margin-left:auto` esneyen `.hi`
+   yüzünden boşa düşüyordu ve açılır menü ekran dışına taşıyordu). Başlık yapışkan
+   değil; içerikle birlikte kayar, böylece ekran içerik için kalır. */
 @media (max-width:699px){
- .top{position:relative;flex-wrap:wrap;gap:8px 10px;padding:10px 12px 12px}
- .top .ident{order:0;flex:none}
- #refreshBtn{order:1;margin-left:auto}
- #allToggle{order:1;padding:6px 10px;min-height:36px;font-size:.82rem}
- .hi{order:2;flex:1 1 180px;min-width:0}
+ .top{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"ident menu" "hi pill" "wx wx";gap:8px 10px;padding:10px 12px 12px}
+ .top .ident{grid-area:ident}
+ .topactions{grid-area:menu;margin-left:0;justify-self:end}
+ #menuBtn{width:38px;height:38px}
+ .hi{grid-area:hi;min-width:0}
  .hi b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- #dataPill{order:2;margin-left:auto;font-size:.72rem;padding:1px 8px}
- .wx{order:3;flex:1 1 100%;min-width:0;display:flex;gap:14px;overflow-x:auto;white-space:nowrap;text-align:left;font-size:.82rem;line-height:1.3;scrollbar-width:none}
+ #dataPill{grid-area:pill;justify-self:end;font-size:.72rem;padding:1px 8px}
+ .wx{grid-area:wx;min-width:0;display:flex;gap:14px;overflow-x:auto;white-space:nowrap;text-align:left;font-size:.82rem;line-height:1.3;scrollbar-width:none}
  .wx::-webkit-scrollbar{display:none}
  .wx>div{display:contents}
  .wx .sep,.wx .chg{display:none}
  .wx .rt:not(.keep){display:none}
- #prevBtn,#resetBtn,#magBtn{order:4}
- body.editing #prevBtn,body.editing #resetBtn,body.editing #magBtn{flex:1 1 auto;padding:6px 8px;min-height:36px;font-size:.8rem}
 }
 </style>
 </head>
@@ -192,8 +209,21 @@ body.free-on .grid>*.fdrag{z-index:50;opacity:.95}
 <header class="top">
   <div class="ident"><div class="pname"><svg class="tri" viewBox="0 0 12 10" aria-hidden="true"><polygon points="6,0 12,10 0,10" fill="#2563eb"/></svg>KulePlus</div><span class="brand">KOKPİT</span></div>
   <div class="hi"><b id="hello"></b><small id="date"></small></div>
-  <div class="wx" id="wx">Dolar 49,38 ₺ · Euro 55,31 ₺ · Sterlin 65,06 ₺<br>Gram altın 6.564,61 ₺ · Ons altın 4.140,29 $ · Gümüş 83,22 ₺</div>
-  <span class="pill" id="dataPill">Örnek veri</span><button class="b" id="refreshBtn" title="Verileri yenile">Yenile</button><button class="b" id="allToggle" aria-label="Tüm bölümleri aç veya kapat">Tümünü aç/kapat</button><button class="b" id="editBtn">Düzenle</button><button class="b" id="prevBtn">Öncekine dön</button><button class="b" id="resetBtn">Varsayılana sıfırla</button><button class="b" id="freeBtn">Serbest yerleşim: kapalı</button><button class="b" id="magBtn" aria-pressed="true">🧲 Mıknatıs: açık</button>
+  <div class="wx" id="wx">Dolar 49,38 ₺ · Euro 55,31 ₺<br>Gram altın 6.564,61 ₺</div>
+  <span class="pill" id="dataPill">Örnek veri</span>
+  <div class="topactions">
+    <button class="b" id="menuBtn" type="button" aria-label="Kokpit menüsü" aria-expanded="false" aria-controls="topMenu" title="Menü"><span class="hbars" aria-hidden="true"></span></button>
+    <div id="topMenu" aria-label="Kokpit eylemleri">
+      <button class="b" id="refreshBtn" type="button" title="Verileri yenile">Yenile</button>
+      <button class="b" id="allToggle" type="button" aria-label="Tüm bölümleri aç veya kapat">Tümünü aç/kapat</button>
+      <button class="b" id="editBtn" type="button">Düzenle</button>
+      <div class="menu-sep" aria-hidden="true"></div>
+      <button class="b" id="prevBtn" type="button">Öncekine dön</button>
+      <button class="b" id="resetBtn" type="button">Varsayılana sıfırla</button>
+      <button class="b" id="freeBtn" type="button">Serbest yerleşim: kapalı</button>
+      <button class="b" id="magBtn" type="button" aria-pressed="true">🧲 Mıknatıs: açık</button>
+    </div>
+  </div>
 </header>
 
 <main class="grid">
@@ -837,6 +867,22 @@ document.addEventListener('keydown',e=>{if(e.key!='Enter'&&e.key!=' ')return;con
 /* Başlangıçta daha az önemli bölümler kapalı gelir */
 ['a-fleet','a-bkg','a-bki','a-stock','a-sub','a-docs','a-fin'].forEach(c=>{const s=document.querySelector('.'+c);if(s)setOpen(s,false)});
 $('#allToggle').onclick=()=>{const cards=$$('section.card');const anyOpen=cards.some(s=>!s.classList.contains('closed'));cards.forEach(s=>setOpen(s,!anyOpen))};
+
+/* ---- Sağ üst menü (hamburger) ----
+   Başlıktaki düğmeler (Yenile, Tümünü aç/kapat, Düzenle, düzenleme araçları) artık
+   gizli; hepsi bu açılır menüde durur. Düğmelerin kimlikleri korunduğu için
+   davranış kodu (aşağıdaki onclick atamaları) değişmeden çalışır. */
+(function(){
+ const btn=$('#menuBtn'),menu=$('#topMenu');
+ const set=on=>{menu.classList.toggle('open',on);btn.setAttribute('aria-expanded',String(on))};
+ const close=()=>set(false);
+ btn.onclick=e=>{e.stopPropagation();set(!menu.classList.contains('open'))};
+ /* Menüdeki bir eylem seçilince menü kapanır (düzenleme modu göstergeleri
+    ekranda kalır; durum yine menüden değiştirilir). */
+ menu.addEventListener('click',e=>{if(e.target.closest('.b'))close()});
+ document.addEventListener('click',e=>{if(menu.contains(e.target)||btn.contains(e.target))return;close()});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&menu.classList.contains('open')){close();btn.focus()}});
+})();
 /* ---- Düzenleme modu: sürükle taşı, boyutlandır ---- */
 (function(){
  const grid=$('.grid'), KEY='yonetici-kokpit-duzen', BODY=document.body, VER=2;

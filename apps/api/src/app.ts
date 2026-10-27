@@ -40,6 +40,7 @@ import { expenseRoutes } from './modules/expense/routes';
 import { reportRoutes } from './modules/reports_plus/routes';
 import backupRoutes from './modules/backup/routes';
 import { accountingRoutes } from './modules/accounting/routes';
+import { edefterRoutes } from './modules/edefter/routes';
 import { chequeRoutes } from './modules/cheque/routes';
 import { subscriptionRoutes } from './modules/subscription/routes';
 import { einvoiceRoutes } from './modules/einvoice/routes';
@@ -95,7 +96,10 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   );
 
   app.use(helmet());
-  app.use(cors({ origin: env.APP_URL, credentials: true }));
+  // İndirilen dosyaların (CSV, e-Defter zip) adı istemcide okunabilsin.
+  app.use(
+    cors({ origin: env.APP_URL, credentials: true, exposedHeaders: ['Content-Disposition'] }),
+  );
   app.use(cookieParser());
   // Raw gövde, ödeme sağlayıcı webhook imza doğrulaması için saklanır
   // (Faz 4 K-08): ayrıştırılmış `req.body` değişmeden kalır, yalnızca ham metin
@@ -131,6 +135,7 @@ export function createApp({ env, logger, testRoutes = false }: CreateAppOptions)
   app.use('/api/v1/expenses', expenseRoutes);
   app.use('/api/v1/reports', reportRoutes);
   app.use('/api/v1/accounting', accountingRoutes);
+  app.use('/api/v1/edefter', edefterRoutes);
   app.use('/api/v1/cheques', chequeRoutes);
   // Abonelik & faturalama (Faz 4 Hat B) — yalnızca kimlik + tenant + entitlement uçları.
   // Checkout ve faturalama API tarafı: packages/shared/src/integrations/{payment,mock-payment}.

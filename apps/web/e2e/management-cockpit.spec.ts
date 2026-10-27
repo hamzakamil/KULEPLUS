@@ -57,9 +57,11 @@ test.describe('Yönetici Kokpiti (canlı veri)', () => {
       expect(fxText).toMatch(/Dolar|USD/);
       expect(fxTitle).toMatch(/Kaynak: (Gramhane|TCMB)/);
       // Altın yalnızca canlı kaynakta var (TCMB bülteni altın yayınlamıyor).
+      // Şerit yalnızca Dolar, Euro, Gram altın içerir (Sterlin/Ons altın/gümüş yok).
       if (fxTitle.includes('Gramhane')) {
         expect(fxText).toContain('Gram altın');
-        expect(fxText).toContain('Ons altın');
+        expect(fxText).not.toContain('Ons altın');
+        expect(fxText).not.toContain('Sterlin');
       }
     }
 

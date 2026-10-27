@@ -100,20 +100,45 @@ export interface CreditCard {
   description?: string | null;
 }
 
-/** POS hesabı (kredi kartı ile tahsilat için; banka hesabına bağlı). */
-export interface PosAccount {
+export type CardTransactionType = 'purchase' | 'payment' | 'refund' | 'fee' | 'interest';
+
+/** Kredi kartı hareketi — POST/GET /v1/cash-bank/bank/credit-cards/:id/transactions. */
+export interface CreditCardTransaction {
   id: string;
-  bankAccountId?: string;
-  bankAccountName?: string;
-  posLabel: string;
-  terminalId?: string | null;
-  merchantNumber?: string | null;
-  commissionRate: number;
-  installmentSupported: boolean;
-  currency: string;
-  status: 'active' | 'inactive' | 'closed';
-  description?: string | null;
+  creditCardId: string;
+  transactionDate: string;
+  transactionType: CardTransactionType;
+  description: string;
+  amount: number;
+  installmentCount: number;
+  reference?: string | null;
+  createdAt?: string;
 }
+
+/** Banka kredisi taksiti — GET /v1/cash-bank/bank/loans/:id/installments. */
+export interface BankLoanInstallment {
+  id: string;
+  bankLoanId: string;
+  installmentNo: number;
+  dueDate: string;
+  amount: number;
+  principalAmount: number;
+  interestAmount: number;
+  paidAmount: number;
+  paidAt?: string | null;
+  status: 'pending' | 'paid' | 'overdue';
+}
+
+export interface LoanInstallmentSummary {
+  total: number;
+  paidCount: number;
+  pendingCount: number;
+  overdueCount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  nextDueDate: string | null;
+}
+
 /** POS hesabı (kredi kartı ile tahsilat için; banka hesabına bağlı). */
 export interface PosAccount {
   id: string;
@@ -374,6 +399,116 @@ export const useCashBankStore = defineStore('cash-bank', () => {
   const creditCards = ref<CreditCard[]>([]);
   const posAccounts = ref<PosAccount[]>([]);
 
+  // ---- Kart hareketleri ----
+  const cardTransactions = ref<CreditCardTransaction[]>([]);
+  const cardTransactionTotals = ref({ debit: 0, credit: 0 });
+  const cardTransactionPagination = ref({ page: 1, limit: 50, total: 0, pages: 0 });
+
+  const fetchCardTransactions = async (
+    cardId: string,
+    params?: { page?: number; limit?: number; transactionType?: CardTransactionType },
+  ) => {
+    try {
+      const qs = new URLSearchParams();
+      qs.append('page', String(params?.page ?? 1));
+      qs.append('limit', String(params?.limit ?? 50));
+      if (params?.transactionType) qs.append('transactionType', params.transactionType);
+      const response = await api.get(
+        `/v1/cash-bank/bank/credit-cards/${cardId}/transactions?${qs.toString()}`,
+      );
+      cardTransactions.value = response.data.items ?? [];
+      cardTransactionTotals.value = response.data.totals ?? { debit: 0, credit: 0 };
+      cardTransactionPagination.value = {
+        page: response.data.page,
+        limit: response.data.limit,
+        total: response.data.total,
+        pages: response.data.totalPages,
+      };
+    } catch (err) {
+      error.value = errorMessage(err, 'Kart hareketleri yüklenemedi');
+    }
+  };
+
+  const createCardTransaction = async (
+    cardId: string,
+    data: {
+      transactionDate: string;
+      transactionType: CardTransactionType;
+      description: string;
+      amount: number;
+      installmentCount?: number;
+      reference?: string;
+    },
+  ) => {
+    const response = await api.post(
+      `/v1/cash-bank/bank/credit-cards/${cardId}/transactions`,
+      data,
+    );
+    await fetchCreditCards();
+    return response.data;
+  };
+
+  const deleteCardTransaction = async (cardId: string, transactionId: string) => {
+    await api.delete(`/v1/cash-bank/bank/credit-cards/${cardId}/transactions/${transactionId}`);
+    await fetchCreditCards();
+    await fetchCardTransactions(cardId);
+  };
+
+  // ---- Kredi taksit planı ----
+  const loanInstallments = ref<BankLoanInstallment[]>([]);
+  const loanInstallmentSummary = ref<LoanInstallmentSummary>({
+    total: 0,
+    paidCount: 0,
+    pendingCount: 0,
+    overdueCount: 0,
+    paidAmount: 0,
+    remainingAmount: 0,
+    nextDueDate: null,
+  });
+
+  const applyInstallmentPlan = (data: {
+    items?: BankLoanInstallment[];
+    summary?: LoanInstallmentSummary;
+  }) => {
+    loanInstallments.value = data.items ?? [];
+    if (data.summary) loanInstallmentSummary.value = data.summary;
+  };
+
+  const fetchLoanInstallments = async (loanId: string) => {
+    try {
+      const response = await api.get(`/v1/cash-bank/bank/loans/${loanId}/installments`);
+      applyInstallmentPlan(response.data);
+    } catch (err) {
+      error.value = errorMessage(err, 'Ödeme planı yüklenemedi');
+    }
+  };
+
+  const generateLoanInstallments = async (loanId: string) => {
+    const response = await api.post(`/v1/cash-bank/bank/loans/${loanId}/installments/generate`);
+    applyInstallmentPlan(response.data);
+    await fetchBankLoans();
+    return response.data;
+  };
+
+  const payLoanInstallment = async (loanId: string, installmentId: string, paidDate?: string) => {
+    const response = await api.post(
+      `/v1/cash-bank/bank/loans/${loanId}/installments/${installmentId}/pay`,
+      paidDate ? { paidDate } : {},
+    );
+    applyInstallmentPlan(response.data);
+    await fetchBankLoans();
+    return response.data;
+  };
+
+  const unpayLoanInstallment = async (loanId: string, installmentId: string) => {
+    const response = await api.delete(
+      `/v1/cash-bank/bank/loans/${loanId}/installments/${installmentId}/pay`,
+    );
+    applyInstallmentPlan(response.data);
+    await fetchBankLoans();
+    return response.data;
+  };
+
   const fetchBankLoans = async (bankAccountId?: string) => {
     try {
       const qs = bankAccountId ? `?bankAccountId=${bankAccountId}` : '';
@@ -582,6 +717,11 @@ const revaluationJournalNo = ref<number | null>(null);
     bankLoans,
     creditCards,
     posAccounts,
+    cardTransactions,
+    cardTransactionTotals,
+    cardTransactionPagination,
+    loanInstallments,
+    loanInstallmentSummary,
     loading,
     error,
     pagination,
@@ -606,6 +746,13 @@ const revaluationJournalNo = ref<number | null>(null);
     createCreditCard,
     updateCreditCard,
     deleteCreditCard,
+    fetchCardTransactions,
+    createCardTransaction,
+    deleteCardTransaction,
+    fetchLoanInstallments,
+    generateLoanInstallments,
+    payLoanInstallment,
+    unpayLoanInstallment,
     fetchPosAccounts,
     createPosAccount,
     updatePosAccount,

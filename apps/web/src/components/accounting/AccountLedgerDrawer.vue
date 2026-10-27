@@ -4,6 +4,14 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import FilterableSelect from '@/components/FilterableSelect.vue';
+import JournalDocumentFields from '@/components/accounting/JournalDocumentFields.vue';
+import {
+  emptyJournalDocument,
+  hasJournalDocument,
+  journalDocumentPayload,
+  validateJournalDocument,
+  type JournalDocumentFields as DocFields,
+} from '@/lib/journalDocument';
 import {
   errorMessage,
   useAccountingStore,
@@ -236,6 +244,9 @@ interface FormLine {
   debit: number | string;
   credit: number | string;
   description: string;
+  /** Satıra özel belge (başlıktakini ezer). */
+  doc: DocFields;
+  showDoc: boolean;
 }
 let lineKey = 0;
 const newLine = (account_id = ''): FormLine => ({
@@ -244,11 +255,14 @@ const newLine = (account_id = ''): FormLine => ({
   debit: '',
   credit: '',
   description: '',
+  doc: emptyJournalDocument(),
+  showDoc: false,
 });
 const form = reactive({
   entry_date: '',
   entry_type: 'duzeltme' as 'duzeltme' | 'mahsup',
   description: '',
+  doc: emptyJournalDocument() as DocFields,
   lines: [] as FormLine[],
 });
 const formError = ref<string | null>(null);
@@ -297,6 +311,7 @@ function resetForm() {
   form.entry_date = drawer.to;
   form.entry_type = 'duzeltme';
   form.description = '';
+  form.doc = emptyJournalDocument();
   form.lines = [newLine(), newLine()];
   formError.value = null;
   applyDefaultAccount();
@@ -343,7 +358,10 @@ const formDirty = computed(
   () =>
     view.value === 'form' &&
     (!!form.description.trim() ||
-      form.lines.some((l) => l.debit !== '' || l.credit !== '' || !!l.description)),
+      hasJournalDocument(form.doc) ||
+      form.lines.some(
+        (l) => l.debit !== '' || l.credit !== '' || !!l.description || hasJournalDocument(l.doc),
+      )),
 );
 
 function validateForm(): string | null {
@@ -358,6 +376,14 @@ function validateForm(): string | null {
     if ((d > 0 || c > 0) && !l.account_id) return `Satır ${i + 1}: hesap seçin.`;
   }
   if (filledLines.value.length === 0) return 'En az bir dolu satır gerekli.';
+  const headDoc = validateJournalDocument(form.doc, 'Belge');
+  if (headDoc) return headDoc;
+  for (let i = 0; i < form.lines.length; i++) {
+    const l = form.lines[i];
+    if (!l.account_id || !(toKurus(l.debit) || toKurus(l.credit))) continue;
+    const m = validateJournalDocument(l.doc, `Satır ${i + 1} belgesi`);
+    if (m) return m;
+  }
   return null;
 }
 
@@ -375,11 +401,13 @@ async function submitForm(status: 'draft' | 'posted') {
       entry_type: form.entry_type,
       description: form.description.trim(),
       status,
+      ...journalDocumentPayload(form.doc),
       lines: filledLines.value.map((l) => ({
         account_id: l.account_id,
         debit: Number(l.debit) || 0,
         credit: Number(l.credit) || 0,
         ...(l.description.trim() ? { description: l.description.trim() } : {}),
+        ...journalDocumentPayload(l.doc),
       })),
     });
     const kind = form.entry_type === 'duzeltme' ? 'Düzeltme fişi' : 'Mahsup fişi';
@@ -778,6 +806,11 @@ onBeforeUnmount(() => {
                 </label>
               </div>
 
+              <fieldset class="ld-doc">
+                <legend>Belge</legend>
+                <JournalDocumentFields v-model="form.doc" id-prefix="ld-doc" />
+              </fieldset>
+
               <p v-if="accountsLoading" class="muted" role="status">Hesap listesi yükleniyor…</p>
               <p v-if="accountsError" class="alert alert-error" role="alert">
                 {{ accountsError }}
@@ -791,49 +824,81 @@ onBeforeUnmount(() => {
                   <span>Satır açıklaması</span>
                   <span></span>
                 </div>
-                <div v-for="(line, i) in form.lines" :key="line.key" class="ld-line">
-                  <FilterableSelect
-                    :id="`ld-acc-${line.key}`"
-                    v-model="line.account_id"
-                    :options="accountOptions"
-                    placeholder="Hesap ara (kod veya ad)…"
-                    :aria-label="`Satır ${i + 1} hesap`"
-                    :no-options-message="accountsLoading ? 'Yükleniyor…' : 'Hesap bulunamadı'"
-                  />
-                  <input
-                    v-model="line.debit"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    class="input num"
-                    :aria-label="`Satır ${i + 1} borç`"
-                    placeholder="0,00"
-                  />
-                  <input
-                    v-model="line.credit"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    class="input num"
-                    :aria-label="`Satır ${i + 1} alacak`"
-                    placeholder="0,00"
-                  />
-                  <input
-                    v-model="line.description"
-                    type="text"
-                    class="input"
-                    maxlength="200"
-                    :aria-label="`Satır ${i + 1} açıklaması`"
-                  />
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="form.lines.length <= 2"
-                    :aria-label="`Satır ${i + 1} sil`"
-                    @click="removeFormLine(i)"
-                  >
-                    ×
-                  </button>
+                <div v-for="(line, i) in form.lines" :key="line.key" class="ld-line-wrap">
+                  <div class="ld-line">
+                    <FilterableSelect
+                      :id="`ld-acc-${line.key}`"
+                      v-model="line.account_id"
+                      :options="accountOptions"
+                      placeholder="Hesap ara (kod veya ad)…"
+                      :aria-label="`Satır ${i + 1} hesap`"
+                      :no-options-message="accountsLoading ? 'Yükleniyor…' : 'Hesap bulunamadı'"
+                    />
+                    <input
+                      v-model="line.debit"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      class="input num"
+                      :aria-label="`Satır ${i + 1} borç`"
+                      placeholder="0,00"
+                    />
+                    <input
+                      v-model="line.credit"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      class="input num"
+                      :aria-label="`Satır ${i + 1} alacak`"
+                      placeholder="0,00"
+                    />
+                    <input
+                      v-model="line.description"
+                      type="text"
+                      class="input"
+                      maxlength="200"
+                      :aria-label="`Satır ${i + 1} açıklaması`"
+                    />
+                    <span class="ld-line-btns">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :class="{ 'ld-has-doc': hasJournalDocument(line.doc) }"
+                        :aria-label="`Satır ${i + 1} belge`"
+                        :aria-expanded="line.showDoc"
+                        :aria-controls="`ld-line-doc-${line.key}`"
+                        :title="
+                          hasJournalDocument(line.doc)
+                            ? 'Bu satırın kendi belgesi var (başlıktakini ezer)'
+                            : 'Bu satır için ayrı belge gir'
+                        "
+                        @click="line.showDoc = !line.showDoc"
+                      >
+                        Belge{{ hasJournalDocument(line.doc) ? ' •' : '' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="form.lines.length <= 2"
+                        :aria-label="`Satır ${i + 1} sil`"
+                        @click="removeFormLine(i)"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  </div>
+                  <div v-if="line.showDoc" :id="`ld-line-doc-${line.key}`" class="ld-line-doc">
+                    <p class="muted small">
+                      Satır {{ i + 1 }} belgesi; boş bırakılan alanlarda başlıktaki belge
+                      geçerlidir.
+                    </p>
+                    <JournalDocumentFields
+                      v-model="line.doc"
+                      :id-prefix="`ld-line-doc-${line.key}`"
+                      :label-prefix="`Satır ${i + 1} `"
+                      empty-label="Başlıktaki geçerli"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1158,9 +1223,37 @@ onBeforeUnmount(() => {
 }
 .ld-line {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) 7.5rem 7.5rem minmax(0, 1.4fr) 2.25rem;
+  grid-template-columns: minmax(0, 2.4fr) 7.5rem 7.5rem minmax(0, 1.4fr) 6.25rem;
   gap: 8px;
   align-items: center;
+}
+.ld-line-btns {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.ld-has-doc {
+  border-color: var(--c-primary, #1d4ed8);
+  color: var(--c-primary, #1d4ed8);
+}
+.ld-line-doc {
+  margin-top: 6px;
+  padding: 8px 10px 10px;
+  border-radius: 0.5rem;
+  background: var(--c-bg, #f8fafc);
+}
+.ld-doc {
+  margin: 0 0 12px;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--c-border, #e5e7eb);
+  border-radius: 8px;
+  min-width: 0;
+}
+.ld-doc legend {
+  padding: 0 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
 }
 .ld-line-head {
   font-size: 0.72rem;
@@ -1202,10 +1295,11 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 640px) {
   .ld-line {
-    grid-template-columns: 1fr 1fr 2.25rem;
+    grid-template-columns: 1fr 1fr;
   }
   .ld-line > :first-child,
-  .ld-line > :nth-child(4) {
+  .ld-line > :nth-child(4),
+  .ld-line > :nth-child(5) {
     grid-column: 1 / -1;
   }
   .ld-line-head {

@@ -10,6 +10,22 @@
 
 ## ✓ Tamamlananlar
 
+### Bankalar menüsü altında Kredi Kartları alt menüsü (bu oturumda)
+
+- [x] **Menüde alt menü desteği** — `apps/web/src/App.vue`: `NavItem` tipi + `children` alanı; alt maddeler `nav-sub` grubunda girintili gösterilir, izin süzgecinden geçer, kilitli modülde önizlemeye gider. "Banka" maddesi **"Bankalar"** olarak yeniden adlandırıldı; altına **Banka Kredileri** ve **Kredi Kartları** eklendi.
+- [x] **Derin bağlantılar `/bank/loans` ve `/bank/cards`** — `CashBankView` `bankModule` prop'u alır (`props: { ledger: 'bank', bankModule: 'loans' | 'cards' }`). Modül seçili açılır, verisi tek istekle yüklenir (`GET /v1/cash-bank/bank/loans`, `.../credit-cards`). Sekme değişiminde URL `BANK_MODULE_PATHS` haritasıyla senkron tutulur (POS → `/bank`); prop tanımsızken (`/bank`) mevcut modül korunur.
+- [x] **Görsel durum** — Alt rota açıkken alt madde `router-link-active`, ana "Bankalar" maddesi `is-parent-active` ile işaretlenir. Sayfa başlığı "Bankalar" oldu.
+- [x] **Testler** — `apps/web/e2e/navigation.spec.ts`: eski "Kasa & Banka" beklentisi güncellendi; iki banka alt menüsü için parametrik test (href + tıklama + rota + aktif sekme + menü vurgusu) ve sekme↔URL eşitleme testi eklendi. `npm run typecheck` + Prettier + tarayıcı (masaüstü/mobil) kontrolleri geçti.
+
+### Cari kartı oluşturma ekranı — sekmeli/gruplu form (bu oturumda)
+
+- [x] **`/contacts/new` sekmeli forma dönüştürüldü** — `CreateAccountView.vue` altı sekmeye ayrıldı: **Genel** (tür, kod, ünvan, ticari unvan, kısa ad, grup, plasiyer, etiketler, aktiflik), **Resmî & Adres** (VKN/TCKN, vergi dairesi, MERSİS, ticaret sicil, KEP; ana adres + çoklu ek adres), **İletişim** (yetkili kişi, çoklu telefon/e-posta + birincil işaretleme, web, WhatsApp), **Finans & Ticari** (para birimi, risk limiti, vade, iskonto, fiyat listesi, ödeme şekli, muhasebe kodu, çoklu IBAN), **e-Dönüşüm** (mükellefiyet, senaryo, PK etiketi, e-Arşiv, entegratör), **İlişkiler & Notlar** (ilişkili cari + ilişki türü, dahili not). Sağda canlı "Kayıt özeti" kartı.
+- [x] **Sözleşme değişmedi** — yalnızca cari türü/kodu/ünvan zorunludur; `contacts` + `contact_addresses/phones/emails/relations` alanları mevcut `createContactSchema` ile gönderilir. Kolonu olmayan ek bilgiler (grup, plasiyer, etiketler, risk limiti, vade, IBAN listesi, e-Dönüşüm bayrakları, not) `contacts.settings` (jsonb) altında anahtarlanır → migration gerekmez.
+- [x] **Doğrulama + sekme rozetleri** — VKN/TCKN 10–11 hane, IBAN `TR` + 24 hane, e-posta/KEP biçimi, tutar aralıkları; hata varsa ilk hatalı sekmeye geçilir, sekmede kırmızı sayaç rozeti ve alan altı mesaj gösterilir.
+- [x] **Erişilebilirlik** — `role="tablist"/"tab"/"tabpanel"`, `aria-selected`, `aria-controls`, ok tuşlarıyla sekme gezinme; il/ilçe/vergi dairesi `FilterableSelect` combobox zinciri korundu (il seçilince ilçe + v.d. tazelenir).
+- [x] **Muhasebe hesap kodu hesap planından seçilir** — serbest metin yerine `GET /v1/accounting` (aktif + detay hesaplar) beslemeli `FilterableSelect`; `120`/`320` cari türüne göre önceden seçilir, tür değişince güncellenir. Hesap planı yalnızca "Finans & Ticari" sekmesi ilk açıldığında bir kez çekilir (30 sayfa tavanı). Yetki yoksa/plan boşsa akış bloke edilmez: alan otomatik **elle girişe** düşer, uyarı + "⟳ Yenile" gösterilir; "Elle gir / Hesap planından seç" bağlantısıyla mod değiştirilir. Seçilen hesabın kodu ve adı `settings.accounting_code` + `settings.accounting_account_id` + `settings.accounting_account_name` olarak kaydedilir ve sağdaki özet kartında gösterilir.
+- [x] **Testler** — `apps/web/e2e/combobox-contact.spec.ts` alanlara sekme geçişi eklenerek güncellendi; `apps/web/e2e/contacts.spec.ts` iki kaydet düğmesi için `:text-is` + `.first()` kullanır. Doğrulama `npm run typecheck` + Prettier + tarayıcı (desktop/mobil) kontrolleriyle yapıldı.
+
 ### Self-servis kayıt + Google ile giriş (ADR-0023) — bu oturumda
 
 - [x] **Migration `202610490000_google_identity.sql` (+down)** — `users.password_hash` nullable (Google ile açılan hesapta parola yoktur), `users.display_name` eklendi, yeni tablo **`user_identities`** (`UNIQUE (provider, provider_account_id)` + `UNIQUE (user_id, provider)`). `user_sessions` gibi kimlik katmanıdır: `tenant_id` yok, RLS yok; GOVERNANCE §2'de `core` satırına işlendi.

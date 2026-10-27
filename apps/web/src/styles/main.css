@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './trade-doc.css';
+@import './bank-module.css';
 
 /*
  * Kuleplus uygulama teması — docs/brand.md "Fintech" paleti (light).

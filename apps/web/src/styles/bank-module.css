@@ -1,0 +1,177 @@
+/*
+ * Banka modülleri (kredi kartları / banka kredileri) ortak yerleşimi.
+ * Kasa & Banka ekranının panel/KPI düzenini izler; sayfa kökü `.bank-module`.
+ */
+
+.bank-module {
+  max-width: 90rem;
+  margin-inline: auto;
+  padding: 1.5rem;
+}
+
+.bank-module .page-sub {
+  margin: 0.25rem 0 0;
+  color: var(--c-muted);
+  font-size: 0.9375rem;
+  max-width: 60rem;
+}
+
+.bank-module .page-sub a {
+  color: var(--c-primary);
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.bank-module .head-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bank-module .kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.bank-module .kpi {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.bank-module .kpi.warn {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.bank-module .kpi-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-muted);
+  font-weight: 600;
+}
+
+.bank-module .kpi-value {
+  font-size: 1.375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-module .panel {
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.bank-module .panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.bank-module .panel-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bank-module .panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bank-module .panel-tools .input {
+  max-width: 18rem;
+}
+
+.bank-module .bank-picker {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.bank-module .bank-picker label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--c-muted);
+  margin-bottom: 0.25rem;
+}
+
+.bank-module .bank-picker .input {
+  max-width: 22rem;
+}
+
+.bank-module .clickable-row {
+  cursor: pointer;
+}
+
+.bank-module .clickable-row:hover {
+  background: var(--c-bg);
+}
+
+.bank-module .clickable-row:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: -2px;
+}
+
+.bank-module .summary-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bank-module .summary-chips .badge {
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-module .detail-note {
+  margin: 0 0 1rem;
+  color: var(--c-muted);
+  font-size: 0.875rem;
+}
+
+.bank-module .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+}
+
+.bank-module .actions .link {
+  padding-inline: 0.3rem;
+}
+
+.bank-module .pos-panel .bank-picker {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+@media (max-width: 40rem) {
+  .bank-module {
+    padding: 1rem;
+  }
+}

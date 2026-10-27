@@ -39,11 +39,7 @@ async function loadShell() {
   if (!auth.isAuthenticated) return;
   // `fetchMe` rol/izinleri getirir — menüdeki izin filtreli maddeler buna bağlıdır.
   // Sayfa yenilendiğinde (F5) guard tetiklenmeyebilir, bu yüzden kabuk burada çağırır.
-  await Promise.all([
-    entitlements.fetchEntitlements(),
-    companies.fetchCompanies(),
-    auth.fetchMe(),
-  ]);
+  await Promise.all([entitlements.fetchEntitlements(), companies.fetchCompanies(), auth.fetchMe()]);
 }
 onMounted(loadShell);
 watch(isAuthenticated, (value) => {
@@ -131,11 +127,17 @@ initializeWorkspace();
 
 /** Ağaç (genişletilebilir) uygulama navigasyonu — Faz 2/3 modülleri (docs/product/screens.md).
  *  Ticaret + Finans, "Muhasebe" başlığı altında birleştirildi.
- *  `module` alanı entitlement kapısı içindir (GOVERNANCE §2 modül kodları). */
-const navGroups: {
+ *  `module` alanı entitlement kapısı içindir (GOVERNANCE §2 modül kodları).
+ *  `children` verilirse madde alt menü açar (örn. Bankalar › Kredi Kartları). */
+interface NavItem {
+  to: string;
   label: string;
-  items: { to: string; label: string; module?: string; permission?: string }[];
-}[] = [
+  module?: string;
+  permission?: string;
+  /** Alt menü maddeleri — ana maddenin altında girintili gösterilir. */
+  children?: NavItem[];
+}
+const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: 'Genel',
     items: [
@@ -162,7 +164,16 @@ const navGroups: {
       { to: '/invoices', label: 'Faturalar', module: 'trade' },
       // Finansal işlemler — kasa ve banka ayrı ekranlarda yönetilir
       { to: '/cash', label: 'Kasa', module: 'cashbank' },
-      { to: '/bank', label: 'Banka', module: 'cashbank' },
+      {
+        to: '/bank',
+        label: 'Bankalar',
+        module: 'cashbank',
+        // Banka alt modülleri kendi bağlantısıyla açılır (deep link).
+        children: [
+          { to: '/bank/loans', label: 'Banka Kredileri', module: 'cashbank' },
+          { to: '/bank/cards', label: 'Kredi Kartları', module: 'cashbank' },
+        ],
+      },
       { to: '/currency', label: 'Döviz Kurları', module: 'cashbank' },
       { to: '/expenses', label: 'Giderler', module: 'trade' },
       { to: '/accounting', label: 'Genel Muhasebe', module: 'accounting' },
@@ -200,10 +211,29 @@ const visibleNavGroups = computed(() =>
   navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.permission || auth.can(item.permission)),
+      items: group.items
+        .filter((item) => !item.permission || auth.can(item.permission))
+        .map((item) => ({
+          ...item,
+          // Alt maddeler de aynı izin süzgecinden geçer.
+          children: item.children?.filter(
+            (child) => !child.permission || auth.can(child.permission),
+          ),
+        })),
     }))
     .filter((group) => group.items.length > 0),
 );
+
+/** Menü hedefi: kilitli modülde önizleme ekranına, değilse kendi rotasına gider. */
+function navTarget(item: NavItem): string {
+  if (isLocked(item.module)) return lockedTarget(item.module) ?? item.to;
+  return item.to;
+}
+
+/** Alt menüsü olan maddede, alt rotalardan biri açıkken ana maddeyi işaretler. */
+function isNavParentActive(item: NavItem): boolean {
+  return !!item.children?.length && route.path.startsWith(`${item.to}/`);
+}
 
 /**
  * Ağaç menü durumu: grup başlıkları tıklanınca alt menüler açılır/kapanır.
@@ -282,20 +312,32 @@ function toggleGroup(groupLabel: string) {
             <span>{{ group.label }}</span>
           </button>
           <div v-if="isGroupExpanded(group.label)" class="nav-group-items">
-            <RouterLink
-              v-for="item in group.items"
-              :key="item.to"
-              :to="
-                isLocked(item.module) && lockedTarget(item.module)
-                  ? lockedTarget(item.module)!
-                  : item.to
-              "
-              class="nav-link"
-              :class="{ 'is-locked': isLocked(item.module) }"
-            >
-              <span>{{ item.label }}</span>
-              <span v-if="isLocked(item.module)" class="nav-lock">kilitli</span>
-            </RouterLink>
+            <template v-for="item in group.items" :key="item.to">
+              <RouterLink
+                :to="navTarget(item)"
+                class="nav-link"
+                :class="{
+                  'is-locked': isLocked(item.module),
+                  'is-parent-active': isNavParentActive(item),
+                }"
+              >
+                <span>{{ item.label }}</span>
+                <span v-if="isLocked(item.module)" class="nav-lock">kilitli</span>
+              </RouterLink>
+              <!-- Alt menü: Bankalar › Kredi Kartları gibi -->
+              <div v-if="item.children?.length" class="nav-sub">
+                <RouterLink
+                  v-for="child in item.children"
+                  :key="child.to"
+                  :to="navTarget(child)"
+                  class="nav-link nav-sublink"
+                  :class="{ 'is-locked': isLocked(child.module) }"
+                >
+                  <span>{{ child.label }}</span>
+                  <span v-if="isLocked(child.module)" class="nav-lock">kilitli</span>
+                </RouterLink>
+              </div>
+            </template>
           </div>
         </div>
       </nav>
@@ -525,6 +567,28 @@ function toggleGroup(groupLabel: string) {
 }
 .nav-link.is-locked {
   color: #94a3b8;
+}
+
+/* === Alt menü (Bankalar › Kredi Kartları) === */
+.nav-sub {
+  display: flex;
+  flex-direction: column;
+  margin: 0.125rem 0 0.375rem 0.75rem;
+  padding-left: 0.5rem;
+  border-left: 1px solid #334155;
+}
+.nav-sublink {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.875rem;
+  color: #94a3b8;
+}
+.nav-sublink:hover {
+  color: #f8fafc;
+}
+/* Alt rotalardan biri açıkken ana madde hafifçe işaretlenir (alt madde zaten vurgulu). */
+.nav-link.is-parent-active:not(.router-link-active) {
+  color: #f8fafc;
+  background: #1e293b;
 }
 
 /* === Şirket seçici === */

@@ -24,11 +24,13 @@ export interface TCMBRate {
 export async function fetchTCMBRates(date?: string): Promise<TCMBRate[]> {
   let url = TCMB_URL;
   if (date) {
+    // Geçmiş kurlar ay klasöründe yayınlanır: /kurlar/202610/26102026.xml
+    // (kaynak klasörü yoksa TCMB bugmen yerine 404 döndürür.)
     const d = new Date(date);
     const day = d.getDate().toString().padStart(2, '0');
     const month = (d.getMonth() + 1).toString().padStart(2, '0');
     const year = d.getFullYear();
-    url = `https://www.tcmb.gov.tr/kurlar/${day}${month}${year}.xml`;
+    url = `https://www.tcmb.gov.tr/kurlar/${year}${month}/${day}${month}${year}.xml`;
   }
 
   const res = await fetch(url);

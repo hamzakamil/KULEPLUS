@@ -5,19 +5,28 @@ import GeneralLedgerReport from '@/components/accounting/GeneralLedgerReport.vue
 import JournalBookReport from '@/components/accounting/JournalBookReport.vue';
 import AccountLedgerDrawer from '@/components/accounting/AccountLedgerDrawer.vue';
 import PeriodEndPanel from '@/components/accounting/PeriodEndPanel.vue';
+import JournalDocumentFields from '@/components/accounting/JournalDocumentFields.vue';
+import EDefterPanel from '@/components/accounting/EDefterPanel.vue';
 import {
   errorMessage as storeErrorMessage,
   useAccountingStore,
   type EntryDetail,
-  type JournalLine,
+  type JournalLineInput,
   type TrialBalance,
   type WithholdingReport,
 } from '@/stores/accounting';
 import { useLedgerDrawerStore } from '@/stores/ledgerDrawer';
+import {
+  emptyJournalDocument,
+  hasJournalDocument,
+  journalDocumentPayload,
+  validateJournalDocument,
+  type JournalDocumentFields as DocFields,
+} from '@/lib/journalDocument';
 
 const store = useAccountingStore();
 const ledgerDrawer = useLedgerDrawerStore();
-const activeTab = ref<'accounts' | 'entries' | 'reports' | 'periodEnd'>('accounts');
+const activeTab = ref<'accounts' | 'entries' | 'reports' | 'periodEnd' | 'edefter'>('accounts');
 const info = ref<string | null>(null);
 
 function formatMoney(v: number | string | null | undefined): string {
@@ -95,16 +104,24 @@ async function resequence() {
   }
 }
 const showEntryModal = ref(false);
+interface FormLine {
+  account_id: string;
+  debit: number;
+  credit: number;
+  /** Satıra özel belge bilgisi (başlıktakini ezer); açılır alanda girilir. */
+  doc: DocFields;
+  showDoc: boolean;
+}
+function newFormLine(): FormLine {
+  return { account_id: '', debit: 0, credit: 0, doc: emptyJournalDocument(), showDoc: false };
+}
 const entryForm = reactive({
   entry_date: today,
   entry_type: 'mahsup' as (typeof ENTRY_TYPES)[number],
   description: '',
   status: 'draft' as 'draft' | 'posted',
-  lines: [{ account_id: '', debit: 0, credit: 0 }] as Array<{
-    account_id: string;
-    debit: number;
-    credit: number;
-  }>,
+  doc: emptyJournalDocument() as DocFields,
+  lines: [newFormLine()] as FormLine[],
 });
 const entryTotals = computed(() => {
   const debit = entryForm.lines.reduce((s, l) => s + Number(l.debit || 0), 0);
@@ -112,35 +129,64 @@ const entryTotals = computed(() => {
   return { debit, credit, balanced: Math.abs(debit - credit) < 0.005 };
 });
 function addLine() {
-  entryForm.lines.push({ account_id: '', debit: 0, credit: 0 });
+  entryForm.lines.push(newFormLine());
 }
 function removeLine(i: number) {
   if (entryForm.lines.length > 1) entryForm.lines.splice(i, 1);
 }
+const entryError = ref<string | null>(null);
+function openEntryModal() {
+  entryError.value = null;
+  showEntryModal.value = true;
+}
 async function submitEntry() {
   info.value = null;
   try {
-    const lines: JournalLine[] = entryForm.lines
-      .filter((l) => l.account_id && (Number(l.debit) || Number(l.credit)))
-      .map((l) => ({
+    entryError.value = null;
+    const docError =
+      validateJournalDocument(entryForm.doc, 'Belge') ??
+      entryForm.lines
+        .map((l, i) =>
+          l.account_id && (Number(l.debit) || Number(l.credit))
+            ? validateJournalDocument(l.doc, `Satır ${i + 1} belgesi`)
+            : null,
+        )
+        .find((m) => m);
+    if (docError) {
+      entryError.value = docError;
+      return;
+    }
+    const lines: JournalLineInput[] = entryForm.lines
+      .map((l, i) => ({ l, i }))
+      .filter(({ l }) => l.account_id && (Number(l.debit) || Number(l.credit)))
+      .map(({ l }) => ({
         account_id: l.account_id,
         debit: Number(l.debit) || 0,
         credit: Number(l.credit) || 0,
+        ...journalDocumentPayload(l.doc),
       }));
-    if (lines.length < 2) throw new Error('En az iki satır gerekli.');
+    if (lines.length < 2) {
+      entryError.value = 'En az iki dolu satır gerekli.';
+      return;
+    }
     await store.createEntry({
       entry_date: entryForm.entry_date,
       entry_type: entryForm.entry_type,
       description: entryForm.description,
       status: entryForm.status,
+      ...journalDocumentPayload(entryForm.doc),
       lines,
     });
     showEntryModal.value = false;
     entryForm.description = '';
-    entryForm.lines = [{ account_id: '', debit: 0, credit: 0 }];
+    entryForm.doc = emptyJournalDocument();
+    entryForm.lines = [newFormLine()];
     await loadEntries();
-  } catch {
-    info.value = 'Fiş kaydedilemedi (denge veya alanları kontrol edin).';
+  } catch (err) {
+    entryError.value = storeErrorMessage(
+      err,
+      'Fiş kaydedilemedi (denge veya alanları kontrol edin).',
+    );
   }
 }
 
@@ -364,6 +410,14 @@ watch(
       >
         Dönem Sonu
       </button>
+      <button
+        type="button"
+        class="tab"
+        :class="{ active: activeTab === 'edefter' }"
+        @click="activeTab = 'edefter'"
+      >
+        e-Defter
+      </button>
     </nav>
 
     <section v-if="activeTab === 'accounts'" class="card">
@@ -405,7 +459,7 @@ watch(
     <section v-else-if="activeTab === 'entries'" class="card">
       <div class="card-head">
         <h2 class="card-title">Yevmiye Fişleri</h2>
-        <button type="button" class="btn btn-primary btn-sm" @click="showEntryModal = true">
+        <button type="button" class="btn btn-primary btn-sm" @click="openEntryModal">
           ＋ Yeni Fiş
         </button>
       </div>
@@ -536,6 +590,8 @@ watch(
     </section>
 
     <PeriodEndPanel v-else-if="activeTab === 'periodEnd'" />
+
+    <EDefterPanel v-else-if="activeTab === 'edefter'" @go-entries="activeTab = 'entries'" />
 
     <section v-else class="card">
       <div class="card-head">
@@ -968,6 +1024,10 @@ watch(
             ><input v-model="entryForm.description" type="text" class="input" maxlength="200"
           /></label>
         </div>
+        <fieldset class="entry-doc">
+          <legend>Belge</legend>
+          <JournalDocumentFields v-model="entryForm.doc" id-prefix="entry-doc" />
+        </fieldset>
         <table class="data-table lines">
           <thead>
             <tr>
@@ -978,39 +1038,81 @@ watch(
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(line, i) in entryForm.lines" :key="i">
-              <td>
-                <select v-model="line.account_id" class="select">
-                  <option value="">Seçin…</option>
-                  <option v-for="a in detailAccounts" :key="a.id" :value="a.id">
-                    {{ a.code }} — {{ a.name }}
-                  </option>
-                </select>
-              </td>
-              <td class="num">
-                <input
-                  v-model.number="line.debit"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  class="input num"
-                />
-              </td>
-              <td class="num">
-                <input
-                  v-model.number="line.credit"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  class="input num"
-                />
-              </td>
-              <td>
-                <button type="button" class="btn btn-secondary btn-sm" @click="removeLine(i)">
-                  ×
-                </button>
-              </td>
-            </tr>
+            <template v-for="(line, i) in entryForm.lines" :key="i">
+              <tr>
+                <td>
+                  <select
+                    v-model="line.account_id"
+                    class="select"
+                    :aria-label="`Satır ${i + 1} hesap`"
+                  >
+                    <option value="">Seçin…</option>
+                    <option v-for="a in detailAccounts" :key="a.id" :value="a.id">
+                      {{ a.code }} — {{ a.name }}
+                    </option>
+                  </select>
+                </td>
+                <td class="num">
+                  <input
+                    v-model.number="line.debit"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    class="input num"
+                    :aria-label="`Satır ${i + 1} borç`"
+                  />
+                </td>
+                <td class="num">
+                  <input
+                    v-model.number="line.credit"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    class="input num"
+                    :aria-label="`Satır ${i + 1} alacak`"
+                  />
+                </td>
+                <td class="line-actions">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :class="{ 'has-doc': hasJournalDocument(line.doc) }"
+                    :aria-expanded="line.showDoc"
+                    :aria-controls="`line-doc-${i}`"
+                    :title="
+                      hasJournalDocument(line.doc)
+                        ? 'Bu satırın kendi belgesi var (başlıktakini ezer)'
+                        : 'Bu satır için ayrı belge gir'
+                    "
+                    @click="line.showDoc = !line.showDoc"
+                  >
+                    Belge{{ hasJournalDocument(line.doc) ? ' •' : '' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :aria-label="`Satır ${i + 1} sil`"
+                    @click="removeLine(i)"
+                  >
+                    ×
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="line.showDoc" :id="`line-doc-${i}`" class="line-doc-row">
+                <td colspan="4">
+                  <p class="muted small">
+                    Satır {{ i + 1 }} için belge. Boş bırakılan alanlarda fişin başlığındaki belge
+                    geçerlidir.
+                  </p>
+                  <JournalDocumentFields
+                    v-model="line.doc"
+                    :id-prefix="`line-doc-${i}`"
+                    :label-prefix="`Satır ${i + 1} `"
+                    empty-label="Başlıktaki geçerli"
+                  />
+                </td>
+              </tr>
+            </template>
           </tbody>
           <tfoot>
             <tr>
@@ -1036,6 +1138,7 @@ watch(
             Kaydet
           </button>
         </div>
+        <p v-if="entryError" class="alert alert-error" role="alert">{{ entryError }}</p>
         <p v-if="!entryTotals.balanced" class="muted small">
           Borç ve alacak eşit olmalı ({{ formatMoney(entryTotals.debit) }} ≠
           {{ formatMoney(entryTotals.credit) }}).
@@ -1200,6 +1303,33 @@ watch(
 }
 .entry-grid .full {
   grid-column: 1 / -1;
+}
+.entry-doc {
+  margin: 0 0 12px;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--c-border, #e5e7eb);
+  border-radius: 8px;
+  min-width: 0;
+}
+.entry-doc legend {
+  padding: 0 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #555;
+}
+.line-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+.line-actions .has-doc {
+  border-color: var(--c-primary, #1d4ed8);
+  color: var(--c-primary, #1d4ed8);
+}
+.line-doc-row > td {
+  background: var(--c-bg, #f8fafc);
+  padding: 0.5rem 0.875rem 0.875rem;
 }
 .data-table.lines select,
 .data-table.lines input {

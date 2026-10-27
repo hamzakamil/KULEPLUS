@@ -12,6 +12,8 @@ export interface Contact {
   tax_number: string | null;
   tax_office: string | null;
   is_active: boolean;
+  /** Kolon olmayan ek kart bilgileri (kart tipi, sektör, açılış bakiyesi, e-dönüşüm…). */
+  settings?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
   version: number;
@@ -41,9 +43,11 @@ export interface ContactCreateInput {
     building?: string;
     apartment?: string;
     zip_code?: string;
+    parsed?: Record<string, unknown>;
   }>;
   phones?: Array<{ is_primary?: boolean; type: string; number: string }>;
   emails?: Array<{ is_primary?: boolean; type: string; email: string }>;
+  relations?: Array<{ related_contact_id: string; relation_type: string; notes?: string }>;
 }
 
 export interface ContactAddress {

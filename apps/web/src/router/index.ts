@@ -116,6 +116,19 @@ const routes: RouteRecordRaw[] = [
     props: { ledger: 'bank' },
     meta: { requiresAuth: true },
   },
+  // Banka alt modülleri — Banka Kredileri ve Kredi Kartları ayrı çalışan modüllerdir.
+  {
+    path: '/bank/loans',
+    name: 'bank-loans',
+    component: () => import('@/views/BankLoansView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/bank/cards',
+    name: 'bank-cards',
+    component: () => import('@/views/CreditCardsView.vue'),
+    meta: { requiresAuth: true },
+  },
   // Eski birleşik yol — geriye dönük uyumluluk için Kasa ekranına yönlendirilir.
   { path: '/cash-bank', redirect: '/cash' },
   { path: '/expenses', name: 'expenses', component: ExpenseListView, meta: { requiresAuth: true } },

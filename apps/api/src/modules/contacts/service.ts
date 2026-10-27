@@ -256,9 +256,9 @@ export class ContactService {
       const _contactResult = await client.query(
         `INSERT INTO contacts (
           id, tenant_id, code, name, trade_name, type, tax_number, tax_office,
-          settings, created_at, updated_at
+          is_active, settings, created_at, updated_at
         ) VALUES (
-          $1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, now(), now()
+          $1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, now(), now()
         ) RETURNING *`,
         [
           contactId,
@@ -268,6 +268,7 @@ export class ContactService {
           data.type,
           data.tax_number ?? null,
           data.tax_office ?? null,
+          data.is_active ?? true,
           JSON.stringify(data.settings ?? {}),
         ],
       );
@@ -429,6 +430,10 @@ export class ContactService {
         fields.push(`tax_office = $${valueIndex++}`);
         values.push(data.tax_office ?? null);
       }
+      if (data.is_active !== undefined) {
+        fields.push(`is_active = $${valueIndex++}`);
+        values.push(data.is_active);
+      }
       if (data.settings !== undefined) {
         fields.push(`settings = $${valueIndex++}`);
         values.push(JSON.stringify(data.settings));
@@ -545,6 +550,7 @@ export class ContactService {
         'type',
         'tax_number',
         'tax_office',
+        'is_active',
         'settings',
       ] as const) {
         const value = (data as Record<string, unknown>)[key];

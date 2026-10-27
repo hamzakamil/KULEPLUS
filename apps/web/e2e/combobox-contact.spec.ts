@@ -20,6 +20,9 @@ test.describe('Filterable location selects', () => {
   test('ilk seçimde ilçe kilitli, il seçilince ilçeler otomatik gelir ve vergi dairesi il bazında listelenir', async ({
     page,
   }) => {
+    // İl / ilçe / vergi dairesi alanları "Resmî & Adres" sekmesinde gruplanmıştır.
+    await page.getByRole('tab', { name: 'Resmî & Adres' }).click();
+
     // İlçe, il seçilmeden kilitli olmalı
     await expect(page.locator('#ca-district')).toBeDisabled();
 

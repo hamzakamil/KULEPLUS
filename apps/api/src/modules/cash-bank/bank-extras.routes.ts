@@ -23,6 +23,19 @@ import {
   updatePosAccount,
   deletePosAccount,
 } from './bank-extras.service';
+import {
+  cardTransactionListQuerySchema,
+  createCardTransactionSchema,
+  payLoanInstallmentSchema,
+  createCardTransaction,
+  deleteCardTransaction,
+  generateLoanInstallments,
+  listCardTransactions,
+  listLoanInstallments,
+  payLoanInstallment,
+  unpayLoanInstallment,
+  type CardTransactionListQuery,
+} from './bank-ledger.service';
 
 const router = Router();
 
@@ -76,6 +89,53 @@ router.delete('/loans/:id', async (req, res, next) => {
   }
 });
 
+// ---- Kredi taksit planı ----
+
+router.get('/loans/:id/installments', async (req, res, next) => {
+  try {
+    res.json(await listLoanInstallments(tenantOf(req), req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/loans/:id/installments/generate', async (req, res, next) => {
+  try {
+    res.json(await generateLoanInstallments(tenantOf(req), req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post(
+  '/loans/:id/installments/:installmentId/pay',
+  validate(payLoanInstallmentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(
+        await payLoanInstallment(
+          tenantOf(req),
+          req.params.id,
+          req.params.installmentId,
+          req.body,
+        ),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete('/loans/:id/installments/:installmentId/pay', async (req, res, next) => {
+  try {
+    res.json(
+      await unpayLoanInstallment(tenantOf(req), req.params.id, req.params.installmentId),
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 // ============ Kredi Kartları ============
 
 router.get('/credit-cards', async (req, res, next) => {
@@ -115,6 +175,57 @@ router.patch(
 router.delete('/credit-cards/:id', async (req, res, next) => {
   try {
     res.json(await deleteCreditCard(req.params.id, tenantOf(req)));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// ---- Kart hareketleri ----
+
+router.get(
+  '/credit-cards/:id/transactions',
+  validate(cardTransactionListQuerySchema, 'query'),
+  async (req, res, next) => {
+    try {
+      res.json(
+        await listCardTransactions(
+          tenantOf(req),
+          req.params.id,
+          req.query as unknown as CardTransactionListQuery,
+        ),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.post(
+  '/credit-cards/:id/transactions',
+  validate(createCardTransactionSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
+      res.status(201).json(
+        await createCardTransaction(tenantOf(req), req.params.id, req.body, userId),
+      );
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+router.delete('/credit-cards/:id/transactions/:transactionId', async (req, res, next) => {
+  try {
+    const userId = (req as Request & { user?: { sub?: string } }).user?.sub as string;
+    res.json(
+      await deleteCardTransaction(
+        tenantOf(req),
+        req.params.id,
+        req.params.transactionId,
+        userId,
+      ),
+    );
   } catch (e) {
     next(e);
   }

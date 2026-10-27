@@ -2,15 +2,18 @@
   <div class="cashbank-view">
     <header class="page-header">
       <div>
-        <h1 class="page-title">{{ activeLedger === 'cash' ? 'Kasa' : 'Banka' }}</h1>
+        <h1 class="page-title">{{ activeLedger === 'cash' ? 'Kasa' : 'Bankalar' }}</h1>
         <p class="page-sub">
           <template v-if="activeLedger === 'cash'">
-            Nakit kasalar bu ekranda ayrı yönetilir. Banka hesapları, krediler, kredi kartları ve
-            POS için <RouterLink class="inline-link" to="/bank">Banka</RouterLink> ekranına geçin.
+            Nakit kasalar bu ekranda ayrı yönetilir. Banka hesapları, POS, kredi kartları ve
+            krediler için <RouterLink class="inline-link" to="/bank">Bankalar</RouterLink> ekranına
+            geçin.
           </template>
           <template v-else>
-            Banka hesapları bu ekranda ayrı yönetilir; krediler, kredi kartları ve POS hesapları
-            burada bulunur. Nakit için
+            Banka hesapları ve POS hesapları bu ekranda yönetilir. Kredi kartları
+            <RouterLink class="inline-link" to="/bank/cards">Kredi Kartları</RouterLink>, krediler
+            <RouterLink class="inline-link" to="/bank/loans">Banka Kredileri</RouterLink> kendi
+            ekranlarında ayrı modül olarak çalışır. Nakit için
             <RouterLink class="inline-link" to="/cash">Kasa</RouterLink> ekranına geçin.
           </template>
         </p>
@@ -35,13 +38,13 @@
         <span class="kpi-value">{{ formatMoney(totalBalance) }}</span>
       </div>
       <template v-if="activeLedger === 'bank'">
-        <div class="kpi" :class="{ warn: totalRemainingLoan > 0 }">
-          <span class="kpi-label">Kalan Kredi Borcu</span>
-          <span class="kpi-value">{{ formatMoney(totalRemainingLoan) }}</span>
+        <div class="kpi">
+          <span class="kpi-label">POS Hesabı</span>
+          <span class="kpi-value">{{ store.posAccounts.length }}</span>
         </div>
-        <div class="kpi" :class="{ warn: totalCardDebt > 0 }">
-          <span class="kpi-label">Kredi Kartı Borcu</span>
-          <span class="kpi-value">{{ formatMoney(totalCardDebt) }}</span>
+        <div class="kpi">
+          <span class="kpi-label">Aktif Hesap</span>
+          <span class="kpi-value">{{ activeAccounts.filter((a) => a.status === 'active').length }}</span>
         </div>
       </template>
       <div v-else class="kpi">
@@ -130,23 +133,15 @@
       </div>
     </section>
 
-    <!-- ── Banka alt modülleri ── -->
-    <section v-if="activeLedger === 'bank'" class="bank-modules">
-      <div class="tabs sub-tabs" role="tablist" aria-label="Banka alt modülleri">
-        <button
-          v-for="m in bankModules"
-          :key="m.key"
-          class="tab"
-          role="tab"
-          :aria-selected="activeBankModule === m.key"
-          :class="{ active: activeBankModule === m.key }"
-          @click="switchBankModule(m.key)"
-        >
-          <span aria-hidden="true">{{ m.icon }}</span> {{ m.label }}
-        </button>
+    <!-- ── POS Hesapları (banka hesabına bağlı) ── -->
+    <section v-if="activeLedger === 'bank'" class="bank-modules" aria-labelledby="pos-baslik">
+      <div class="panel-head">
+        <h2 id="pos-baslik">POS Hesapları</h2>
+        <div class="panel-tools">
+          <span class="muted small">Banka hesabına bağlı POS terminalleri</span>
+        </div>
       </div>
 
-      <!-- Banka hesabı seçici (modüller hesaba bağlıdır) -->
       <div class="bank-picker">
         <label for="bank-acc">Banka Hesabı</label>
         <FilterableSelect
@@ -154,115 +149,12 @@
           v-model="selectedBankAccountId"
           :options="bankFilterOptions"
           placeholder="Tüm banka hesapları"
-          @select="reloadBankModule"
+          @select="reloadPosAccounts"
         />
-        <button
-          class="btn btn-primary btn-sm"
-          :disabled="!selectedBankAccountId"
-          @click="openBankModuleForm()"
-        >
-          + {{ bankModuleLabel }}
-        </button>
+        <button class="btn btn-primary btn-sm" @click="openPosForm()">+ POS Ekle</button>
       </div>
 
-      <!-- Krediler -->
-      <div v-if="activeBankModule === 'loans'" class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th scope="col">Banka</th>
-              <th scope="col">Kredi No</th>
-              <th scope="col">Tür</th>
-              <th scope="col" class="num">Anapara</th>
-              <th scope="col" class="num">Faiz %</th>
-              <th scope="col" class="num">Taksit</th>
-              <th scope="col" class="num">Kalan Borç</th>
-              <th scope="col">Durum</th>
-              <th scope="col" class="num">İşlemler</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="l in store.bankLoans" :key="l.id">
-              <td>{{ l.bankAccountName || '—' }}</td>
-              <td class="mono muted">{{ l.loanNumber || '—' }}</td>
-              <td>
-                <span class="badge badge-info">{{ loanTypeLabel(l.loanType) }}</span>
-              </td>
-              <td class="num">{{ formatMoney(l.principal) }}</td>
-              <td class="num">{{ l.interestRate }}</td>
-              <td class="num">{{ l.paidInstallments }} / {{ l.totalInstallments }}</td>
-              <td class="num strong">{{ formatMoney(l.remainingBalance) }}</td>
-              <td>
-                <span
-                  class="badge"
-                  :class="l.status === 'active' ? 'badge-warning' : 'badge-success'"
-                >
-                  {{
-                    l.status === 'active'
-                      ? 'Aktif'
-                      : l.status === 'overdue'
-                        ? 'Gecikmiş'
-                        : 'Kapandı'
-                  }}
-                </span>
-              </td>
-              <td class="num actions">
-                <button class="link" @click="openBankModuleForm(l)">Düzenle</button>
-                <button class="link danger" @click="removeBankRow('loans', l.id)">Sil</button>
-              </td>
-            </tr>
-            <tr v-if="!store.bankLoans.length">
-              <td colspan="9" class="empty-cell">Kredi kaydı yok.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Kredi Kartları -->
-      <div v-else-if="activeBankModule === 'cards'" class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th scope="col">Banka</th>
-              <th scope="col">Kart</th>
-              <th scope="col">Network</th>
-              <th scope="col" class="num">Limit</th>
-              <th scope="col" class="num">Borç</th>
-              <th scope="col" class="num">Kullanılabilir</th>
-              <th scope="col">Son Ödeme</th>
-              <th scope="col" class="num">İşlemler</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in store.creditCards" :key="c.id">
-              <td>{{ c.bankAccountName || '—' }}</td>
-              <td class="strong">
-                {{ c.cardLabel }}
-                <span v-if="c.cardNumberLast4" class="mono muted"
-                  >•••• {{ c.cardNumberLast4 }}</span
-                >
-              </td>
-              <td class="muted">{{ c.cardNetwork || '—' }}</td>
-              <td class="num">{{ formatMoney(c.creditLimit) }}</td>
-              <td class="num" :class="{ neg: Number(c.currentDebt) > 0 }">
-                {{ formatMoney(c.currentDebt) }}
-              </td>
-              <td class="num strong">{{ formatMoney(c.availableLimit) }}</td>
-              <td class="muted">{{ c.dueDay ? c.dueDay + '. gün' : '—' }}</td>
-              <td class="num actions">
-                <button class="link" @click="openBankModuleForm(c)">Düzenle</button>
-                <button class="link danger" @click="removeBankRow('cards', c.id)">Sil</button>
-              </td>
-            </tr>
-            <tr v-if="!store.creditCards.length">
-              <td colspan="8" class="empty-cell">Kredi kartı kaydı yok.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- POS Hesapları -->
-      <div v-else class="table-wrap">
+      <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
@@ -291,8 +183,8 @@
                 </span>
               </td>
               <td class="num actions">
-                <button class="link" @click="openBankModuleForm(p)">Düzenle</button>
-                <button class="link danger" @click="removeBankRow('pos', p.id)">Sil</button>
+                <button class="link" @click="openPosForm(p)">Düzenle</button>
+                <button class="link danger" @click="removePos(p.id)">Sil</button>
               </td>
             </tr>
             <tr v-if="!store.posAccounts.length">
@@ -480,181 +372,23 @@
       </div>
     </div>
 
-    <!-- ── Banka alt modül formu (kredi / kart / POS) ── -->
-    <div v-if="showBankForm" class="modal-backdrop" @click.self="showBankForm = false">
+    <!-- ── POS hesabı formu ── -->
+    <div v-if="showPosForm" class="modal-backdrop" @click.self="showPosForm = false">
       <div class="modal-content">
         <div class="modal-head">
-          <h2>
-            {{ editingBankRow ? 'Düzenle' : bankModuleLabel }}
-            <span class="muted small">— {{ selectedBankName }}</span>
-          </h2>
-          <button class="modal-close" aria-label="Kapat" @click="showBankForm = false">×</button>
+          <h2>{{ editingPos ? 'POS Hesabını Düzenle' : 'Yeni POS Hesabı' }}</h2>
+          <button class="modal-close" aria-label="Kapat" @click="showPosForm = false">×</button>
         </div>
-
-        <!-- Kredi formu -->
-        <form
-          v-if="activeBankModule === 'loans'"
-          class="form-grid"
-          @submit.prevent="saveBankModule"
-        >
-          <div>
-            <label class="field-label" for="ln-type">Kredi Türü</label>
-            <FilterableSelect
-              id="ln-type"
-              v-model="loanForm.loanType"
-              :options="LOAN_TYPE_OPTIONS"
-              placeholder="Kredi türü seçin"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="ln-no">Kredi No</label>
-            <input id="ln-no" v-model="loanForm.loanNumber" class="input" />
-          </div>
-          <div>
-            <label class="field-label" for="ln-principal">Anapara *</label>
-            <input
-              id="ln-principal"
-              v-model.number="loanForm.principal"
-              type="number"
-              step="0.01"
-              class="input"
-              required
-            />
-          </div>
-          <div>
-            <label class="field-label" for="ln-rate">Faiz Oranı (%)</label>
-            <input
-              id="ln-rate"
-              v-model.number="loanForm.interestRate"
-              type="number"
-              step="0.01"
-              class="input"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="ln-count">Taksit Sayısı</label>
-            <input
-              id="ln-count"
-              v-model.number="loanForm.totalInstallments"
-              type="number"
-              min="1"
-              class="input"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="ln-inst">Taksit Tutarı</label>
-            <input
-              id="ln-inst"
-              v-model.number="loanForm.installmentAmount"
-              type="number"
-              step="0.01"
-              class="input"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="ln-start">Başlangıç *</label>
-            <input id="ln-start" v-model="loanForm.startDate" type="date" class="input" required />
-          </div>
-          <div>
-            <label class="field-label" for="ln-end">Bitiş</label>
-            <input id="ln-end" v-model="loanForm.endDate" type="date" class="input" />
-          </div>
+        <form class="form-grid" @submit.prevent="savePos">
           <div class="form-field-full">
-            <label class="field-label" for="ln-desc">Açıklama</label>
-            <input id="ln-desc" v-model="loanForm.description" class="input" />
-          </div>
-          <p v-if="formError" class="form-error">{{ formError }}</p>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
-              İptal
-            </button>
-            <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
-          </div>
-        </form>
-
-        <!-- Kredi kartı formu -->
-        <form
-          v-else-if="activeBankModule === 'cards'"
-          class="form-grid"
-          @submit.prevent="saveBankModule"
-        >
-          <div>
-            <label class="field-label" for="cc-label">Kart Adı *</label>
-            <input id="cc-label" v-model="cardForm.cardLabel" class="input" required />
-          </div>
-          <div>
-            <label class="field-label" for="cc-last4">Son 4 Hane</label>
-            <input
-              id="cc-last4"
-              v-model="cardForm.cardNumberLast4"
-              class="input"
-              maxlength="4"
-              inputmode="numeric"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="cc-net">Kart Network</label>
+            <label class="field-label" for="pos-bank">Banka Hesabı *</label>
             <FilterableSelect
-              id="cc-net"
-              v-model="cardForm.cardNetwork"
-              :options="CARD_NETWORK_OPTIONS"
-              placeholder="Seçiniz…"
+              id="pos-bank"
+              v-model="posForm.bankAccountId"
+              :options="bankAccountOptions"
+              placeholder="Banka hesabı seçin"
             />
           </div>
-          <div>
-            <label class="field-label" for="cc-limit">Kredi Limiti *</label>
-            <input
-              id="cc-limit"
-              v-model.number="cardForm.creditLimit"
-              type="number"
-              step="0.01"
-              class="input"
-              required
-            />
-          </div>
-          <div>
-            <label class="field-label" for="cc-debt">Güncel Borç</label>
-            <input
-              id="cc-debt"
-              v-model.number="cardForm.currentDebt"
-              type="number"
-              step="0.01"
-              class="input"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="cc-state">Hesap Kesim Günü</label>
-            <input
-              id="cc-state"
-              v-model.number="cardForm.statementDay"
-              type="number"
-              min="1"
-              max="31"
-              class="input"
-            />
-          </div>
-          <div>
-            <label class="field-label" for="cc-due">Son Ödeme Günü</label>
-            <input
-              id="cc-due"
-              v-model.number="cardForm.dueDay"
-              type="number"
-              min="1"
-              max="31"
-              class="input"
-            />
-          </div>
-          <p v-if="formError" class="form-error">{{ formError }}</p>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
-              İptal
-            </button>
-            <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
-          </div>
-        </form>
-
-        <!-- POS formu -->
-        <form v-else class="form-grid" @submit.prevent="saveBankModule">
           <div>
             <label class="field-label" for="pos-label">POS Adı *</label>
             <input id="pos-label" v-model="posForm.posLabel" class="input" required />
@@ -681,9 +415,13 @@
             <input v-model="posForm.installmentSupported" type="checkbox" />
             Taksitli satış desteklenir
           </label>
+          <div class="form-field-full">
+            <label class="field-label" for="pos-desc">Açıklama</label>
+            <input id="pos-desc" v-model="posForm.description" class="input" />
+          </div>
           <p v-if="formError" class="form-error">{{ formError }}</p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="showBankForm = false">
+            <button type="button" class="btn btn-secondary" @click="showPosForm = false">
               İptal
             </button>
             <button type="submit" class="btn btn-primary" :disabled="store.loading">Kaydet</button>
@@ -700,8 +438,6 @@ import FilterableSelect from '@/components/FilterableSelect.vue';
 import {
   useCashBankStore,
   type CashBankAccount,
-  type BankLoan,
-  type CreditCard,
   type PosAccount,
 } from '@/stores/cash-bank';
 
@@ -709,18 +445,13 @@ const store = useCashBankStore();
 
 // Route prop'u bu ekranın hangi türü gösterdiğini belirler: 'cash' → Kasa, 'bank' → Banka.
 // Kasa ve banka ayrı ekranlardır (apps/web/src/router/index.ts → /cash ve /bank).
+// Kredi kartları ve krediler kendi modüllerinde (/bank/cards, /bank/loans) yönetilir.
 const props = defineProps<{ ledger?: 'cash' | 'bank' }>();
 
 // ── Bu ekranın defter türü (kasa / banka) ──
 const activeLedger = ref<'cash' | 'bank'>(props.ledger ?? 'cash');
-const activeBankModule = ref<'loans' | 'cards' | 'pos'>('loans');
 const search = ref('');
-
-const bankModules = [
-  { key: 'loans' as const, label: 'Banka Kredileri', icon: '🏦' },
-  { key: 'cards' as const, label: 'Kredi Kartları', icon: '💳' },
-  { key: 'pos' as const, label: 'POS Hesapları', icon: '🧾' },
-];
+const formError = ref<string | null>(null);
 
 const cashAccounts = computed(() => store.accounts.filter((a) => a.accountType === 'cash'));
 const bankAccounts = computed(() => store.accounts.filter((a) => a.accountType === 'bank'));
@@ -734,6 +465,10 @@ const bankFilterOptions = computed(() => [
   { value: '', label: 'Tüm banka hesapları' },
   ...bankAccounts.value.map((b) => ({ value: b.id, label: b.accountName })),
 ]);
+const bankAccountOptions = computed(() => [
+  { value: '', label: 'Banka hesabı seçin…' },
+  ...bankAccounts.value.map((b) => ({ value: b.id, label: b.accountName })),
+]);
 const accountSelectOptions = computed(() => [
   { value: '', label: 'Seçiniz…' },
   ...allAccounts.value.map((a) => ({ value: a.id, label: a.accountName })),
@@ -742,20 +477,6 @@ const CURRENCY_OPTIONS = [
   { value: 'TRY', label: 'TRY' },
   { value: 'USD', label: 'USD' },
   { value: 'EUR', label: 'EUR' },
-];
-const LOAN_TYPE_OPTIONS = [
-  { value: 'term', label: 'Vadeli (Taksitli)' },
-  { value: 'revolving', label: 'Rotatif' },
-  { value: 'overdraft', label: 'Açık Kredi (KMH)' },
-  { value: 'mortgage', label: 'İpotekli' },
-];
-const CARD_NETWORK_OPTIONS = [
-  { value: '', label: 'Seçiniz…' },
-  { value: 'visa', label: 'Visa' },
-  { value: 'mastercard', label: 'Mastercard' },
-  { value: 'troy', label: 'Troy' },
-  { value: 'amex', label: 'Amex' },
-  { value: 'other', label: 'Diğer' },
 ];
 
 const filteredAccounts = computed(() => {
@@ -770,22 +491,10 @@ const filteredAccounts = computed(() => {
 const totalBalance = computed(() =>
   activeAccounts.value.reduce((s, a) => s + Number(a.balance ?? 0), 0),
 );
-const totalRemainingLoan = computed(() =>
-  store.bankLoans.reduce((s, l) => s + Number(l.remainingBalance ?? 0), 0),
-);
-const totalCardDebt = computed(() =>
-  store.creditCards.reduce((s, c) => s + Number(c.currentDebt ?? 0), 0),
-);
 const todayMovementCount = computed(() => {
   const today = new Date().toISOString().slice(0, 10);
   return store.movements.filter((m) => String(m.transactionDate).slice(0, 10) === today).length;
 });
-const selectedBankName = computed(
-  () => bankAccounts.value.find((b) => b.id === selectedBankAccountId.value)?.accountName ?? 'Tümü',
-);
-const bankModuleLabel = computed(
-  () => ({ loans: 'Kredi Ekle', cards: 'Kart Ekle', pos: 'POS Ekle' })[activeBankModule.value],
-);
 
 // ── Hesap formu ──
 const showAccountForm = ref(false);
@@ -918,38 +627,18 @@ const viewMovements = async (acc: CashBankAccount) => {
   await store.fetchMovements();
 };
 
-// ── Banka alt modülleri ──
+// ── POS hesapları (banka hesabına bağlı) ──
 const selectedBankAccountId = ref('');
-const showBankForm = ref(false);
-const editingBankRow = ref<{ id: string } | null>(null);
-const formError = ref<string | null>(null);
-
-const loanForm = ref({
-  loanType: 'term' as BankLoan['loanType'],
-  loanNumber: '',
-  principal: 0,
-  interestRate: 0,
-  totalInstallments: 12,
-  installmentAmount: 0,
-  startDate: new Date().toISOString().split('T')[0],
-  endDate: '',
-  description: '',
-});
-const cardForm = ref({
-  cardLabel: '',
-  cardNumberLast4: '',
-  cardNetwork: '' as CreditCard['cardNetwork'] | '',
-  creditLimit: 0,
-  currentDebt: 0,
-  statementDay: undefined as number | undefined,
-  dueDay: undefined as number | undefined,
-});
+const showPosForm = ref(false);
+const editingPos = ref<PosAccount | null>(null);
 const posForm = ref({
+  bankAccountId: '',
   posLabel: '',
   terminalId: '',
   merchantNumber: '',
   commissionRate: 0,
   installmentSupported: true,
+  description: '',
 });
 
 // Ekran değişimi (Kasa ↔ Banka) menü/route üzerinden yapılır; route prop'u burada izlenir.
@@ -961,130 +650,68 @@ watch(
     search.value = '';
     movementAccount.value = null;
     selectedBankAccountId.value = '';
-    if (ledger === 'bank') reloadBankModule();
+    if (ledger === 'bank') void reloadPosAccounts();
   },
 );
 
-const switchBankModule = (key: 'loans' | 'cards' | 'pos') => {
-  activeBankModule.value = key;
-  reloadBankModule();
+const reloadPosAccounts = async () => {
+  await store.fetchPosAccounts(selectedBankAccountId.value || undefined);
 };
 
-const reloadBankModule = async () => {
-  const accId = selectedBankAccountId.value || undefined;
-  if (activeBankModule.value === 'loans') await store.fetchBankLoans(accId);
-  else if (activeBankModule.value === 'cards') await store.fetchCreditCards(accId);
-  else await store.fetchPosAccounts(accId);
-};
-
-const openBankModuleForm = (row?: BankLoan | CreditCard | PosAccount) => {
-  editingBankRow.value = row ? { id: row.id } : null;
+const openPosForm = (pos?: PosAccount) => {
+  editingPos.value = pos ?? null;
   formError.value = null;
-  if (activeBankModule.value === 'loans') {
-    const l = row as BankLoan | undefined;
-    loanForm.value = l
-      ? {
-          loanType: l.loanType,
-          loanNumber: l.loanNumber ?? '',
-          principal: l.principal,
-          interestRate: l.interestRate,
-          totalInstallments: l.totalInstallments,
-          installmentAmount: l.installmentAmount,
-          startDate: String(l.startDate).slice(0, 10),
-          endDate: l.endDate ? String(l.endDate).slice(0, 10) : '',
-          description: l.description ?? '',
-        }
-      : {
-          loanType: 'term',
-          loanNumber: '',
-          principal: 0,
-          interestRate: 0,
-          totalInstallments: 12,
-          installmentAmount: 0,
-          startDate: new Date().toISOString().split('T')[0],
-          endDate: '',
-          description: '',
-        };
-  } else if (activeBankModule.value === 'cards') {
-    const c = row as CreditCard | undefined;
-    cardForm.value = c
-      ? {
-          cardLabel: c.cardLabel,
-          cardNumberLast4: c.cardNumberLast4 ?? '',
-          cardNetwork: c.cardNetwork ?? '',
-          creditLimit: c.creditLimit,
-          currentDebt: c.currentDebt,
-          statementDay: c.statementDay ?? undefined,
-          dueDay: c.dueDay ?? undefined,
-        }
-      : {
-          cardLabel: '',
-          cardNumberLast4: '',
-          cardNetwork: '',
-          creditLimit: 0,
-          currentDebt: 0,
-          statementDay: undefined,
-          dueDay: undefined,
-        };
-  } else {
-    const p = row as PosAccount | undefined;
-    posForm.value = p
-      ? {
-          posLabel: p.posLabel,
-          terminalId: p.terminalId ?? '',
-          merchantNumber: p.merchantNumber ?? '',
-          commissionRate: p.commissionRate,
-          installmentSupported: p.installmentSupported,
-        }
-      : {
-          posLabel: '',
-          terminalId: '',
-          merchantNumber: '',
-          commissionRate: 0,
-          installmentSupported: true,
-        };
-  }
-  showBankForm.value = true;
+  posForm.value = pos
+    ? {
+        bankAccountId: pos.bankAccountId ?? '',
+        posLabel: pos.posLabel,
+        terminalId: pos.terminalId ?? '',
+        merchantNumber: pos.merchantNumber ?? '',
+        commissionRate: Number(pos.commissionRate ?? 0),
+        installmentSupported: pos.installmentSupported,
+        description: pos.description ?? '',
+      }
+    : {
+        bankAccountId: selectedBankAccountId.value || bankAccounts.value[0]?.id || '',
+        posLabel: '',
+        terminalId: '',
+        merchantNumber: '',
+        commissionRate: 0,
+        installmentSupported: true,
+        description: '',
+      };
+  showPosForm.value = true;
 };
 
-const saveBankModule = async () => {
+const savePos = async () => {
   formError.value = null;
-  const bankAccountId = selectedBankAccountId.value;
-  if (!bankAccountId) {
-    formError.value = 'Önce bir banka hesabı seçin.';
+  if (!posForm.value.bankAccountId) {
+    formError.value = 'Banka hesabı seçin.';
     return;
   }
   try {
-    if (activeBankModule.value === 'loans') {
-      const payload = { bankAccountId, ...loanForm.value };
-      if (editingBankRow.value) await store.updateBankLoan(editingBankRow.value.id, payload);
-      else await store.createBankLoan(payload);
-    } else if (activeBankModule.value === 'cards') {
-      const payload = {
-        bankAccountId,
-        ...cardForm.value,
-        cardNetwork: cardForm.value.cardNetwork || undefined,
-      };
-      if (editingBankRow.value) await store.updateCreditCard(editingBankRow.value.id, payload);
-      else await store.createCreditCard(payload);
-    } else {
-      const payload = { bankAccountId, ...posForm.value };
-      if (editingBankRow.value) await store.updatePosAccount(editingBankRow.value.id, payload);
-      else await store.createPosAccount(payload);
-    }
-    showBankForm.value = false;
-    await reloadBankModule();
+    const payload = {
+      bankAccountId: posForm.value.bankAccountId,
+      posLabel: posForm.value.posLabel.trim(),
+      terminalId: posForm.value.terminalId.trim() || undefined,
+      merchantNumber: posForm.value.merchantNumber.trim() || undefined,
+      commissionRate: posForm.value.commissionRate,
+      installmentSupported: posForm.value.installmentSupported,
+      description: posForm.value.description.trim() || undefined,
+    };
+    if (editingPos.value) await store.updatePosAccount(editingPos.value.id, payload);
+    else await store.createPosAccount(payload);
+    showPosForm.value = false;
+    await reloadPosAccounts();
   } catch (e) {
     formError.value = e instanceof Error ? e.message : 'Kaydedilemedi.';
   }
 };
 
-const removeBankRow = async (kind: 'loans' | 'cards' | 'pos', id: string) => {
-  if (!window.confirm('Bu kaydı silmek istediğinize emin misiniz?')) return;
+const removePos = async (id: string) => {
+  if (!window.confirm('Bu POS hesabını silmek istediğinize emin misiniz?')) return;
   try {
-    if (kind === 'loans') await store.deleteBankLoan(id);
-    else if (kind === 'cards') await store.deleteCreditCard(id);
-    else await store.deletePosAccount(id);
+    await store.deletePosAccount(id);
   } catch {
     /* store hatası */
   }
@@ -1095,8 +722,6 @@ const formatMoney = (v: number | string | undefined) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(v ?? 0));
 const formatDate = (d: string) =>
   d ? new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short' }).format(new Date(d)) : '—';
-const loanTypeLabel = (t: string) =>
-  ({ term: 'Vadeli', revolving: 'Rotatif', overdraft: 'KMH', mortgage: 'İpotekli' })[t] ?? t;
 const movementLabel = (t: string) =>
   ({ deposit: 'Yatırma', withdrawal: 'Çekme', transfer: 'Transfer' })[t] ?? t;
 const movementBadge = (t: string) =>
@@ -1107,6 +732,8 @@ onMounted(async () => {
   // Bu ekran yalnızca kendi defter türünü listeler (sunucu tarafında filtreli).
   store.filters.accountType = activeLedger.value;
   await store.fetchAccounts();
+  // Banka ekranında POS hesapları da ilk açılışta dolar.
+  if (activeLedger.value === 'bank') await reloadPosAccounts();
 });
 </script>
 

@@ -87,10 +87,31 @@ export type UpdateCategoryInput = Partial<CreateCategoryInput>;
 /** Peşin giderin ödeme kaynağı türü: kasa/banka hesabı ya da şirket kredi kartı. */
 export type PaymentSourceType = 'cash_bank' | 'credit_card';
 
+/** Gider belgesinin türü; e-Defter belge tipine eşlenir (sunucudaki EXPENSE_DOCUMENT_KINDS). */
+export const EXPENSE_DOCUMENT_KINDS = [
+  { value: 'invoice', label: 'Fatura' },
+  { value: 'e_invoice', label: 'e-Fatura' },
+  { value: 'e_archive', label: 'e-Arşiv Fatura' },
+  { value: 'smm', label: 'Serbest Meslek Makbuzu' },
+  { value: 'e_smm', label: 'e-SMM' },
+  { value: 'expense_voucher', label: 'Gider Pusulası' },
+  { value: 'producer_receipt', label: 'Müstahsil Makbuzu' },
+  { value: 'retail_receipt', label: 'Perakende Satış Fişi / ÖKC Fişi' },
+  { value: 'ticket', label: 'Bilet' },
+  { value: 'bank_receipt', label: 'Dekont' },
+  { value: 'other', label: 'Diğer' },
+] as const;
+export type ExpenseDocumentKind = (typeof EXPENSE_DOCUMENT_KINDS)[number]['value'];
+
 export interface Expense {
   id: string;
+  /** Belge no (eski adıyla fatura no). */
   invoice_number?: string;
+  /** Belge tarihi. */
   invoice_date?: string;
+  document_kind?: ExpenseDocumentKind;
+  /** "Diğer" türde belgenin adı. */
+  document_kind_description?: string | null;
   expense_date: string;
   category_id: string;
   contact_id?: string | null;

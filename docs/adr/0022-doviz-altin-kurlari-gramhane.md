@@ -60,4 +60,6 @@ TCMB satırlarını (`exchange_rates`) okuyordu. İki sorun:
   (16 test: eşleştirme, önbellek/TTL, hata ve yedek yolları),
 - `scripts/governance-check.mjs` temiz (yeni tablo/izin yok — mevcut
   `management.dashboard.read` kullanılır),
-- Playwright: canlı modda şerit "Kaynak: Gramhane" + Dolar/Euro + Gram altın/Ons altın gösterir.
+- Playwright: canlı modda şerit "Kaynak: Gramhane" + Dolar/Euro + Gram altın gösterir.
+  (Kullanıcı tercihi: şeritte yalnızca Dolar, Euro, Gram altın — Sterlin, İsviçre
+  Frangı, Ons altın ve Gümüş Gramhane'den çekilse bile `RATE_WATCHLIST`'te yok.)

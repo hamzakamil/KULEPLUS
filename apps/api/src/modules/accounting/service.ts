@@ -62,6 +62,27 @@ const AUTO_SOURCE_TYPES = [
   'year_end_transfer',
 ];
 
+/**
+ * e-Defter belge alanları (başlık/satır) — boş değerler NULL; belge tipi yoksa diğerleri de
+ * yazılmaz (GİB: belge numarası/tarihi belge tipi olmadan kullanılamaz).
+ */
+function documentValues(x: {
+  document_type?: string | null;
+  document_type_description?: string | null;
+  document_number?: string | null;
+  document_date?: string | null;
+  payment_method?: string | null;
+}): Array<string | null> {
+  const t = x.document_type || null;
+  return [
+    t,
+    t === 'other' ? x.document_type_description?.trim() || null : null,
+    t ? x.document_number?.trim() || null : null,
+    t ? x.document_date || null : null,
+    x.payment_method?.trim() || null,
+  ];
+}
+
 export class AccountingService {
   private pool: Pool | null = null;
   private readonly providedPool: Pool | null;
@@ -464,8 +485,10 @@ export class AccountingService {
     await client.query(
       `INSERT INTO journal_entries
          (id, tenant_id, entry_no, entry_date, period_id, entry_type, status, description,
-          source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by)
-       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
+          source_type, source_id, reversal_of_id, total_debit, total_credit, posted_by, posted_at, created_by, updated_by,
+          document_type, document_type_description, document_number, document_date, payment_method)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15,
+               $16, $17, $18, $19, $20)`,
       [
         entryId,
         entryNo,
@@ -482,6 +505,7 @@ export class AccountingService {
         postNow ? userId : null,
         postNow ? new Date() : null,
         userId,
+        ...documentValues(input),
       ],
     );
     await this.insertLines(client, entryId, input.lines, userId);
@@ -512,8 +536,9 @@ export class AccountingService {
     for (const l of lines) {
       await client.query(
         `INSERT INTO journal_lines
-           (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by)
-         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8)`,
+           (id, tenant_id, entry_id, line_no, account_id, description, debit, credit, created_by, updated_by,
+            document_type, document_type_description, document_number, document_date, payment_method)
+         VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13)`,
         [
           newId(),
           entryId,
@@ -523,6 +548,7 @@ export class AccountingService {
           round2(l.debit),
           round2(l.credit),
           userId,
+          ...documentValues(l),
         ],
       );
       lineNo++;
@@ -702,6 +728,14 @@ export class AccountingService {
           id,
         ],
       );
+      if ('document_type' in input || 'payment_method' in input) {
+        await client.query(
+          `UPDATE journal_entries SET document_type = $1, document_type_description = $2,
+                  document_number = $3, document_date = $4, payment_method = $5
+            WHERE id = $6 AND tenant_id = current_tenant_id()`,
+          [...documentValues(input), id],
+        );
+      }
       const totals = await this.refreshTotals(client, id);
 
       if (input.status === 'cancelled') {
@@ -1315,10 +1349,57 @@ export class AccountingService {
     });
   }
 
+  /**
+   * Kilidi verilen tarihe ileri alır (yoksa açar): `lockDate` öncesi kayıtlar kilitlenir.
+   * Kilit kaydı, kilitlenen son günü kapsayan mali döneme bağlanır (dönem başına tek kayıt).
+   * Kilit geri alınmaz — daha eski bir tarih verilirse mevcut kilit korunur.
+   */
+  async advanceLock(lockDate: string, userId: string, reason: string, tenantId?: string) {
+    const current = await this.withTenantClient(tenantId, async (client) => {
+      const last = await client.query(`SELECT ($1::date - 1) AS d`, [lockDate]);
+      const period = await client.query(
+        `SELECT id FROM fiscal_periods
+          WHERE tenant_id = current_tenant_id() AND $1::date BETWEEN start_date AND end_date
+          ORDER BY start_date DESC LIMIT 1`,
+        [toIsoDate(last.rows[0].d)],
+      );
+      if (!period.rows[0])
+        throw new AppError('VALIDATION_ERROR', 'Kilitlenecek tarihi kapsayan mali dönem yok.');
+      const lock = await client.query(
+        `SELECT id, lock_date, (SELECT MAX(lock_date) FROM period_locks WHERE tenant_id = current_tenant_id()) AS max_date
+           FROM period_locks WHERE tenant_id = current_tenant_id() AND period_id = $1`,
+        [period.rows[0].id],
+      );
+      return {
+        periodId: String(period.rows[0].id),
+        lockId: lock.rows[0] ? String(lock.rows[0].id) : null,
+        maxDate: lock.rows[0]?.max_date ? toIsoDate(lock.rows[0].max_date) : null,
+      };
+    });
+    if (current.lockId) {
+      if (current.maxDate && current.maxDate >= lockDate)
+        return this.getLockById(current.lockId, tenantId);
+      return this.updateLock(
+        current.lockId,
+        { lock_date: lockDate, reason } as UpdatePeriodLockInput,
+        userId,
+        tenantId,
+      );
+    }
+    return this.createLock(
+      { period_id: current.periodId, lock_date: lockDate, reason } as CreatePeriodLockInput,
+      userId,
+      tenantId,
+    );
+  }
+
   async updateLock(id: string, input: UpdatePeriodLockInput, userId: string, tenantId?: string) {
     return this.withTenantClient(tenantId, async (client) => {
       const before = await this.loadRow(client, 'period_locks', id);
       if (!before) throw new AppError('NOT_FOUND', 'Donem kilidi bulunamadi');
+      // Kilit ileri alınıyorsa yeni kilitlenen aralığın madde numaraları önce tarih sırasına dizilir
+      // (createLock ile aynı kural; ay ay kilitlenen e-Defter akışı bu yolu kullanır).
+      if (input.lock_date) await this.resequenceBefore(client, input.lock_date);
       await client.query(
         `UPDATE period_locks SET
            period_id = COALESCE($1, period_id),

@@ -57,15 +57,8 @@ function fakeFetch(options: FakeOptions = {}) {
 describe('mapGramhaneRates', () => {
   it('canlı yanıtı izleme listesi sırasıyla gösterim kalemlerine çevirir', () => {
     const items = mapGramhaneRates(gramhanePayload);
-    expect(items.map((item) => item.code)).toEqual([
-      'USD',
-      'EUR',
-      'GBP',
-      'CHF',
-      'ALTIN',
-      'ONS',
-      'GUMUS',
-    ]);
+    // Şerit yalnızca Dolar/Euro/Gram altın gösterir; GBP, CHF, ONS, GUMUS atlanır.
+    expect(items.map((item) => item.code)).toEqual(['USD', 'EUR', 'ALTIN']);
     const usd = items.find((item) => item.code === 'USD');
     expect(usd).toMatchObject({
       label: 'Dolar',
@@ -77,12 +70,10 @@ describe('mapGramhaneRates', () => {
       source: 'gramhane',
       asOf: '2026-10-15 05:39:06',
     });
-    // Ons altın USD ile yayınlanıyor → arayüz $ basmalı.
-    expect(items.find((item) => item.code === 'ONS')).toMatchObject({
-      kind: 'gold',
-      unit: 'USD',
-      sell: 4145.23,
-    });
+    expect(items.find((item) => item.code === 'GBP')).toBeUndefined();
+    expect(items.find((item) => item.code === 'CHF')).toBeUndefined();
+    expect(items.find((item) => item.code === 'ONS')).toBeUndefined();
+    expect(items.find((item) => item.code === 'GUMUS')).toBeUndefined();
     expect(items.find((item) => item.code === 'ALTIN')).toMatchObject({
       label: 'Gram altın',
       kind: 'gold',
@@ -139,13 +130,13 @@ describe('fallbackFromExchangeRates', () => {
   it('izleme listesiyle tutarlı kalır (yeni satır eklenirse kırılmasın)', () => {
     const codes = RATE_WATCHLIST.map((item) => item.code);
     expect(codes).toContain('ALTIN');
-    expect(codes).toContain('ONS');
+    // Şeritte Sterlin/Ons altın yok (kokpit yalnızca Dolar, Euro, Gram altın).
+    expect(codes).not.toContain('ONS');
     expect(RATE_WATCHLIST.filter((item) => item.kind === 'fx').every((i) => i.unit === 'TRY')).toBe(
       true,
     );
   });
 });
-
 
 describe('RatesService.liveRates', () => {
   it('Gramhane uçunu User-Agent başlığıyla çağırır (başlıksız istek reddedilir)', async () => {
@@ -160,7 +151,7 @@ describe('RatesService.liveRates', () => {
     expect(result.source).toBe('gramhane');
     expect(result.error).toBeNull();
     expect(result.asOf).toBe('2026-10-15 05:39:06');
-    expect(result.items).toHaveLength(7);
+    expect(result.items).toHaveLength(3);
   });
 
   it('TTL dolana kadar önbellekten döner, eşzamanlı çağrılar tek isteğe iner', async () => {

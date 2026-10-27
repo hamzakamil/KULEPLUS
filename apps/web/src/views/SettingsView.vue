@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/lib/api';
 
 type GroupId = 'company' | 'finance' | 'reports' | 'management';
-type Tab = { id: string; label: string; kind: 'company' | 'preferences' | 'expense-categories' | 'withholding-types' | 'notifications' | 'rules' };
+type Tab = {
+  id: string;
+  label: string;
+  kind:
+    | 'company'
+    | 'preferences'
+    | 'expense-categories'
+    | 'withholding-types'
+    | 'notifications'
+    | 'rules';
+};
 
 const groups: { id: GroupId; label: string; description: string; tabs: Tab[] }[] = [
   {
@@ -48,9 +58,7 @@ const ManagementPreferencesView = defineAsyncComponent(
   () => import('@/views/ManagementPreferencesView.vue'),
 );
 const ManagementRulesView = defineAsyncComponent(() => import('@/views/ManagementRulesView.vue'));
-const WithholdingTypesView = defineAsyncComponent(
-  () => import('@/views/WithholdingTypesView.vue'),
-);
+const WithholdingTypesView = defineAsyncComponent(() => import('@/views/WithholdingTypesView.vue'));
 
 const route = useRoute();
 const router = useRouter();
@@ -103,6 +111,202 @@ const preferenceDraft = reactive({
   reportExportFormat: 'xlsx',
 });
 
+// --- e-Defter bilgileri (settings.edefter) ---
+interface AccountantDraft {
+  key: number;
+  name: string;
+  contractType: string;
+  contractDate: string;
+  contractNo: string;
+  phone: string;
+  email: string;
+  /** Ekranda düzenlenmeyen, sunucuda saklı adres; kaydederken korunur. */
+  address?: unknown;
+}
+let accountantKey = 0;
+const newAccountant = (): AccountantDraft => ({
+  key: ++accountantKey,
+  name: '',
+  contractType: 'SMMM sözleşmesi',
+  contractDate: '',
+  contractNo: '',
+  phone: '',
+  email: '',
+});
+const CONTRACT_TYPES = ['SMMM sözleşmesi', 'YMM tam tasdik sözleşmesi', 'YMM sözleşmesi'];
+const edefterDraft = reactive({
+  title: '',
+  nace: '',
+  phone: '',
+  fax: '',
+  email: '',
+  website: '',
+  buildingNumber: '',
+  street: '',
+  street2: '',
+  city: '',
+  postalCode: '',
+  country: 'Türkiye',
+  inHouse: false,
+  accountants: [newAccountant()] as AccountantDraft[],
+  branchNo: '',
+  branchName: '',
+  sourceApplication: '',
+  startMonth: '',
+  enteredBy: '',
+});
+const edefterSaving = ref(false);
+const edefterSaved = ref('');
+const edefterError = ref('');
+
+function syncEdefterDraft(settings: Record<string, any>) {
+  const e = objectValue(settings.edefter);
+  const a = objectValue(e.address);
+  edefterDraft.title = e.title ?? '';
+  edefterDraft.nace = e.nace ?? '';
+  edefterDraft.phone = e.phone ?? '';
+  edefterDraft.fax = e.fax ?? '';
+  edefterDraft.email = e.email ?? '';
+  edefterDraft.website = e.website ?? '';
+  edefterDraft.buildingNumber = a.buildingNumber ?? '';
+  edefterDraft.street = a.street ?? '';
+  edefterDraft.street2 = a.street2 ?? '';
+  edefterDraft.city = a.city ?? '';
+  edefterDraft.postalCode = a.postalCode ?? '';
+  edefterDraft.country = a.country ?? 'Türkiye';
+  edefterDraft.inHouse = e.inHouse === true;
+  const list: Record<string, any>[] = Array.isArray(e.accountants) ? e.accountants : [];
+  edefterDraft.accountants = list.length
+    ? list.map((x) => ({
+        key: ++accountantKey,
+        name: x.name ?? '',
+        contractType: x.contractType ?? 'SMMM sözleşmesi',
+        contractDate: x.contractDate ?? '',
+        contractNo: x.contractNo ?? '',
+        phone: x.phone ?? '',
+        email: x.email ?? '',
+        address: x.address,
+      }))
+    : [newAccountant()];
+  const b = objectValue(e.branch);
+  edefterDraft.branchNo = b.no ?? '';
+  edefterDraft.branchName = b.name ?? '';
+  edefterDraft.sourceApplication = e.sourceApplication ?? '';
+  edefterDraft.startMonth = e.startMonth ?? '';
+  edefterDraft.enteredBy = e.enteredBy ?? '';
+}
+
+function addAccountant() {
+  edefterDraft.accountants.push(newAccountant());
+}
+function removeAccountant(i: number) {
+  edefterDraft.accountants.splice(i, 1);
+  if (edefterDraft.accountants.length === 0) edefterDraft.accountants.push(newAccountant());
+}
+
+/** Boş değerleri atar; GİB'e boş etiket gitmesin. */
+function clean<T extends Record<string, unknown>>(o: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    const val = typeof v === 'string' ? v.trim() : v;
+    if (val !== '' && val !== undefined && val !== null) out[k] = val;
+  }
+  return out as Partial<T>;
+}
+
+function validateEdefter(): string | null {
+  const d = edefterDraft;
+  if (d.branchNo.trim()) {
+    if (!/^\d{1,4}$/.test(d.branchNo.trim()) || Number(d.branchNo) < 1)
+      return 'Şube no 1–9999 arası olmalı (4 haneye tamamlanır).';
+    if (d.branchName.trim().length < 2) return 'Şube adı girilmeli (ör. Merkez Şubesi).';
+  }
+  if (d.startMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(d.startMonth))
+    return "e-Defter'e geçiş ayı AAAA-AA biçiminde olmalı.";
+  return null;
+}
+
+async function saveEdefter() {
+  edefterError.value = '';
+  edefterSaved.value = '';
+  const invalid = validateEdefter();
+  if (invalid) {
+    edefterError.value = invalid;
+    return;
+  }
+  edefterSaving.value = true;
+  const d = edefterDraft;
+  const stored = objectValue(profile.value?.settings?.settings);
+  const accountants = d.accountants
+    .filter((a) => a.name.trim())
+    .map((a) => ({
+      ...(a.address ? { address: a.address } : {}),
+      ...(d.inHouse
+        ? clean({ name: a.name, phone: a.phone, email: a.email })
+        : clean({
+            name: a.name,
+            contractType: a.contractType,
+            contractDate: a.contractDate,
+            contractNo: a.contractNo,
+            phone: a.phone,
+            email: a.email,
+          })),
+    }));
+  // Ekranda yönetilen anahtarlar boşaltılabilsin diye önce silinir; bilinmeyenler korunur.
+  const previous = { ...objectValue(stored.edefter) };
+  for (const k of [
+    'title',
+    'nace',
+    'phone',
+    'fax',
+    'email',
+    'website',
+    'sourceApplication',
+    'startMonth',
+    'enteredBy',
+  ])
+    delete previous[k];
+  const edefter = {
+    ...previous,
+    ...clean({
+      title: d.title,
+      nace: d.nace,
+      phone: d.phone,
+      fax: d.fax,
+      email: d.email,
+      website: d.website,
+      sourceApplication: d.sourceApplication,
+      startMonth: d.startMonth,
+      enteredBy: d.enteredBy,
+    }),
+    address: clean({
+      buildingNumber: d.buildingNumber,
+      street: d.street,
+      street2: d.street2,
+      city: d.city,
+      postalCode: d.postalCode,
+      country: d.country,
+    }),
+    accountants,
+    inHouse: d.inHouse,
+    branch: d.branchNo.trim()
+      ? { no: d.branchNo.trim().padStart(4, '0'), name: d.branchName.trim() }
+      : null,
+  };
+  const nextSettings = { ...stored, edefter };
+  try {
+    await api.patch('/v1/company/settings', { settings: nextSettings });
+    if (profile.value)
+      profile.value.settings = { ...profile.value.settings, settings: nextSettings };
+    edefterSaved.value = 'e-Defter bilgileri kaydedildi.';
+  } catch (err) {
+    const data = (err as { response?: { data?: { error?: { message?: string } } } }).response?.data;
+    edefterError.value = data?.error?.message || 'e-Defter bilgileri kaydedilemedi.';
+  } finally {
+    edefterSaving.value = false;
+  }
+}
+
 function objectValue(value: unknown): Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -131,6 +335,7 @@ function syncDrafts(data: Record<string, any>) {
   preferenceDraft.reportPeriod = reports.defaultPeriod ?? 'month';
   preferenceDraft.reportComparePrevious = reports.comparePrevious ?? true;
   preferenceDraft.reportExportFormat = reports.exportFormat ?? 'xlsx';
+  syncEdefterDraft(settings);
 }
 
 async function loadSettings() {
@@ -144,6 +349,11 @@ async function loadSettings() {
     errorMessage.value = 'Ayarlar yüklenemedi. Bağlantınızı kontrol edip yeniden deneyin.';
   } finally {
     loading.value = false;
+    // Muhasebe → e-Defter "Firma Profili'nde tamamla" bağlantısı kartın başına getirir.
+    if (route.hash === '#edefter-bilgileri') {
+      await nextTick();
+      document.getElementById('edefter-bilgileri')?.scrollIntoView({ block: 'start' });
+    }
   }
 }
 
@@ -211,7 +421,8 @@ async function savePreferences() {
 
   try {
     const response = await api.patch('/v1/company/settings', { settings: nextSettings });
-    if (profile.value) profile.value.settings = { ...profile.value.settings, settings: nextSettings };
+    if (profile.value)
+      profile.value.settings = { ...profile.value.settings, settings: nextSettings };
     else profile.value = response.data;
     savedMessage.value = 'Ayarlar kaydedildi.';
   } catch {
@@ -272,11 +483,16 @@ const embeddedView = computed(() => {
         </button>
       </nav>
 
-      <section class="settings-content" :aria-label="`${activeGroup.label} ayarları: ${activeTab.label}`">
+      <section
+        class="settings-content"
+        :aria-label="`${activeGroup.label} ayarları: ${activeTab.label}`"
+      >
         <p v-if="loading" class="state-msg">Ayarlar yükleniyor…</p>
         <p v-else-if="errorMessage && !profile" class="alert alert-error" role="alert">
           {{ errorMessage }}
-          <button class="btn btn-secondary btn-sm" type="button" @click="loadSettings">Yeniden dene</button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="loadSettings">
+            Yeniden dene
+          </button>
         </p>
         <component v-else-if="embeddedView" :is="embeddedView" embedded />
 
@@ -326,27 +542,289 @@ const embeddedView = computed(() => {
               <input v-model="companyDraft.timezone" class="input" required />
             </label>
             <div class="settings-actions wide">
-              <span v-if="savedMessage" class="settings-saved" role="status">{{ savedMessage }}</span>
-              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving || !companyDraft.name.trim()">
+              <span v-if="savedMessage" class="settings-saved" role="status">{{
+                savedMessage
+              }}</span>
+              <button
+                class="btn btn-primary btn-sm"
+                type="submit"
+                :disabled="saving || !companyDraft.name.trim()"
+              >
                 {{ saving ? 'Kaydediliyor…' : 'Firma bilgilerini kaydet' }}
               </button>
             </div>
             <p v-if="errorMessage" class="settings-error wide" role="alert">{{ errorMessage }}</p>
           </form>
+
+          <section id="edefter-bilgileri" class="settings-card" aria-labelledby="edefter-title">
+            <div class="settings-section-heading">
+              <div>
+                <h2 id="edefter-title">e-Defter bilgileri</h2>
+                <p>
+                  GİB e-Defter (yevmiye ve kebir) dosyalarının başlık bilgileri. Muhasebe → e-Defter
+                  sekmesinde üretim bu bilgilerle yapılır.
+                </p>
+              </div>
+              <span class="settings-section-mark">e-D</span>
+            </div>
+            <form class="settings-form" @submit.prevent="saveEdefter">
+              <label class="settings-field wide">
+                <span>Ticaret unvanı</span>
+                <input v-model="edefterDraft.title" class="input" maxlength="200" />
+                <small class="settings-help">
+                  Ticaret sicilindeki gibi, kısaltmasız yazın. Boş bırakılırsa firma ticari unvanı
+                  kullanılır.
+                </small>
+              </label>
+              <label class="settings-field">
+                <span>NACE faaliyet kodu</span>
+                <input
+                  v-model="edefterDraft.nace"
+                  class="input"
+                  maxlength="12"
+                  placeholder="41.20.01"
+                />
+                <small class="settings-help">Vergi levhasındaki faaliyet kodu.</small>
+              </label>
+              <label class="settings-field">
+                <span>Telefon</span>
+                <input v-model="edefterDraft.phone" class="input" type="tel" maxlength="30" />
+              </label>
+              <label class="settings-field">
+                <span>Faks (isteğe bağlı)</span>
+                <input v-model="edefterDraft.fax" class="input" type="tel" maxlength="30" />
+              </label>
+              <label class="settings-field">
+                <span>E-posta</span>
+                <input v-model="edefterDraft.email" class="input" type="email" maxlength="120" />
+              </label>
+              <label class="settings-field wide">
+                <span>Web sitesi (isteğe bağlı)</span>
+                <input
+                  v-model="edefterDraft.website"
+                  class="input"
+                  maxlength="200"
+                  placeholder="https://"
+                />
+              </label>
+
+              <fieldset class="settings-group wide">
+                <legend>Adres</legend>
+                <div class="settings-subgrid">
+                  <label class="settings-field">
+                    <span>Bina / kapı no</span>
+                    <input v-model="edefterDraft.buildingNumber" class="input" maxlength="30" />
+                  </label>
+                  <label class="settings-field">
+                    <span>Cadde / sokak</span>
+                    <input v-model="edefterDraft.street" class="input" maxlength="120" />
+                  </label>
+                  <label class="settings-field wide">
+                    <span>Adres ikinci satır (isteğe bağlı)</span>
+                    <input v-model="edefterDraft.street2" class="input" maxlength="120" />
+                  </label>
+                  <label class="settings-field">
+                    <span>İl</span>
+                    <input v-model="edefterDraft.city" class="input" maxlength="60" />
+                  </label>
+                  <label class="settings-field">
+                    <span>Posta kodu</span>
+                    <input
+                      v-model="edefterDraft.postalCode"
+                      class="input"
+                      inputmode="numeric"
+                      maxlength="10"
+                    />
+                  </label>
+                  <label class="settings-field">
+                    <span>Ülke</span>
+                    <input v-model="edefterDraft.country" class="input" maxlength="60" />
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="settings-group wide">
+                <legend>Defteri tutan</legend>
+                <label class="settings-check">
+                  <input v-model="edefterDraft.inHouse" type="checkbox" />
+                  <span>Defter işletme bünyesinde tutuluyor</span>
+                </label>
+                <p class="settings-help">
+                  {{
+                    edefterDraft.inHouse
+                      ? 'İşletme bünyesinde tutulan defterde sözleşme bilgisi istenmez; muhasebe yetkilisinin adını girin.'
+                      : 'Defteri tutan SMMM (tam tasdikte YMM için ikinci satır ekleyin) ve sözleşme bilgileri.'
+                  }}
+                </p>
+                <div
+                  v-for="(acc, i) in edefterDraft.accountants"
+                  :key="acc.key"
+                  class="settings-person"
+                >
+                  <div class="settings-subgrid">
+                    <label class="settings-field wide">
+                      <span
+                        >{{ edefterDraft.inHouse ? 'Muhasebe yetkilisi' : 'SMMM / YMM' }}
+                        {{ i + 1 }} — ad soyad ve unvan</span
+                      >
+                      <input
+                        v-model="acc.name"
+                        class="input"
+                        maxlength="150"
+                        placeholder="SMMM Ayşe Kaya"
+                      />
+                    </label>
+                    <template v-if="!edefterDraft.inHouse">
+                      <label class="settings-field">
+                        <span>Sözleşme türü ({{ i + 1 }}. kişi)</span>
+                        <input
+                          v-model="acc.contractType"
+                          class="input"
+                          list="edefter-contract-types"
+                          maxlength="80"
+                        />
+                      </label>
+                      <label class="settings-field">
+                        <span>Sözleşme tarihi ({{ i + 1 }}. kişi)</span>
+                        <input v-model="acc.contractDate" class="input" type="date" />
+                      </label>
+                      <label class="settings-field">
+                        <span>Sözleşme no ({{ i + 1 }}. kişi)</span>
+                        <input v-model="acc.contractNo" class="input" maxlength="60" />
+                      </label>
+                    </template>
+                    <label class="settings-field">
+                      <span>Telefon ({{ i + 1 }}. kişi, isteğe bağlı)</span>
+                      <input v-model="acc.phone" class="input" type="tel" maxlength="30" />
+                    </label>
+                    <label class="settings-field">
+                      <span>E-posta ({{ i + 1 }}. kişi, isteğe bağlı)</span>
+                      <input v-model="acc.email" class="input" type="email" maxlength="120" />
+                    </label>
+                  </div>
+                  <button
+                    v-if="edefterDraft.accountants.length > 1"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="removeAccountant(i)"
+                  >
+                    {{ i + 1 }}. kişiyi sil
+                  </button>
+                </div>
+                <datalist id="edefter-contract-types">
+                  <option v-for="t in CONTRACT_TYPES" :key="t" :value="t" />
+                </datalist>
+                <button type="button" class="btn btn-secondary btn-sm" @click="addAccountant">
+                  ＋ SMMM / YMM ekle
+                </button>
+              </fieldset>
+
+              <fieldset class="settings-group wide">
+                <legend>Şube (isteğe bağlı)</legend>
+                <div class="settings-subgrid">
+                  <label class="settings-field">
+                    <span>Şube no</span>
+                    <input
+                      v-model="edefterDraft.branchNo"
+                      class="input"
+                      inputmode="numeric"
+                      maxlength="4"
+                      placeholder="0001"
+                    />
+                    <small class="settings-help">4 hane; merkez için boş bırakın.</small>
+                  </label>
+                  <label class="settings-field">
+                    <span>Şube adı</span>
+                    <input
+                      v-model="edefterDraft.branchName"
+                      class="input"
+                      maxlength="120"
+                      placeholder="Merkez Şubesi"
+                    />
+                    <small class="settings-help">“… Şubesi” biçiminde yazın.</small>
+                  </label>
+                </div>
+              </fieldset>
+
+              <label class="settings-field wide">
+                <span>Entegratör yazılım bilgisi</span>
+                <input
+                  v-model="edefterDraft.sourceApplication"
+                  class="input"
+                  maxlength="300"
+                  placeholder="VKN##Unvan##Program adı##Sürüm"
+                />
+                <small class="settings-help">
+                  Entegratörünüzden alın; biçim: VKN##Unvan##Program adı##Sürüm
+                </small>
+              </label>
+              <label class="settings-field">
+                <span>e-Defter'e geçiş ayı (isteğe bağlı)</span>
+                <input v-model="edefterDraft.startMonth" class="input" type="month" />
+                <small class="settings-help">
+                  Hesap dönemi içinde e-Defter'e geçildiyse ilk ay; madde numaraları o aydan başlar.
+                </small>
+              </label>
+              <label class="settings-field">
+                <span>Kaydı giren (isteğe bağlı)</span>
+                <input v-model="edefterDraft.enteredBy" class="input" maxlength="100" />
+                <small class="settings-help">Fişi giren kullanıcı bulunamazsa yazılacak ad.</small>
+              </label>
+
+              <div class="settings-actions wide">
+                <span v-if="edefterSaved" class="settings-saved" role="status">{{
+                  edefterSaved
+                }}</span>
+                <button class="btn btn-primary btn-sm" type="submit" :disabled="edefterSaving">
+                  {{ edefterSaving ? 'Kaydediliyor…' : 'e-Defter bilgilerini kaydet' }}
+                </button>
+              </div>
+              <p v-if="edefterError" class="settings-error wide" role="alert">
+                {{ edefterError }}
+              </p>
+            </form>
+          </section>
         </template>
 
         <template v-else-if="groupId === 'finance' && tabId === 'invoices'">
           <div class="settings-section-heading">
-            <div><h2>Fatura varsayılanları</h2><p>Yeni faturalarda kullanılacak başlangıç değerleri.</p></div>
+            <div>
+              <h2>Fatura varsayılanları</h2>
+              <p>Yeni faturalarda kullanılacak başlangıç değerleri.</p>
+            </div>
             <span class="settings-section-mark">02</span>
           </div>
           <form class="settings-form" @submit.prevent="savePreferences">
-            <label class="settings-field"><span>Seri ön eki</span><input v-model="preferenceDraft.invoiceSeries" class="input" maxlength="10" /></label>
-            <label class="settings-field"><span>Varsayılan vade (gün)</span><input v-model.number="preferenceDraft.invoiceDueDays" class="input" type="number" min="0" max="365" /></label>
-            <label class="settings-field"><span>Varsayılan KDV (%)</span><input v-model.number="preferenceDraft.invoiceVatRate" class="input" type="number" min="0" max="100" step="0.01" /></label>
+            <label class="settings-field"
+              ><span>Seri ön eki</span
+              ><input v-model="preferenceDraft.invoiceSeries" class="input" maxlength="10"
+            /></label>
+            <label class="settings-field"
+              ><span>Varsayılan vade (gün)</span
+              ><input
+                v-model.number="preferenceDraft.invoiceDueDays"
+                class="input"
+                type="number"
+                min="0"
+                max="365"
+            /></label>
+            <label class="settings-field"
+              ><span>Varsayılan KDV (%)</span
+              ><input
+                v-model.number="preferenceDraft.invoiceVatRate"
+                class="input"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+            /></label>
             <div class="settings-actions wide">
-              <span v-if="savedMessage" class="settings-saved" role="status">{{ savedMessage }}</span>
-              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">{{ saving ? 'Kaydediliyor…' : 'Kaydet' }}</button>
+              <span v-if="savedMessage" class="settings-saved" role="status">{{
+                savedMessage
+              }}</span>
+              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">
+                {{ saving ? 'Kaydediliyor…' : 'Kaydet' }}
+              </button>
             </div>
             <p v-if="errorMessage" class="settings-error wide" role="alert">{{ errorMessage }}</p>
           </form>
@@ -354,15 +832,38 @@ const embeddedView = computed(() => {
 
         <template v-else-if="groupId === 'finance' && tabId === 'cheques'">
           <div class="settings-section-heading">
-            <div><h2>Çek / senet varsayılanları</h2><p>Vade ve yaklaşan ödeme hatırlatmaları.</p></div>
+            <div>
+              <h2>Çek / senet varsayılanları</h2>
+              <p>Vade ve yaklaşan ödeme hatırlatmaları.</p>
+            </div>
             <span class="settings-section-mark">03</span>
           </div>
           <form class="settings-form" @submit.prevent="savePreferences">
-            <label class="settings-field"><span>Varsayılan vade (gün)</span><input v-model.number="preferenceDraft.chequeMaturityDays" class="input" type="number" min="0" max="3650" /></label>
-            <label class="settings-field"><span>Vade öncesi hatırlatma (gün)</span><input v-model.number="preferenceDraft.chequeReminderDays" class="input" type="number" min="0" max="365" /></label>
+            <label class="settings-field"
+              ><span>Varsayılan vade (gün)</span
+              ><input
+                v-model.number="preferenceDraft.chequeMaturityDays"
+                class="input"
+                type="number"
+                min="0"
+                max="3650"
+            /></label>
+            <label class="settings-field"
+              ><span>Vade öncesi hatırlatma (gün)</span
+              ><input
+                v-model.number="preferenceDraft.chequeReminderDays"
+                class="input"
+                type="number"
+                min="0"
+                max="365"
+            /></label>
             <div class="settings-actions wide">
-              <span v-if="savedMessage" class="settings-saved" role="status">{{ savedMessage }}</span>
-              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">{{ saving ? 'Kaydediliyor…' : 'Kaydet' }}</button>
+              <span v-if="savedMessage" class="settings-saved" role="status">{{
+                savedMessage
+              }}</span>
+              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">
+                {{ saving ? 'Kaydediliyor…' : 'Kaydet' }}
+              </button>
             </div>
             <p v-if="errorMessage" class="settings-error wide" role="alert">{{ errorMessage }}</p>
           </form>
@@ -370,16 +871,41 @@ const embeddedView = computed(() => {
 
         <template v-else-if="groupId === 'reports'">
           <div class="settings-section-heading">
-            <div><h2>Rapor varsayılanları</h2><p>Rapor ekranları için tercih edilen dönem ve dışa aktarma biçimi.</p></div>
+            <div>
+              <h2>Rapor varsayılanları</h2>
+              <p>Rapor ekranları için tercih edilen dönem ve dışa aktarma biçimi.</p>
+            </div>
             <span class="settings-section-mark">04</span>
           </div>
           <form class="settings-form" @submit.prevent="savePreferences">
-            <label class="settings-field"><span>Varsayılan dönem</span><select v-model="preferenceDraft.reportPeriod" class="select"><option value="month">Bu ay</option><option value="quarter">Bu çeyrek</option><option value="year">Bu yıl</option></select></label>
-            <label class="settings-field"><span>Dışa aktarma biçimi</span><select v-model="preferenceDraft.reportExportFormat" class="select"><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option><option value="pdf">PDF</option></select></label>
-            <label class="settings-check wide"><input v-model="preferenceDraft.reportComparePrevious" type="checkbox" /><span>Önceki dönemle karşılaştır</span></label>
+            <label class="settings-field"
+              ><span>Varsayılan dönem</span
+              ><select v-model="preferenceDraft.reportPeriod" class="select">
+                <option value="month">Bu ay</option>
+                <option value="quarter">Bu çeyrek</option>
+                <option value="year">Bu yıl</option>
+              </select></label
+            >
+            <label class="settings-field"
+              ><span>Dışa aktarma biçimi</span
+              ><select v-model="preferenceDraft.reportExportFormat" class="select">
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+              </select></label
+            >
+            <label class="settings-check wide"
+              ><input v-model="preferenceDraft.reportComparePrevious" type="checkbox" /><span
+                >Önceki dönemle karşılaştır</span
+              ></label
+            >
             <div class="settings-actions wide">
-              <span v-if="savedMessage" class="settings-saved" role="status">{{ savedMessage }}</span>
-              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">{{ saving ? 'Kaydediliyor…' : 'Kaydet' }}</button>
+              <span v-if="savedMessage" class="settings-saved" role="status">{{
+                savedMessage
+              }}</span>
+              <button class="btn btn-primary btn-sm" type="submit" :disabled="saving">
+                {{ saving ? 'Kaydediliyor…' : 'Kaydet' }}
+              </button>
             </div>
             <p v-if="errorMessage" class="settings-error wide" role="alert">{{ errorMessage }}</p>
           </form>
@@ -443,7 +969,10 @@ const embeddedView = computed(() => {
   font-size: 0.82rem;
   font-weight: 650;
   cursor: pointer;
-  transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
 }
 .settings-group-tab {
   min-width: 7.25rem;
@@ -452,7 +981,9 @@ const embeddedView = computed(() => {
 .settings-group-tab.active {
   background: #fff;
   color: var(--settings-ink);
-  box-shadow: 0 1px 3px #1834491a, 0 0 0 1px #d9e1e7;
+  box-shadow:
+    0 1px 3px #1834491a,
+    0 0 0 1px #d9e1e7;
 }
 .settings-workspace {
   margin-top: 0.8rem;
@@ -537,12 +1068,14 @@ const embeddedView = computed(() => {
 }
 .settings-field {
   display: grid;
+  align-content: start;
   gap: 0.35rem;
   color: #526272;
   font-size: 0.73rem;
   font-weight: 650;
 }
 .settings-field.wide,
+.settings-group.wide,
 .settings-actions.wide,
 .settings-error.wide,
 .settings-check.wide {
@@ -552,6 +1085,56 @@ const embeddedView = computed(() => {
 .settings-field :deep(.select) {
   min-height: 2.35rem;
   font-size: 0.82rem;
+}
+.settings-card {
+  margin-top: 2rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--settings-line);
+  scroll-margin-top: 1rem;
+}
+.settings-help {
+  margin: 0;
+  color: var(--settings-muted);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+p.settings-help {
+  margin: 0.3rem 0 0.6rem;
+}
+.settings-group {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem 0.9rem 0.9rem;
+  border: 1px solid var(--settings-line);
+  border-radius: 0.6rem;
+}
+.settings-group legend {
+  padding: 0 0.35rem;
+  color: #526272;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.settings-subgrid {
+  display: grid;
+  align-content: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+}
+.settings-subgrid .settings-field.wide {
+  grid-column: 1 / -1;
+}
+.settings-person {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed var(--settings-line);
+  border-radius: 0.5rem;
+}
+.settings-person .settings-subgrid {
+  width: 100%;
 }
 .settings-actions {
   display: flex;
@@ -598,10 +1181,15 @@ const embeddedView = computed(() => {
   .settings-content {
     padding: 1rem 0.85rem 1.1rem;
   }
-  .settings-form {
+  .settings-form,
+  .settings-subgrid {
     grid-template-columns: 1fr;
   }
+  .settings-subgrid .settings-field.wide {
+    grid-column: auto;
+  }
   .settings-field.wide,
+  .settings-group.wide,
   .settings-actions.wide,
   .settings-error.wide,
   .settings-check.wide {

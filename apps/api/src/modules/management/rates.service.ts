@@ -53,17 +53,14 @@ export interface RateDefinition {
 }
 
 /**
- * Kokpit şeridinde gösterilen kalemler. Sıra önemlidir: döviz → altın → gümüş.
- * Gramhane bu yedi kalemi veriyor; genişletme yeni satır ekleyerek yapılır.
+ * Kokpit şeridinde gösterilen kalemler. Sıra önemlidir: döviz → altın.
+ * Gramhane diğer kalemleri (GBP, CHF, ONS, GUMUS) de veriyor; şerit yalnızca
+ * bu üçünü gösterir. Genişletme yeni satır ekleyerek yapılır.
  */
 export const RATE_WATCHLIST: ReadonlyArray<RateDefinition> = [
   { code: 'USD', label: 'Dolar', kind: 'fx', unit: 'TRY', gramhaneKey: 'USD' },
   { code: 'EUR', label: 'Euro', kind: 'fx', unit: 'TRY', gramhaneKey: 'EUR' },
-  { code: 'GBP', label: 'Sterlin', kind: 'fx', unit: 'TRY', gramhaneKey: 'GBP' },
-  { code: 'CHF', label: 'İsviçre Frangı', kind: 'fx', unit: 'TRY', gramhaneKey: 'CHF' },
   { code: 'ALTIN', label: 'Gram altın', kind: 'gold', unit: 'TRY', gramhaneKey: 'ALTIN' },
-  { code: 'ONS', label: 'Ons altın', kind: 'gold', unit: 'USD', gramhaneKey: 'ONS' },
-  { code: 'GUMUS', label: 'Gümüş (gram)', kind: 'metal', unit: 'TRY', gramhaneKey: 'GUMUS' },
 ];
 
 /** Tek kalem — kokpit `rates` dizisinin elemanı. */
@@ -159,7 +156,9 @@ export function fallbackFromExchangeRates(
 ): RateItem[] {
   const items: RateItem[] = [];
   for (const row of rows ?? []) {
-    const code = String(row?.code ?? '').trim().toUpperCase();
+    const code = String(row?.code ?? '')
+      .trim()
+      .toUpperCase();
     const definition = RATE_WATCHLIST.find((item) => item.code === code && item.kind === 'fx');
     if (!definition) continue;
     const rate = numOrNull(row.rate);
@@ -178,7 +177,6 @@ export function fallbackFromExchangeRates(
   }
   return items;
 }
-
 
 interface CacheEntry<T> {
   value: T;
@@ -266,9 +264,10 @@ export class RatesService {
 
       const payload = await response.json();
       const meta = ((payload ?? {}) as Record<string, unknown>).meta as
-        | Record<string, unknown>
-        | undefined;
-      const status = String(meta?.status ?? '').trim().toLowerCase();
+        Record<string, unknown> | undefined;
+      const status = String(meta?.status ?? '')
+        .trim()
+        .toLowerCase();
       if (status.length > 0 && status !== 'success') {
         return failResult(`Gramhane durumu beklenmeyen (${String(meta?.status)})`);
       }
@@ -324,4 +323,3 @@ export async function latestExchangeRateRows(
     client.release();
   }
 }
-

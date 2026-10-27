@@ -58,6 +58,8 @@ export const createContactSchema = z.object({
   type: contactTypeSchema,
   tax_number: z.string().max(50).optional().nullable(),
   tax_office: z.string().max(100).optional().nullable(),
+  /** Pasif kart yeni işlemde seçilemez; eksik gönderilirse aktif açılır. */
+  is_active: z.boolean().optional(),
   settings: z.record(z.unknown()).default({}),
   addresses: z.array(contactAddressSchema).default([]),
   phones: z.array(contactPhoneSchema).default([]),

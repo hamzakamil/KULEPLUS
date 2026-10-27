@@ -40,16 +40,40 @@
                 placeholder="Kategori seçin"
               />
             </div>
+          </fieldset>
 
+          <!-- Belge bilgisi: kesinleşmiş giderde de düzeltilebilir (tutar hariç) -->
+          <fieldset class="form-fields" :disabled="isCancelled">
             <div>
-              <label for="exp-inv-no">Fatura No{{ isPesin ? ' *' : '' }}</label>
+              <label for="exp-doc-kind">Belge türü</label>
+              <FilterableSelect
+                id="exp-doc-kind"
+                v-model="form.document_kind"
+                :options="DOCUMENT_KIND_OPTIONS"
+                placeholder="Belge türü seçin"
+              />
+            </div>
+            <div>
+              <label for="exp-inv-no">Belge no{{ isPesin ? ' *' : '' }}</label>
               <input id="exp-inv-no" v-model="form.invoice_number" type="text" class="input" />
             </div>
             <div>
-              <label for="exp-inv-date">Fatura Tarihi</label>
+              <label for="exp-inv-date">Belge tarihi</label>
               <input id="exp-inv-date" v-model="form.invoice_date" type="date" class="input" />
             </div>
+            <div v-if="form.document_kind === 'other'">
+              <label for="exp-doc-desc">Belgenin adı (ör. Kira Sözleşmesi) *</label>
+              <input
+                id="exp-doc-desc"
+                v-model="form.document_kind_description"
+                type="text"
+                maxlength="120"
+                class="input"
+              />
+            </div>
+          </fieldset>
 
+          <fieldset class="form-fields" :disabled="isLocked">
             <div class="form-field-full">
               <label for="exp-contact">Cari (isteğe bağlı)</label>
               <FilterableSelect
@@ -215,7 +239,7 @@
                 saving
                   ? 'Kaydediliyor…'
                   : isPosted
-                    ? 'Notu Güncelle'
+                    ? 'Belge ve notu güncelle'
                     : isEdit
                       ? 'Güncelle'
                       : 'Kaydet'
@@ -261,7 +285,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useExpenseStore, type Expense, type PaymentSourceType } from '@/stores/expense';
+import {
+  EXPENSE_DOCUMENT_KINDS,
+  useExpenseStore,
+  type Expense,
+  type ExpenseDocumentKind,
+  type PaymentSourceType,
+} from '@/stores/expense';
 import { useInvoiceStore } from '@/stores/invoices';
 import { useContactStore } from '@/stores/contacts';
 import { useCashBankStore } from '@/stores/cash-bank';
@@ -310,6 +340,10 @@ const STATUS_OPTIONS = [
   { value: 'posted', label: 'Kaydedildi' },
   { value: 'cancelled', label: 'İptal' },
 ];
+const DOCUMENT_KIND_OPTIONS = EXPENSE_DOCUMENT_KINDS.map((k) => ({
+  value: k.value,
+  label: k.label,
+}));
 const PAYMENT_SOURCE_TYPE_OPTIONS = [
   { value: 'cash_bank', label: 'Kasa / Banka' },
   { value: 'credit_card', label: 'Kredi kartı' },
@@ -335,6 +369,8 @@ const form = ref({
   expense_date: new Date().toISOString().split('T')[0],
   invoice_number: '',
   invoice_date: '',
+  document_kind: 'invoice' as ExpenseDocumentKind,
+  document_kind_description: '',
   contact_id: '',
   category_id: '',
   description: '',
@@ -425,6 +461,8 @@ onMounted(async () => {
         expense_date: String(existing.expense_date).split('T')[0],
         invoice_number: existing.invoice_number ?? '',
         invoice_date: existing.invoice_date ? String(existing.invoice_date).split('T')[0] : '',
+        document_kind: (existing.document_kind ?? 'invoice') as ExpenseDocumentKind,
+        document_kind_description: existing.document_kind_description ?? '',
         contact_id: existing.contact_id ?? '',
         category_id: existing.category_id,
         description: existing.description,
@@ -452,7 +490,7 @@ onMounted(async () => {
 function pesinMissingFields(): string[] {
   const f = form.value;
   const missing: string[] = [];
-  if (!f.invoice_number.trim()) missing.push('Fatura No');
+  if (!f.invoice_number.trim()) missing.push('Belge no');
   if (!f.counterparty_name.trim()) missing.push('Satıcı unvanı');
   if (!f.payment_source_type || !f.payment_source_id) missing.push('Ödeme kaynağı');
   return missing;
@@ -466,6 +504,9 @@ function buildPayload(): Partial<Expense> {
     expense_date: f.expense_date,
     invoice_number: f.invoice_number || undefined,
     invoice_date: f.invoice_date || undefined,
+    document_kind: f.document_kind,
+    document_kind_description:
+      f.document_kind === 'other' ? f.document_kind_description.trim() || undefined : undefined,
     category_id: f.category_id,
     contact_id: f.contact_id || undefined,
     description: f.description,
@@ -488,6 +529,12 @@ const save = async () => {
   localError.value = '';
   expenseStore.error = null;
 
+  const f0 = form.value;
+  if (f0.document_kind === 'other' && !f0.document_kind_description.trim()) {
+    localError.value = 'Belge türü "Diğer" ise belgenin adını yazın (ör. Kira Sözleşmesi).';
+    return;
+  }
+
   // Kesinleştirme kontrolü (kesinleşmiş gider yalnız not güncelleyebilir; burada atlanır).
   if (!isPosted.value && form.value.status === 'posted' && isPesin.value) {
     const missing = pesinMissingFields();
@@ -500,9 +547,18 @@ const save = async () => {
   saving.value = true;
   try {
     if (isEdit.value && expenseId.value) {
-      // Kesinleşmiş giderde yalnız not değiştirilebilir.
+      // Kesinleşmiş giderde yalnız not ve belge bilgisi (tür/no/tarih) değiştirilebilir.
       const payload: Partial<Expense> = isPosted.value
-        ? { notes: form.value.notes }
+        ? {
+            notes: form.value.notes,
+            invoice_number: form.value.invoice_number || undefined,
+            invoice_date: form.value.invoice_date || undefined,
+            document_kind: form.value.document_kind,
+            document_kind_description:
+              form.value.document_kind === 'other'
+                ? form.value.document_kind_description.trim() || undefined
+                : undefined,
+          }
         : buildPayload();
       await expenseStore.updateExpense(expenseId.value, payload);
     } else {

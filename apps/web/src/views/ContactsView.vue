@@ -468,6 +468,24 @@
               <dd>{{ displayContact.tax_office?.toLocaleUpperCase('tr-TR') || '—' }}</dd>
             </div>
             <div class="kunya-item">
+              <dt>Kart Tipi</dt>
+              <dd>
+                {{
+                  contactSetting('entity_type') === 'person'
+                    ? 'Gerçek kişi (şahıs)'
+                    : 'Şirket / kurum'
+                }}
+              </dd>
+            </div>
+            <div class="kunya-item">
+              <dt>Sektör</dt>
+              <dd>{{ sectorLabel }}</dd>
+            </div>
+            <div class="kunya-item">
+              <dt>Yetkili</dt>
+              <dd>{{ contactPersonLabel || '—' }}</dd>
+            </div>
+            <div class="kunya-item">
               <dt>Kayıt Tarihi</dt>
               <dd>{{ shortDate(displayContact.created_at) }}</dd>
             </div>
@@ -1015,6 +1033,24 @@ const shortDate = (iso: string) =>
   iso ? new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short' }).format(new Date(iso)) : '—';
 
 const typeLabel = (t: string) => (t === 'customer' ? 'Müşteri' : 'Tedarikçi');
+
+/** `contacts.settings` (jsonb) alanı — künyede ek kart bilgileri gösterilir. */
+const contactSetting = (key: string): unknown =>
+  displayContact.value ? (displayContact.value.settings?.[key] ?? null) : null;
+
+const contactPersonLabel = computed(() => {
+  const person = contactSetting('contact_person') as {
+    name?: string | null;
+    title?: string | null;
+  } | null;
+  if (!person) return '';
+  return [person.name, person.title].filter(Boolean).join(' — ');
+});
+
+const sectorLabel = computed(() => {
+  const value = contactSetting('sector');
+  return value ? String(value).toLocaleUpperCase('tr-TR') : '—';
+});
 
 const balanceTone = (b: number) => (Math.abs(b) < 0.005 ? 'zero' : b > 0 ? 'debit' : 'credit');
 const balanceSide = (b: number) => (Math.abs(b) < 0.005 ? '(0)' : b > 0 ? '(B)' : '(A)');

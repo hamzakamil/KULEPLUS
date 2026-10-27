@@ -2,6 +2,7 @@ import { getPool } from '@kuleplus/db';
 import { AppError, newId } from '@kuleplus/shared';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
+import { isoDate, replaceLoanSchedule } from './bank-ledger.service';
 
 /** Tenant bağlamlı işlem yardımcısı (RLS `app.current_tenant_id()` okur). */
 async function withTenant<T>(
@@ -103,8 +104,8 @@ export async function listBankLoans(tenantId?: string, bankAccountId?: string) {
         bankAccountName: r.bank_account_name,
         loanType: r.loan_type,
         loanNumber: r.loan_number,
-        startDate: r.start_date,
-        endDate: r.end_date,
+        startDate: isoDate(r.start_date),
+        endDate: r.end_date ? isoDate(r.end_date) : null,
       })),
     };
   });
@@ -137,7 +138,13 @@ export async function createBankLoan(
         userId,
       ],
     );
-    return result.rows[0];
+    // Taksit planı krediyle birlikte üretilir; özet alanları plana göre güncellenir.
+    await replaceLoanSchedule(client, result.rows[0]);
+    const loan = await client.query(
+      `SELECT * FROM bank_loans WHERE id = $1 AND tenant_id = app.current_tenant_id()`,
+      [id],
+    );
+    return loan.rows[0];
   });
 }
 
@@ -182,7 +189,33 @@ export async function updateBankLoan(
       `UPDATE bank_loans SET ${fields.join(', ')} WHERE id = $1 AND tenant_id = app.current_tenant_id() RETURNING *`,
       values,
     );
-    return result.rows[0] ?? null;
+    const updated = result.rows[0];
+    if (!updated) return null;
+
+    // Planı etkileyen alanlar değiştiyse ve ödenmiş taksit yoksa planı yenile.
+    const affectsSchedule = [
+      'principal',
+      'interestRate',
+      'totalInstallments',
+      'installmentAmount',
+      'startDate',
+    ].some((key) => input[key as keyof typeof input] !== undefined);
+    if (affectsSchedule) {
+      const paid = await client.query(
+        `SELECT COUNT(*) AS paid FROM bank_loan_installments
+          WHERE bank_loan_id = $1 AND tenant_id = app.current_tenant_id() AND status = 'paid'`,
+        [id],
+      );
+      if (Number(paid.rows[0]?.paid ?? 0) === 0) {
+        await replaceLoanSchedule(client, updated);
+        const refreshed = await client.query(
+          `SELECT * FROM bank_loans WHERE id = $1 AND tenant_id = app.current_tenant_id()`,
+          [id],
+        );
+        return refreshed.rows[0] ?? updated;
+      }
+    }
+    return updated;
   });
 }
 

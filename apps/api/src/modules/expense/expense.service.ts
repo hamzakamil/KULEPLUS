@@ -49,8 +49,26 @@ export const createExpenseCategorySchema = z.object({
 
 export const updateExpenseCategorySchema = createExpenseCategorySchema.partial();
 
+/** Gider belgesinin türü — e-Defter belge tipine eşlenir (fatura yerine geçen belgeler "other"). */
+export const EXPENSE_DOCUMENT_KINDS = [
+  'invoice',
+  'e_invoice',
+  'e_archive',
+  'smm',
+  'e_smm',
+  'expense_voucher',
+  'producer_receipt',
+  'retail_receipt',
+  'ticket',
+  'bank_receipt',
+  'other',
+] as const;
+
 export const createExpenseSchema = z.object({
   invoice_number: z.string().optional(),
+  document_kind: z.enum(EXPENSE_DOCUMENT_KINDS).optional(),
+  /** "Diğer" türde belgenin adı (ör. Kira Sözleşmesi). */
+  document_kind_description: z.string().trim().max(120).optional(),
   invoice_date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -381,9 +399,10 @@ export class ExpenseService {
         `INSERT INTO expenses (id, tenant_id, invoice_number, invoice_date, expense_date, category_id, contact_id, description,
                                amount, net_amount, tax_rate, tax_amount, counterparty_name, counterparty_tax_number,
                                payment_source_type, payment_source_id, currency, exchange_rate, payment_status, status,
-                               notes, receipt_file_url, created_by, updated_by, version, created_at, updated_at)
+                               notes, receipt_file_url, created_by, updated_by, version, created_at, updated_at,
+                               document_kind, document_kind_description)
          VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                 'draft', $19, $20, $21, $21, 1, now(), now())`,
+                 'draft', $19, $20, $21, $21, 1, now(), now(), $22, $23)`,
         [
           expenseId,
           input.invoice_number || null,
@@ -407,6 +426,8 @@ export class ExpenseService {
           input.notes ?? null,
           input.receipt_file_url ?? null,
           userId,
+          input.document_kind ?? 'invoice',
+          input.document_kind_description || null,
         ],
       );
 
@@ -462,20 +483,42 @@ export class ExpenseService {
         throw new AppError('FORBIDDEN', 'İptal edilmiş gider değiştirilemez.');
       }
       if (cur.status === 'posted') {
+        // Kesinleşmiş giderde tutar/hesap değişmez; belge bilgisi (e-Defter) ve not düzeltilebilir.
+        const documentFields = [
+          'invoice_number',
+          'invoice_date',
+          'document_kind',
+          'document_kind_description',
+        ];
         const changed = Object.entries(input).filter(
-          ([k, v]) => v !== undefined && !['notes', 'status'].includes(k),
+          ([k, v]) => v !== undefined && !['notes', 'status', ...documentFields].includes(k),
         );
         if (changed.length > 0 || (input.status !== undefined && input.status !== 'cancelled')) {
           throw new AppError(
             'FORBIDDEN',
-            'Kesinleşmiş gider değiştirilemez; yalnızca not güncellenir veya gider iptal edilir.',
+            'Kesinleşmiş gider değiştirilemez; yalnızca not ve belge bilgisi güncellenir veya gider iptal edilir.',
           );
         }
-        if (input.notes !== undefined) {
+        if (
+          input.notes !== undefined ||
+          documentFields.some((k) => input[k as keyof typeof input] !== undefined)
+        ) {
           await client.query(
-            `UPDATE expenses SET notes = $1, updated_by = $2, updated_at = now()
+            `UPDATE expenses SET notes = COALESCE($1, notes),
+                    invoice_number = COALESCE($4, invoice_number), invoice_date = COALESCE($5, invoice_date),
+                    document_kind = COALESCE($6, document_kind),
+                    document_kind_description = COALESCE($7, document_kind_description),
+                    updated_by = $2, updated_at = now()
               WHERE id = $3 AND tenant_id = current_tenant_id()`,
-            [input.notes, userId, id],
+            [
+              input.notes ?? null,
+              userId,
+              id,
+              input.invoice_number || null,
+              input.invoice_date ?? null,
+              input.document_kind ?? null,
+              input.document_kind_description || null,
+            ],
           );
         }
         if (input.status === 'cancelled') await this.cancelExpenseOn(client, cur, userId);
@@ -514,6 +557,8 @@ export class ExpenseService {
                payment_status = COALESCE($17, payment_status),
                notes = COALESCE($18, notes),
                receipt_file_url = COALESCE($19, receipt_file_url),
+               document_kind = COALESCE($22, document_kind),
+               document_kind_description = COALESCE($23, document_kind_description),
                updated_by = $20, updated_at = now()
            WHERE id = $21 AND tenant_id = current_tenant_id()`,
           [
@@ -538,6 +583,8 @@ export class ExpenseService {
             input.receipt_file_url ?? null,
             userId,
             id,
+            input.document_kind ?? null,
+            input.document_kind_description || null,
           ],
         );
         if (input.status === 'posted') await this.postExpenseOn(client, id, userId);

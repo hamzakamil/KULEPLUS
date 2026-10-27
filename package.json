@@ -41,7 +41,8 @@
     "prettier-plugin-astro": "^1.1.0",
     "puppeteer-core": "^24.10.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.71.1"
+    "typescript-eslint": "^8.71.1",
+    "xslt3": "2.7.0"
   },
   "engines": {
     "node": ">=22"

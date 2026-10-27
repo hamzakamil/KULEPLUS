@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { AxiosError } from 'axios';
 import { api } from '@/lib/api';
+import type { JournalDocumentFields } from '@/lib/journalDocument';
 
 /** API hata sözleşmesi: `{ error: { code, message } }` (SPEC §22.1). */
 export function errorMessage(err: unknown, fallback: string): string {
@@ -29,6 +30,9 @@ export interface JournalLine {
   credit: number;
 }
 
+/** Fişe işlenen satır: isteğe bağlı satıra özel belge bilgisi (başlıktakini ezer). */
+export type JournalLineInput = JournalLine & Partial<JournalDocumentFields>;
+
 export interface JournalEntry {
   id: string;
   entry_no: number | null;
@@ -43,12 +47,12 @@ export interface JournalEntry {
   fiscal_year?: number;
 }
 
-export interface CreateEntryInput {
+export interface CreateEntryInput extends Partial<JournalDocumentFields> {
   entry_date: string;
   entry_type: string;
   description: string;
   status: 'draft' | 'posted';
-  lines: JournalLine[];
+  lines: JournalLineInput[];
 }
 
 /** Muavin (hesap defteri) hareket satırı. `balance`: yürüyen bakiye, borç − alacak. */

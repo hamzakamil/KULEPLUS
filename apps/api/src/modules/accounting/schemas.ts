@@ -101,6 +101,27 @@ export const periodLockListQuerySchema = z.object({
 });
 
 // ======================= Yevmiye Fişi =======================
+/** GİB e-Defter belge tipleri (Yevmiye Defteri Kılavuzu §2.1.1.10.14). */
+export const GIB_DOCUMENT_TYPES = [
+  'invoice',
+  'check',
+  'voucher',
+  'receipt',
+  'shipment',
+  'order-customer',
+  'order-vendor',
+  'other',
+] as const;
+
+/** Yevmiye maddesinin dayandığı belge — başlıkta girilir, satırda ezilebilir (boş = belgesiz). */
+const documentFields = {
+  document_type: z.enum(GIB_DOCUMENT_TYPES).optional().nullable(),
+  document_type_description: z.string().trim().max(120).optional().nullable(),
+  document_number: z.string().trim().max(60).optional().nullable(),
+  document_date: dateString.optional().nullable(),
+  payment_method: z.string().trim().max(40).optional().nullable(),
+};
+
 export const journalLineInputSchema = z.object({
   entry_id: z.string().uuid().optional(),
   line_no: z.number().int().positive().optional(),
@@ -108,6 +129,7 @@ export const journalLineInputSchema = z.object({
   description: z.string().max(500).optional(),
   debit: z.number().nonnegative().default(0),
   credit: z.number().nonnegative().default(0),
+  ...documentFields,
 });
 
 /** Satır PATCH'i: varsayılan YOK — verilmeyen alan (ör. debit) 0'a ezilmez. */
@@ -134,6 +156,7 @@ export const createJournalEntrySchema = z.object({
   status: z.enum(ENTRY_STATUSES).default('draft'),
   source_type: z.string().max(60).optional().nullable(),
   source_id: z.string().uuid().optional().nullable(),
+  ...documentFields,
   lines: z.array(journalLineInputSchema).min(1, 'En az bir satır gerekli'),
 });
 

@@ -49,7 +49,8 @@ test.describe('Contacts Flow', () => {
     await expect(page.locator('#ca-code')).toHaveValue(/\S/);
 
     // İsim boşken kaydetmeyi dene → zorunlu alan uyarısı
-    await page.click('button:text("Cari Kartı Kaydet")');
+    // (İki kaydet düğmesi var: form altı + özet kartı; ilkini kullan.)
+    await page.locator('button:text-is("Cari Kartı Kaydet")').first().click();
     await expect(page.locator('.alert-error')).toBeVisible();
   });
 
