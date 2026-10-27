@@ -37,10 +37,14 @@ check-columns.ts
 create-platform-user.ts
 grant-management.ts
 
+# Vercel CLI yerel cache (commitlenmez — .vercel dosyaları astronomik
+# ve platform ayarlarından bağımsız olur)
+.vercel/
+
 # Yerel debug/audit artıkları ve tek seferlik araçlar (commitlenmez)
 TECHNICAL_AUDIT.md
 _*
-scripts/_*
+scripts/*
 tools/
 *.tsbuildinfo
 packages/db/*.tmp.mts

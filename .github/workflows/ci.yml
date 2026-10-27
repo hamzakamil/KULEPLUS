@@ -4,7 +4,8 @@ name: CI
 
 on:
   push:
-    branches: [master, main, kuleplus]
+    # PRODUCTION: yalnızca main branch'ine push edilir (kuleplus/master kaldırıldı)
+    branches: [main]
   pull_request:
 
 jobs:
