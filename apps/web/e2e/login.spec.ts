@@ -16,8 +16,7 @@ test.describe('Login Flow', () => {
     await page.fill('input[type="email"]', 'wrong@test.com');
     await page.fill('input[type="password"]', 'wrongpass');
     await page.click('button[type="submit"]');
-    // Error message is in a div with text-red-600 class
-    await expect(page.locator('div.text-red-600')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('div.login-error')).toBeVisible({ timeout: 5000 });
   });
 
   test('should redirect to 2fa/verify when 2FA required', async ({ page }) => {

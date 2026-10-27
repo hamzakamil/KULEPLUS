@@ -11,7 +11,7 @@ test.describe('Filterable location selects', () => {
     await page.fill('input[type="email"]', 'e2e@test.com');
     await page.fill('input[type="password"]', 'TestPassword123');
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard', { timeout: 30000 });
+    await page.waitForURL(/dashboard|yonetici-kokpiti/, { timeout: 30_000 });
 
     await page.goto('/contacts/new');
     await page.waitForSelector('h1:text("Yeni Cari Kartı")', { timeout: 15000 });

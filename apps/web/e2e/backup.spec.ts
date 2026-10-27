@@ -15,7 +15,7 @@ test.describe('Backup Dashboard Panel', () => {
     await page.fill('input[type="email"]', 'e2e@test.com');
     await page.fill('input[type="password"]', 'TestPassword123');
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/dashboard', { timeout: 30000 });
+    await page.waitForURL(/dashboard|yonetici-kokpiti/, { timeout: 30_000 });
   });
 
   test('panel render eder: durum, geri sayım, ayarlar ve geçmiş', async ({ page }) => {

@@ -24,7 +24,7 @@ test.describe('Invoices Flow', () => {
     await page.click('button[type="submit"]');
 
     // Wait for redirect to dashboard
-    await page.waitForURL('**/dashboard', { timeout: 30000 });
+    await page.waitForURL(/dashboard|yonetici-kokpiti/, { timeout: 30_000 });
 
     // Navigate to invoices
     await page.goto('/invoices');

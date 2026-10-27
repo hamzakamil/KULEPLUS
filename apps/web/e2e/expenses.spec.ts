@@ -7,7 +7,7 @@ test.describe('Expense Flow', () => {
     await page.fill('input[type="password"]', 'TestPassword123');
     await page.click('button[type="submit"]');
 
-    await page.waitForURL('**/dashboard', { timeout: 30000 });
+    await page.waitForURL(/dashboard|yonetici-kokpiti/, { timeout: 30_000 });
 
     await page.goto('/expenses');
     await page.waitForFunction(() => document.querySelector('#app') !== null);
