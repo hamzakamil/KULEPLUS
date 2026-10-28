@@ -660,6 +660,22 @@ export class SubscriptionService {
           WHERE id = $1 AND tenant_id = current_tenant_id()`,
         [order.id],
       );
+
+      // --- Ortak (SMMM) komisyon hakedişi ---
+      // Şirket bir ortağa bağlıysa (birden fazla atıf varsa ilk AKTİF ve oranı > 0 olan
+      // ortak kazanır) 'pending' hakediş yazılır. Sipariş yalnızca 'pending' → 'paid' geçerken buraya
+      // girdiği için sipariş başına en fazla bir kez üretilir. Matrah sipariş tutarıdır
+      // (K-03 KDV ayrımı gelene dek fatura KDV dahil varsayılır — yukarıdaki not).
+      await client.query(
+        `INSERT INTO partner_commissions (id, tenant_id, partner_id, order_id, amount, status, created_at)
+         SELECT $1, $2, p.id, $3, ROUND($4::numeric * p.commission_rate / 100, 2), 'pending', now()
+           FROM partner_referrals r
+           JOIN partners p ON p.id = r.partner_id
+          WHERE r.tenant_id = current_tenant_id() AND p.is_active AND p.commission_rate > 0
+          ORDER BY r.referred_at ASC
+          LIMIT 1`,
+        [newId(), tenantId, order.id, order.amount],
+      );
       await this.audit(
         client,
         { table: 'commercial_orders', columns: ['id'], tenantId },

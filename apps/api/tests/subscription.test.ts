@@ -254,6 +254,35 @@ describe('SubscriptionService — checkout (SPEC §8.6 aktivasyon zinciri)', () 
     expect(invoiceCall[1]).toContain(`FAT-${ORDER_ROW.order_no}`);
   });
 
+  it('tahsilat başarılı → ortak komisyon hakedişi sipariş tutarı + oranla tek sorguda yazılır', async () => {
+    routeBySql(orderHandlers(ORDER_ROW));
+    const service = new SubscriptionService({ pool: sharedMockPool as never });
+
+    await service.checkout(CHECKOUT_INPUT);
+
+    const calls = sharedMockQuery.mock.calls.filter((c) =>
+      String(c[0]).includes('INSERT INTO partner_commissions'),
+    ) as Array<[string, unknown[]]>;
+    expect(calls).toHaveLength(1);
+    const [sql, params] = calls[0];
+    // Yalnızca aktif ortak + oran > 0 + ilk atıf; RLS bağlamında şirketin kendi atfı.
+    expect(sql).toContain('p.is_active AND p.commission_rate > 0');
+    expect(sql).toContain('ORDER BY r.referred_at ASC');
+    expect(sql).toContain('r.tenant_id = current_tenant_id()');
+    expect(sql).toContain("'pending'");
+    expect(params.slice(1)).toEqual(['t1', ORDER_ROW.id, ORDER_ROW.amount]);
+  });
+
+  it('kart reddi → komisyon hakedişi YAZILMAZ', async () => {
+    routeBySql(orderHandlers({ ...ORDER_ROW, amount: '0' }));
+    const service = new SubscriptionService({ pool: sharedMockPool as never });
+
+    await service.checkout(CHECKOUT_INPUT);
+
+    const sqls = sharedMockQuery.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('INSERT INTO partner_commissions'))).toBe(false);
+  });
+
   it('kart reddi → deneme failed, fatura OLUŞMAZ', async () => {
     routeBySql(orderHandlers({ ...ORDER_ROW, amount: '0' })); // Mock: tutar <= 0 → ret
     const service = new SubscriptionService({ pool: sharedMockPool as never });

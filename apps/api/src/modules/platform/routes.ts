@@ -1,4 +1,5 @@
 import { Router, type Response, type NextFunction } from 'express';
+import { z } from 'zod';
 import { authenticate } from '../../middleware/auth';
 import {
   requirePlatformUser,
@@ -8,7 +9,14 @@ import {
 } from '../../middleware/platform';
 import { validate } from '../../middleware/validate';
 import { PlatformService } from './service';
-import { grantSupportAccessSchema, updateTenantStatusSchema } from './schemas';
+import {
+  addReferralSchema,
+  commissionStatusSchema,
+  createPartnerSchema,
+  grantSupportAccessSchema,
+  updatePartnerSchema,
+  updateTenantStatusSchema,
+} from './schemas';
 import { CompanyService } from '../company/service';
 import { AppError } from '@kuleplus/shared';
 
@@ -206,6 +214,135 @@ router.post(
     try {
       const { computeDailySnapshot } = await import('./metrics.service');
       res.status(201).json(await computeDailySnapshot());
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// ===== Ortak (SMMM) programı: ortaklar, atıflar, komisyon hakedişi =====
+// Kapı: `platform_finance` rolü veya platform_owner. Çapraz tenant toplamları
+// `partners.service` içinde `migrator` havuzuyla okunur (bkz. dosya başlığı).
+
+/** Yol parametresi uuid değilse Postgres 22P02 (500) yerine açık 400 döner. */
+function uuidParam(value: string, label: string): string {
+  if (!z.string().uuid().safeParse(value).success) {
+    throw new AppError('VALIDATION_ERROR', `Geçersiz ${label}`);
+  }
+  return value;
+}
+
+router.get(
+  '/partners',
+  requirePlatformRole('platform_finance'),
+  async (_req, res: Response, next: NextFunction) => {
+    try {
+      const { listPartners } = await import('./partners.service');
+      res.json({ partners: await listPartners() });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.post(
+  '/partners',
+  requirePlatformRole('platform_finance'),
+  validate(createPartnerSchema),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { createPartner } = await import('./partners.service');
+      res.status(201).json(await createPartner(req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.patch(
+  '/partners/:partnerId',
+  requirePlatformRole('platform_finance'),
+  validate(updatePartnerSchema),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { updatePartner } = await import('./partners.service');
+      await updatePartner(uuidParam(req.params.partnerId, 'ortak kimliği'), req.body);
+      res.json({ message: 'Ortak güncellendi' });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/partners/:partnerId/referrals',
+  requirePlatformRole('platform_finance'),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { listReferrals } = await import('./partners.service');
+      res.json({
+        referrals: await listReferrals(uuidParam(req.params.partnerId, 'ortak kimliği')),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Platform, bir şirketi ortağa elle atfeder (kayıt linki gelene dek tek giriş yolu). */
+router.post(
+  '/partners/:partnerId/referrals',
+  requirePlatformRole('platform_finance'),
+  validate(addReferralSchema),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { addReferral } = await import('./partners.service');
+      const result = await addReferral(
+        uuidParam(req.params.partnerId, 'ortak kimliği'),
+        req.body.tenantId,
+      );
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.get(
+  '/partners/:partnerId/commissions',
+  requirePlatformRole('platform_finance'),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { listCommissions, COMMISSION_STATUSES } = await import('./partners.service');
+      const raw = typeof req.query.status === 'string' ? req.query.status : undefined;
+      if (raw && !(COMMISSION_STATUSES as readonly string[]).includes(raw)) {
+        throw new AppError('VALIDATION_ERROR', 'Geçersiz durum filtresi');
+      }
+      const commissions = await listCommissions(
+        uuidParam(req.params.partnerId, 'ortak kimliği'),
+        raw as (typeof COMMISSION_STATUSES)[number] | undefined,
+      );
+      res.json({ commissions });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Komisyon durumu: pending → approved → paid, pending/approved → cancelled. */
+router.patch(
+  '/commissions/:commissionId/status',
+  requirePlatformRole('platform_finance'),
+  validate(commissionStatusSchema),
+  async (req: PlatformRequest, res: Response, next: NextFunction) => {
+    try {
+      const { setCommissionStatus } = await import('./partners.service');
+      await setCommissionStatus(
+        uuidParam(req.params.commissionId, 'komisyon kimliği'),
+        req.body.status,
+        req.platformUser!.userId,
+      );
+      res.json({ message: 'Komisyon durumu güncellendi' });
     } catch (error) {
       next(error);
     }

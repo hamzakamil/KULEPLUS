@@ -6,8 +6,10 @@ import { useAuthStore, COCKPIT_PERMISSION } from '@/stores/auth';
 import { useInvoiceStore } from '@/stores/invoices';
 import { useEntitlementStore } from '@/stores/entitlement';
 import { useCompanyStore } from '@/stores/company';
+import { usePlatformStore } from '@/stores/platform';
 
 const auth = useAuthStore();
+const platform = usePlatformStore();
 const router = useRouter();
 const route = useRoute();
 const isAuthenticated = computed(() => auth.isAuthenticated);
@@ -39,12 +41,21 @@ async function loadShell() {
   if (!auth.isAuthenticated) return;
   // `fetchMe` rol/izinleri getirir — menüdeki izin filtreli maddeler buna bağlıdır.
   // Sayfa yenilendiğinde (F5) guard tetiklenmeyebilir, bu yüzden kabuk burada çağırır.
-  await Promise.all([entitlements.fetchEntitlements(), companies.fetchCompanies(), auth.fetchMe()]);
+  await Promise.all([
+    entitlements.fetchEntitlements(),
+    companies.fetchCompanies(),
+    auth.fetchMe(),
+    // Platform üyeliği menüdeki "Platform" grubunu belirler (üye değilse sessizce yok sayılır).
+    platform.fetchMe(),
+  ]);
 }
 onMounted(loadShell);
 watch(isAuthenticated, (value) => {
   if (value) void loadShell();
-  else companies.companies = [];
+  else {
+    companies.companies = [];
+    platform.reset();
+  }
 });
 
 /** Kilitli modül: hak yoksa menü maddesi önizlemeye yönlendirir (README §4.1). */
@@ -134,6 +145,8 @@ interface NavItem {
   label: string;
   module?: string;
   permission?: string;
+  /** Platform üyeliği kapısı (tenant izninden bağımsız) — yalnızca görünüm. */
+  platform?: 'finance';
   /** Alt menü maddeleri — ana maddenin altında girintili gösterilir. */
   children?: NavItem[];
 }
@@ -199,7 +212,20 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'Yapılandırma',
     items: [{ to: '/settings', label: 'Ayarlar' }],
   },
+  // SaaS işletmecisi — yalnızca platform üyelerine görünür (bkz. `platformAllows`).
+  {
+    label: 'Platform',
+    items: [
+      { to: '/platform/gelir', label: 'Gelir Paneli', platform: 'finance' },
+      { to: '/platform/ortaklar', label: 'Ortaklar & Komisyon', platform: 'finance' },
+    ],
+  },
 ];
+
+/** Platform kapılı madde yalnızca yetkili platform üyesine görünür. */
+function platformAllows(item: NavItem): boolean {
+  return item.platform !== 'finance' || platform.hasFinanceAccess;
+}
 
 /**
  * Menü — izin filtresi. `permission` alanı olan maddeler yalnızca o izne sahip
@@ -213,6 +239,7 @@ const visibleNavGroups = computed(() =>
       ...group,
       items: group.items
         .filter((item) => !item.permission || auth.can(item.permission))
+        .filter(platformAllows)
         .map((item) => ({
           ...item,
           // Alt maddeler de aynı izin süzgecinden geçer.

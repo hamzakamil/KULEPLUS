@@ -17,6 +17,7 @@ import AccountingView from '../views/AccountingView.vue';
 import ChequeView from '../views/ChequeView.vue';
 import { useAuthStore } from '@/stores/auth';
 import { COCKPIT_PERMISSION } from '@/stores/auth';
+import { usePlatformStore } from '@/stores/platform';
 import IntegrationsView from '../views/IntegrationsView.vue';
 import SubscriptionView from '../views/SubscriptionView.vue';
 import EInvoiceView from '../views/EInvoiceView.vue';
@@ -36,6 +37,8 @@ declare module 'vue-router' {
     isPublic?: boolean;
     /** İzin kodu — `packages/shared/permissions.ts` kataloğundan. */
     permission?: string;
+    /** Platform (SaaS işletmecisi) kapısı — tenant izninden bağımsız; `/v1/platform/me` ile çözülür. */
+    platform?: 'finance';
   }
 }
 
@@ -186,6 +189,19 @@ const routes: RouteRecordRaw[] = [
     component: EInvoiceView,
     meta: { requiresAuth: true },
   },
+  // Platform paneli — tenant değil, platform üyeliği (platform_finance / owner) ister.
+  {
+    path: '/platform/gelir',
+    name: 'platform-revenue',
+    component: () => import('@/views/PlatformRevenueView.vue'),
+    meta: { requiresAuth: true, platform: 'finance' },
+  },
+  {
+    path: '/platform/ortaklar',
+    name: 'platform-partners',
+    component: () => import('@/views/PlatformPartnersView.vue'),
+    meta: { requiresAuth: true, platform: 'finance' },
+  },
   {
     path: '/audit',
     name: 'audit',
@@ -265,6 +281,13 @@ router.beforeEach(async (to, _from) => {
     if (!authStore.can(to.meta.permission)) {
       return { name: 'dashboard' };
     }
+  }
+
+  // Platform kapısı: üye değilse veya rolü yetmiyorsa fail-closed → panele döner.
+  if (requiresAuth && to.meta.platform && authStore.isAuthenticated) {
+    const platform = usePlatformStore();
+    await platform.fetchMe();
+    if (!platform.hasFinanceAccess) return { name: 'dashboard' };
   }
 
   if (!requiresAuth && !isPublic && authStore.isAuthenticated && to.name !== 'dashboard') {

@@ -234,15 +234,19 @@ mountResource('couponRedemptions', '/coupons/:couponId/redemptions', {
   parentParam: 'couponId',
   mode: 'create',
 });
+// Ortak programı kayıtları SALT OKUNUR: komisyon hakedişi ödeme anında sistem tarafından
+// üretilir, atıf ve oran/durum değişiklikleri yalnızca platform uçlarından (`platform_finance`)
+// yapılır. Tenant yazması olsaydı bir şirket kendini ortağa atfedebilir, oranı değiştirebilir
+// veya 'paid' komisyon satırı ekleyebilirdi (platform ekranı bu satırları tüm tenant'lardan okur).
 mountResource('partnerReferrals', '/partners/:partnerId/referrals', {
   idParam: 'referralId',
   parentParam: 'partnerId',
-  mode: 'create',
+  mode: 'read',
 });
 mountResource('partnerCommissions', '/partners/:partnerId/commissions', {
   idParam: 'commissionId',
   parentParam: 'partnerId',
-  mode: 'create',
+  mode: 'read',
 });
 // İade + alacak eşleştirme kayıtları (ödeme altında, salt okunur — yazma uçları aşağıda):
 mountResource('billingRefunds', '/payments/:paymentId/refunds', {
@@ -262,7 +266,7 @@ mountResource('paymentAttempts', '/payment-attempts');
 mountResource('billingPayments', '/payments', { mode: 'create' }); // asıl kaydı checkout üretir
 mountResource('billingInvoices', '/invoices');
 mountResource('coupons', '/coupons');
-mountResource('partners', '/partners');
+mountResource('partners', '/partners', { mode: 'read' }); // yazma: platform ucu
 mountResource('subscriptions', '/subscriptions');
 
 // ============ İade ve fatura/alacak eşleştirme ============

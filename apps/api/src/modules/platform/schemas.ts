@@ -18,5 +18,35 @@ export const updateTenantStatusSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+// ===== Ortak (SMMM) programı =====
+
+const commissionRate = z.number().min(0, 'Oran 0–100 arasında olmalıdır').max(100);
+
+export const createPartnerSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(2)
+    .max(60)
+    .regex(/^[A-Za-z0-9_-]+$/, 'Kod yalnızca harf, rakam, "-" ve "_" içerebilir'),
+  name: z.string().trim().min(2).max(255),
+  /** Yüzde (örn. 20 = %20). 0 ise komisyon üretilmez. */
+  commissionRate: commissionRate.default(0),
+});
+
+export const updatePartnerSchema = z
+  .object({
+    name: z.string().trim().min(2).max(255).optional(),
+    commissionRate: commissionRate.optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, 'Güncellenecek alan yok');
+
+export const commissionStatusSchema = z.object({
+  status: z.enum(['approved', 'paid', 'cancelled']),
+});
+
+export const addReferralSchema = z.object({ tenantId: z.string().uuid() });
+
 export type GrantSupportAccessInput = z.infer<typeof grantSupportAccessSchema>;
 export type UpdateTenantStatusInput = z.infer<typeof updateTenantStatusSchema>;
