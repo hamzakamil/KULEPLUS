@@ -319,11 +319,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
   align-items: center;
   gap: 0.25rem;
   width: 100%;
-  min-height: 2.375rem;
+  min-height: 2.0625rem;
   border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   background: #fff;
-  padding: 0.25rem 0.75rem;
+  padding: 0.125rem 0.5rem;
   cursor: text;
   box-sizing: border-box;
 }
@@ -341,9 +341,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
   outline: none;
   background: transparent;
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   color: #0f172a;
-  padding: 0.3125rem 0;
+  padding: 0.1875rem 0;
 }
 
 .fs-control input::placeholder {

@@ -370,19 +370,25 @@ h4 {
 /* === Form grid (modal/kart formları) === */
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.875rem;
+  /* Kompakt: alan başına en az 11rem; geniş panel/pencerede sütun sayısı kendiliğinden artar,
+     böylece çok alanlı formlar aşağı kaydırmadan sığar. */
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem 0.75rem;
 }
 .form-grid label {
   display: block;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: var(--c-text);
 }
 .form-grid .input,
 .form-grid .select,
 .form-grid .textarea {
-  margin-top: 0.25rem;
+  margin-top: 0.125rem;
+}
+/* İki sütun kaplayan alan (ad, açıklama gibi uzun girişler) */
+.form-field-wide {
+  grid-column: span 2;
 }
 .form-error {
   grid-column: 1 / -1;
@@ -404,6 +410,9 @@ h4 {
   .form-grid {
     grid-template-columns: 1fr;
   }
+  .form-field-wide {
+    grid-column: 1 / -1;
+  }
 }
 
 /* === Form elemanları (input/select/textarea tabanı — brand.md Fintech) === */
@@ -412,12 +421,12 @@ h4 {
 .textarea {
   width: 100%;
   font-family: inherit;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   color: var(--c-text);
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  padding: 0.3125rem 0.5rem;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -434,7 +443,7 @@ h4 {
 }
 .textarea {
   resize: vertical;
-  min-height: 4.5rem;
+  min-height: 3.25rem;
 }
 
 /* === Modal (backdrop + içerik) === */
@@ -462,6 +471,81 @@ h4 {
 }
 .modal-content h2 {
   margin-top: 0;
+}
+
+/* === Modal (overlay + .modal + header/body/footer) ===
+   Cari, Abonelik, Onay Kutusu, Platform Ortaklar diyalogları bu yapıyı kullanır. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(15 23 42 / 0.55);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 32rem;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 40px -12px rgb(15 23 42 / 0.35);
+}
+.modal.modal-sm {
+  max-width: 24rem;
+}
+.modal.modal-md {
+  max-width: 40rem;
+}
+.modal.modal-lg {
+  max-width: 60rem;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: none;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--c-border);
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.875rem;
+  overflow-y: auto;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex: none;
+  padding: 0.5rem 0.875rem;
+  border-top: 1px solid var(--c-border);
+}
+/* Form içindeki alt bilgi (Cari diyalogları) gövdeyle aynı iç boşlukta kalır */
+.modal-body > .modal-footer {
+  padding: 0.25rem 0 0;
+  border-top: 0;
+}
+.modal-body p {
+  margin: 0;
+}
+/* Tüm satırı kaplayan alan (.field) */
+.form-grid .field-full {
+  grid-column: 1 / -1;
 }
 
 /* === Sayfalama (tüm liste view'ları) === */

@@ -205,7 +205,7 @@
               <label for="st-code">Ürün Kodu *</label>
               <input id="st-code" v-model="form.code" class="input" required />
             </div>
-            <div>
+            <div class="form-field-wide">
               <label for="st-name">Ürün Adı *</label>
               <input id="st-name" v-model="form.name" class="input" required />
             </div>
@@ -246,13 +246,13 @@
                 @create="createUnitInline"
               />
             </div>
-            <div class="form-field-full">
+            <div class="form-field-wide">
               <label for="st-desc">Açıklama</label>
               <textarea
                 id="st-desc"
                 v-model="form.description"
                 class="textarea"
-                rows="2"
+                rows="1"
               ></textarea>
             </div>
 
@@ -268,7 +268,10 @@
               />
             </div>
             <div>
-              <label for="st-price">Satış Fiyatı (₺) *</label>
+              <label for="st-price"
+                >Satış Fiyatı (₺) *
+                <span v-if="priceWithVat" class="muted">· KDV dahil {{ priceWithVat }}</span></label
+              >
               <input
                 id="st-price"
                 v-model="form.price"
@@ -276,7 +279,6 @@
                 inputmode="decimal"
                 placeholder="0,00"
               />
-              <small v-if="priceWithVat" class="muted">KDV dahil: {{ priceWithVat }}</small>
             </div>
             <div>
               <label for="st-sale-vat">Satış KDV Oranı</label>
@@ -298,21 +300,23 @@
             </div>
 
             <h3 class="form-section form-field-full">Stok</h3>
-            <label class="check form-field-full">
+            <label class="check form-field-wide stock-track">
               <input v-model="form.trackInventory" type="checkbox" />
               Stok takibi yap (miktar izlenir)
             </label>
             <template v-if="form.trackInventory">
               <div>
-                <label for="st-min-stock">Kritik Stok Seviyesi</label>
+                <label for="st-min-stock" title="Miktar bu değerin altına inince listede uyarılır."
+                  >Kritik Stok Seviyesi</label
+                >
                 <input
                   id="st-min-stock"
                   v-model="form.minStock"
                   class="input"
                   inputmode="decimal"
                   placeholder="0"
+                  title="Miktar bu değerin altına inince listede uyarılır."
                 />
-                <small class="muted">Miktar bu değerin altına inince listede uyarılır.</small>
               </div>
               <div>
                 <label for="st-shelf">Raf / Konum</label>
@@ -324,7 +328,7 @@
                 />
               </div>
             </template>
-            <div v-else class="form-field-full">
+            <div v-else class="form-field-wide">
               <label for="st-default-expense">Varsayılan gider kategorisi</label>
               <FilterableSelect
                 id="st-default-expense"
@@ -757,10 +761,10 @@ onMounted(async () => {
 .textarea {
   width: 100%;
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   border: 1px solid var(--c-border);
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.625rem;
+  border-radius: 0.375rem;
+  padding: 0.3125rem 0.5rem;
   background: #fff;
   color: #0f172a;
 }
@@ -894,6 +898,9 @@ onMounted(async () => {
   left: var(--erp-sidebar-width, 16rem);
   top: calc(var(--erp-header-height, 4rem) + 0.75rem);
   right: 1.5rem;
+  /* Kompakt: çok geniş ekranda form tarlada kaybolmasın; içerik alanında ortalanır. */
+  max-width: 66rem;
+  margin-inline: auto;
   max-height: calc(100vh - var(--erp-header-height, 4rem) - 2.25rem);
   overflow: hidden;
 }
@@ -907,7 +914,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.625rem 0.875rem;
+  padding: 0.4375rem 0.75rem;
   background: var(--c-bg);
   border-bottom: 1px solid var(--c-border);
   cursor: move;
@@ -950,27 +957,36 @@ onMounted(async () => {
 }
 .wp-body {
   overflow-y: auto;
-  padding: 1.25rem;
+  padding: 0.875rem 1rem;
 }
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.5rem 0.75rem;
 }
 .form-grid label {
   display: block;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.125rem;
 }
 .form-field-full {
   grid-column: 1 / -1;
 }
+.form-field-wide {
+  grid-column: span 2;
+}
+/* Onay kutusu, yanındaki alanların giriş kutusuyla aynı hizada dursun */
+.form-grid .stock-track {
+  align-self: end;
+  margin-bottom: 0;
+  padding-bottom: 0.4rem;
+}
 .form-section {
-  margin: 0.5rem 0 0;
-  padding-top: 0.75rem;
+  margin: 0.25rem 0 0;
+  padding-top: 0.5rem;
   border-top: 1px solid var(--c-border);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1006,6 +1022,9 @@ onMounted(async () => {
 @media (max-width: 34rem) {
   .form-grid {
     grid-template-columns: 1fr;
+  }
+  .form-field-wide {
+    grid-column: 1 / -1;
   }
 }
 </style>
