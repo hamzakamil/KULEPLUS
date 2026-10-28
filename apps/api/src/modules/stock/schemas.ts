@@ -68,6 +68,23 @@ export const createBarcodeSchema = z.object({
   type: z.enum(['ean13', 'qrcode', 'code128', 'upc']).default('ean13'),
 });
 
+/** Birim oluşturma: kod verilmezse addan türetilir (ürün formundaki hızlı ekleme). */
+export const createUnitSchema = z.object({
+  name: z.string().trim().min(1, 'Birim adı zorunludur').max(50),
+  code: z.string().trim().min(1).max(10).optional(),
+  abbreviation: z.string().trim().max(10).optional(),
+});
+
+/** Ürün kategorisi oluşturma / yeniden adlandırma */
+export const categoryBodySchema = z.object({
+  name: z.string().trim().min(1, 'Kategori adı zorunludur').max(100),
+});
+
+/** Kategori birleştirme: ürünler `target_id` kategorisine taşınır, URL'deki kategori silinir. */
+export const mergeCategorySchema = z.object({
+  target_id: z.string().uuid(),
+});
+
 /** Birim dönüşümü */
 export const createUnitConversionSchema = z.object({
   from_unit_id: z.string().uuid(),

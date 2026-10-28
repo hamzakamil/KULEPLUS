@@ -20,6 +20,19 @@ export interface StockItem {
   track_inventory?: boolean;
   /** Stok takipsiz ürünün alışta kullanılan varsayılan gider kategorisi. */
   default_expense_category_id?: string | null;
+  /** Sınıflandırma ve depo bilgileri (migration 202610620000, 202610630000). */
+  category_id?: string | null;
+  /** Kategori adı (API, product_categories ile birleştirip döner). */
+  category?: string | null;
+  brand?: string | null;
+  /** Tedarikçi / üretici ürün kodu. */
+  supplier_code?: string | null;
+  shelf_location?: string | null;
+  /** Kritik stok seviyesi; 0 = uyarı yok. API NUMERIC string döner. */
+  min_stock?: string | number;
+  /** Ürünün varsayılan satış / alış KDV oranı (tax_rates.id). */
+  sale_tax_rate_id?: string | null;
+  purchase_tax_rate_id?: string | null;
   is_active?: boolean;
   stock_value?: string | number;
   /** Form uyumluluğu için türetilmiş alan. */
@@ -32,6 +45,13 @@ export interface Unit {
   code: string;
   name: string;
   abbreviation?: string;
+}
+
+/** Ürün kategorisi — GET /v1/stock/categories. */
+export interface ProductCategory {
+  id: string;
+  name: string;
+  product_count: number;
 }
 
 /**
@@ -100,13 +120,17 @@ export const OPENING_STOCK_IMPORT_TARGET_FIELDS: { value: string; label: string 
   { value: 'date', label: 'Açılış tarihi (GG.AA.YYYY)' },
 ];
 
+/** API hata gövdesi { error: { code, message } } (SPEC §22.1); eski düz `message` de okunur. */
 function errorMessage(err: unknown, fallback: string): string {
-  return (err as AxiosError<{ message?: string }>).response?.data?.message || fallback;
+  const data = (err as AxiosError<{ error?: { message?: string }; message?: string }>).response
+    ?.data;
+  return data?.error?.message || data?.message || fallback;
 }
 
 export const useStockStore = defineStore('stock', () => {
   const stock = ref<StockItem[]>([]);
   const units = ref<Unit[]>([]);
+  const categories = ref<ProductCategory[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const searchQuery = ref('');
@@ -119,14 +143,20 @@ export const useStockStore = defineStore('stock', () => {
       (item) =>
         item.name?.toLowerCase().includes(q) ||
         item.code?.toLowerCase().includes(q) ||
-        (item.barcode ?? '').includes(q),
+        (item.barcode ?? '').includes(q) ||
+        (item.category ?? '').toLowerCase().includes(q) ||
+        (item.brand ?? '').toLowerCase().includes(q) ||
+        (item.supplier_code ?? '').toLowerCase().includes(q),
     );
   });
 
   /** Stok özeti — sayfa üstü KPI kartları için. */
   const summary = computed(() => {
     const items = stock.value;
-    const lowStock = items.filter((i) => Number(i.quantity ?? 0) <= 0).length;
+    // Kritik: miktar sıfır/negatif ya da ürün kartındaki kritik stok seviyesinin altında.
+    const lowStock = items.filter(
+      (i) => i.track_inventory !== false && Number(i.quantity ?? 0) <= Number(i.min_stock ?? 0),
+    ).length;
     return {
       total: pagination.value.total || items.length,
       lowStock,
@@ -135,6 +165,9 @@ export const useStockStore = defineStore('stock', () => {
     };
   });
 
+  /** Liste süzgeci: kategori kimliği veya 'none' (kategorisiz). Sayfalama sunucuda süzülür. */
+  const categoryFilter = ref('');
+
   const fetchStock = async (params?: { page?: number; limit?: number }) => {
     loading.value = true;
     error.value = null;
@@ -142,6 +175,7 @@ export const useStockStore = defineStore('stock', () => {
       const qs = new URLSearchParams();
       if (params?.page) qs.append('page', String(params.page));
       qs.append('limit', String(params?.limit ?? pagination.value.limit));
+      if (categoryFilter.value) qs.append('category_id', categoryFilter.value);
       const response = await api.get(`/v1/stock?${qs.toString()}`);
       stock.value = response.data.data ?? [];
       const p = response.data.pagination ?? {};
@@ -171,6 +205,78 @@ export const useStockStore = defineStore('stock', () => {
     }
   };
 
+  /**
+   * Birim ekler (kod addan türetilir) ve listeye katar. Aynı ad varsa API CONFLICT verir;
+   * hata mesajı çağıran ekranda gösterilsin diye `Error` olarak fırlatılır.
+   */
+  const createUnit = async (name: string, abbreviation?: string): Promise<Unit> => {
+    try {
+      const response = await api.post('/v1/stock/units', {
+        name,
+        abbreviation: abbreviation || undefined,
+      });
+      const unit = response.data as Unit;
+      units.value = [...units.value, unit].sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+      return unit;
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Birim eklenemedi.'), { cause: err });
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await api.get('/v1/stock/categories');
+      categories.value = response.data.data ?? [];
+    } catch {
+      categories.value = [];
+    }
+  };
+
+  /** Kategori ekler ve listeye katar; hata mesajı `Error` olarak fırlatılır. */
+  const createCategory = async (name: string): Promise<ProductCategory> => {
+    try {
+      const response = await api.post('/v1/stock/categories', { name });
+      await fetchCategories();
+      return categories.value.find((c) => c.id === response.data.id) ?? response.data;
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Kategori eklenemedi.'), { cause: err });
+    }
+  };
+
+  /** Ürün satırlarındaki kategori adı sunucuda birleştirilir; ad değişince liste tazelenir. */
+  const renameCategory = async (id: string, name: string): Promise<void> => {
+    try {
+      await api.patch(`/v1/stock/categories/${id}`, { name });
+      await Promise.all([fetchCategories(), fetchStock()]);
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Kategori yeniden adlandırılamadı.'), { cause: err });
+    }
+  };
+
+  const deleteCategory = async (id: string): Promise<void> => {
+    try {
+      await api.delete(`/v1/stock/categories/${id}`);
+      if (categoryFilter.value === id) categoryFilter.value = '';
+      await Promise.all([fetchCategories(), fetchStock()]);
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Kategori silinemedi.'), { cause: err });
+    }
+  };
+
+  /** `sourceId` kategorisindeki ürünleri `targetId`'ye taşır; kaynak silinir. Taşınan ürün sayısını döner. */
+  const mergeCategories = async (sourceId: string, targetId: string): Promise<number> => {
+    try {
+      const response = await api.post(`/v1/stock/categories/${sourceId}/merge`, {
+        target_id: targetId,
+      });
+      if (categoryFilter.value === sourceId) categoryFilter.value = targetId;
+      await Promise.all([fetchCategories(), fetchStock()]);
+      return Number(response.data.moved ?? 0);
+    } catch (err) {
+      throw new Error(errorMessage(err, 'Kategoriler birleştirilemedi.'), { cause: err });
+    }
+  };
+
   /** Form uyumluluğu: `unit` metnini `unit_id`'ye çevirir (yoksa ilk birim). */
   const resolveUnitId = (unitName?: string): string | undefined => {
     if (!unitName) return units.value[0]?.id;
@@ -192,10 +298,18 @@ export const useStockStore = defineStore('stock', () => {
         name: data.name,
         unit_id: data.unit_id ?? resolveUnitId(data.unit),
         sale_price: Number(data.price ?? data.sale_price ?? 0),
+        cost_price: Number(data.cost_price ?? 0),
         barcode: data.barcode || undefined,
         description: data.description || undefined,
         track_inventory: data.track_inventory,
         default_expense_category_id: data.default_expense_category_id || null,
+        category_id: data.category_id || null,
+        brand: data.brand || undefined,
+        supplier_code: data.supplier_code || undefined,
+        shelf_location: data.shelf_location || undefined,
+        min_stock: Number(data.min_stock ?? 0),
+        sale_tax_rate_id: data.sale_tax_rate_id || null,
+        purchase_tax_rate_id: data.purchase_tax_rate_id || null,
       };
       const response = await api.post('/v1/stock', payload);
       stock.value.unshift(response.data);
@@ -222,10 +336,22 @@ export const useStockStore = defineStore('stock', () => {
       if (data.price !== undefined || data.sale_price !== undefined) {
         payload.sale_price = Number(data.price ?? data.sale_price ?? 0);
       }
+      if (data.cost_price !== undefined) payload.cost_price = Number(data.cost_price);
       if (data.description !== undefined) payload.description = data.description || null;
       if (data.track_inventory !== undefined) payload.track_inventory = data.track_inventory;
       if (data.default_expense_category_id !== undefined) {
         payload.default_expense_category_id = data.default_expense_category_id || null;
+      }
+      // Boş metin / seçim "temizle" demektir: API'ye null gider (alan sıfırlanır).
+      if (data.category_id !== undefined) payload.category_id = data.category_id || null;
+      if (data.brand !== undefined) payload.brand = data.brand || null;
+      if (data.supplier_code !== undefined) payload.supplier_code = data.supplier_code || null;
+      if (data.shelf_location !== undefined) payload.shelf_location = data.shelf_location || null;
+      if (data.min_stock !== undefined) payload.min_stock = Number(data.min_stock) || 0;
+      if (data.sale_tax_rate_id !== undefined)
+        payload.sale_tax_rate_id = data.sale_tax_rate_id || null;
+      if (data.purchase_tax_rate_id !== undefined) {
+        payload.purchase_tax_rate_id = data.purchase_tax_rate_id || null;
       }
 
       // API yalnızca PATCH /v1/stock/:id tanımlar (apps/api/src/modules/stock/routes.ts).
@@ -350,6 +476,8 @@ export const useStockStore = defineStore('stock', () => {
   return {
     stock,
     units,
+    categories,
+    categoryFilter,
     filteredStock,
     summary,
     loading,
@@ -358,6 +486,12 @@ export const useStockStore = defineStore('stock', () => {
     pagination,
     fetchStock,
     fetchUnits,
+    createUnit,
+    fetchCategories,
+    createCategory,
+    renameCategory,
+    deleteCategory,
+    mergeCategories,
     resolveUnitId,
     createStockItem,
     updateStockItem,

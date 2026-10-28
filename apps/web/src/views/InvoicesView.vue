@@ -911,7 +911,7 @@ import {
 } from '@/stores/invoices';
 import { useCashBankStore } from '@/stores/cash-bank';
 import { useContactStore, type Contact } from '@/stores/contacts';
-import { useStockStore } from '@/stores/stock';
+import { useStockStore, type StockItem } from '@/stores/stock';
 import { useExpenseStore } from '@/stores/expense';
 import { formatMoneyTR } from '@kuleplus/shared';
 import FilterableSelect from '@/components/FilterableSelect.vue';
@@ -1487,7 +1487,26 @@ function onProductPick(line: InvoiceLine, productId: string) {
   if (product && (!current || DEFAULT_LINE_DESCRIPTIONS.includes(current))) {
     line.description = product.name;
   }
+  if (product) applyProductDefaults(line, product);
   onLineChange();
+}
+
+/**
+ * Ürün kartındaki fiyat ve KDV, satıra yalnızca boşsa yazılır: kullanıcının elle girdiği
+ * fiyat/KDV ürün değişince ezilmez. Alış tarafı (alış, borç dekontu) alış fiyatı ve alış KDV'sini,
+ * diğerleri satış fiyatı ve satış KDV'sini kullanır.
+ */
+function applyProductDefaults(line: InvoiceLine, product: StockItem) {
+  const type = draftForm.value?.type;
+  const buying = type === 'purchase' || type === 'debit_note';
+  if (!Number(line.unit_price)) {
+    const price = Number(buying ? product.cost_price : product.sale_price);
+    if (price > 0) line.unit_price = price;
+  }
+  if (!line.tax_rate_id) {
+    const taxId = buying ? product.purchase_tax_rate_id : product.sale_tax_rate_id;
+    if (taxId && invoiceStore.taxRates.some((t) => t.id === taxId)) line.tax_rate_id = taxId;
+  }
 }
 function onExpenseCategoryPick(line: InvoiceLine, categoryId: string) {
   line.expense_category_id = categoryId || undefined;

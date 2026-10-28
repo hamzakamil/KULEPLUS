@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // FilterableSelect — tüm dropdown'lar için ortak "combobox" bileşeni.
 // Yazınca filtreler (TR karakter duyarsız), klavye ile gezilir, ok/enter/escape destekler.
-import { computed, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch } from 'vue';
 
 defineOptions({ inheritAttrs: false });
 
@@ -26,6 +26,14 @@ const props = withDefaults(
     noOptionsMessage?: string;
     id?: string;
     name?: string;
+    /**
+     * Listede olmayan bir metin yazılınca "+ “metin” ekle" satırı çıkar; seçilince
+     * `create` olayı metinle yayılır (kayıt ve seçimi üst bileşen yapar). Seçenek listesi
+     * boşken de açılır — yeni şirkette ilk birim/kategori böyle eklenir.
+     */
+    creatable?: boolean;
+    /** Ekle satırındaki ad: "+ “metin” {createNoun} olarak ekle". */
+    createNoun?: string;
   }>(),
   {
     modelValue: null,
@@ -35,12 +43,15 @@ const props = withDefaults(
     noOptionsMessage: 'Sonuç bulunamadı',
     id: undefined,
     name: undefined,
+    creatable: false,
+    createNoun: '',
   },
 );
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void;
   (e: 'select', option: FilterOption): void;
+  (e: 'create', name: string): void;
 }>();
 
 function toOption(o: RawOption): FilterOption {
@@ -91,6 +102,30 @@ const filtered = computed<FilterOption[]>(() => {
   return base.slice(0, 200);
 });
 
+/** Yazılan metin (kırpılmış); ekle satırı için. */
+const typed = computed(() => (editing.value ? query.value.trim() : ''));
+
+/** Yazılan metin mevcut bir seçenekle (büyük/küçük harf, Türkçe karakter duyarsız) aynıysa ekleme önerilmez. */
+const canCreate = computed(
+  () =>
+    props.creatable &&
+    typed.value !== '' &&
+    !options.value.some((o) => norm(o.label) === norm(typed.value)),
+);
+
+/** Gezilebilir satır sayısı: süzülmüş seçenekler + (varsa) ekle satırı. */
+const rowCount = computed(() => filtered.value.length + (canCreate.value ? 1 : 0));
+
+function createFromTyped(): void {
+  if (!canCreate.value) return;
+  emit('create', typed.value);
+  editing.value = false;
+  query.value = '';
+  open.value = false;
+  highlight.value = -1;
+  inputEl.value?.focus();
+}
+
 // Dışarıdan modelValue değişirse gösterim senkron kalır.
 watch(
   () => props.modelValue,
@@ -140,13 +175,15 @@ function onFocus(): void {
   if (props.disabled) return;
   editing.value = false;
   openList();
+  // Yazılabilir alanda mevcut seçim görünür; seçili gelirse yazılan metin eskisinin yerine geçer.
+  if (props.creatable) void nextTick(() => inputEl.value?.select());
 }
 
 function onInput(e: Event): void {
   editing.value = true;
   query.value = (e.target as HTMLInputElement).value;
   open.value = true;
-  highlight.value = filtered.value.length ? 0 : -1;
+  highlight.value = rowCount.value ? 0 : -1;
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -154,7 +191,7 @@ function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     if (!open.value) return openList();
-    highlight.value = Math.min(highlight.value + 1, filtered.value.length - 1);
+    highlight.value = Math.min(highlight.value + 1, rowCount.value - 1);
     scrollHighlightIntoView();
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
@@ -162,9 +199,14 @@ function onKeydown(e: KeyboardEvent): void {
     highlight.value = Math.max(highlight.value - 1, -1);
     scrollHighlightIntoView();
   } else if (e.key === 'Enter') {
-    if (open.value && highlight.value >= 0 && filtered.value[highlight.value]) {
-      e.preventDefault();
-      select(filtered.value[highlight.value]);
+    if (open.value && highlight.value >= 0) {
+      if (filtered.value[highlight.value]) {
+        e.preventDefault();
+        select(filtered.value[highlight.value]);
+      } else if (canCreate.value && highlight.value === filtered.value.length) {
+        e.preventDefault(); // form gönderimini engelle; yalnızca ekle
+        createFromTyped();
+      }
     }
   } else if (e.key === 'Escape') {
     e.preventDefault();
@@ -195,8 +237,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
         role="combobox"
         autocomplete="off"
         spellcheck="false"
-        :disabled="disabled || options.length === 0"
-        :placeholder="options.length === 0 ? noOptionsMessage : placeholder"
+        :disabled="disabled || (options.length === 0 && !creatable)"
+        :placeholder="options.length === 0 && !creatable ? noOptionsMessage : placeholder"
         :aria-expanded="open"
         aria-haspopup="listbox"
         :aria-controls="LIST_ID"
@@ -219,7 +261,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
     </div>
 
     <ul v-if="open && !disabled" :id="LIST_ID" ref="listEl" class="fs-list" role="listbox">
-      <li v-if="filtered.length === 0" class="fs-empty" role="option" aria-disabled="true">
+      <li
+        v-if="filtered.length === 0 && !canCreate && !creatable"
+        class="fs-empty"
+        role="option"
+        aria-disabled="true"
+      >
         {{ noOptionsMessage }}
       </li>
       <li
@@ -235,6 +282,27 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
         @mouseenter="highlight = i"
       >
         {{ opt.label }}
+      </li>
+      <li
+        v-if="canCreate"
+        :id="`${LIST_ID}-opt-${filtered.length}`"
+        class="fs-opt fs-create"
+        :class="{ 'fs-highlight': highlight === filtered.length }"
+        role="option"
+        :aria-selected="false"
+        @mousedown.prevent
+        @click="createFromTyped"
+        @mouseenter="highlight = filtered.length"
+      >
+        + “{{ typed }}” {{ createNoun }} olarak ekle
+      </li>
+      <li
+        v-else-if="creatable && !typed"
+        class="fs-empty fs-hint"
+        role="option"
+        aria-disabled="true"
+      >
+        Listede yoksa yazarak yeni {{ createNoun || 'kayıt' }} ekleyin
       </li>
     </ul>
   </div>
@@ -353,6 +421,17 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
   font-weight: 600;
   background: #eff6ff;
   color: #1d4ed8;
+}
+
+.fs-create {
+  color: #1d4ed8;
+  font-weight: 600;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 0.125rem;
+}
+
+.fs-hint {
+  font-size: 0.8125rem;
 }
 
 .fs-empty {

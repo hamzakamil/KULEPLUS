@@ -1,11 +1,13 @@
 /**
- * Tenant varsayılan verileri — KDV oranları, tevkifat türleri, gider kategorileri (Faz 7-3).
+ * Tenant varsayılan verileri — KDV oranları, tevkifat türleri, gider kategorileri (Faz 7-3),
+ * ölçü birimleri ve merkez depo.
  *
  * Neden: kayıt ekranından/başvuru onayıyla açılan tenant'lara bu veriler hiç tohumlanmıyordu
  * (yalnızca migration anında var olan tenant'lara eklenmişti) → yeni şirkette faturaya KDV
- * oranı seçilemiyordu. Tenant oluşturan iki yol (identity.bootstrapTenant,
+ * oranı seçilemiyor, birim listesi boş olduğu için ürün oluşturulamıyordu
+ * (products.unit_id NOT NULL). Tenant oluşturan iki yol (identity.bootstrapTenant,
  * company.approveApplication) bunu aynı transaction'da çağırır. İdempotenttir.
- * Liste 202610560000 migration'ıyla aynıdır; id'ler deterministiktir (ADR-0002).
+ * Listeler 202610560000 / 202610630000 migration'larıyla aynıdır; id'ler deterministiktir (ADR-0002).
  */
 import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
@@ -51,6 +53,16 @@ export const DEFAULT_TAX_RATES: ReadonlyArray<readonly [string, string, number]>
   ['KDV1', 'KDV %1', 1],
   ['KDV10', 'KDV %10', 10],
   ['KDV20', 'KDV %20', 20],
+];
+
+/** [kod, ad, kısaltma, ana birim mi] */
+export const DEFAULT_UNITS: ReadonlyArray<readonly [string, string, string, boolean]> = [
+  ['ADET', 'Adet', 'adet', true],
+  ['KG', 'Kilogram', 'kg', false],
+  ['LT', 'Litre', 'lt', false],
+  ['MT', 'Metre', 'm', false],
+  ['PAKET', 'Paket', 'paket', false],
+  ['KUTU', 'Kutu', 'kutu', false],
 ];
 
 /** [kod, ad, açıklama, grup] */
@@ -103,6 +115,36 @@ export async function ensureTenantDefaults(client: PoolClient, tenantId: string)
           [deterministicId(`${tenantId}:tax_rates:${code}`), tenantId, code, name, rate],
         );
       }
+    }
+    const hasUnits = await client.query('SELECT 1 FROM units WHERE tenant_id = $1 LIMIT 1', [
+      tenantId,
+    ]);
+    if ((hasUnits.rowCount ?? 0) === 0) {
+      for (const [code, name, abbreviation, isBase] of DEFAULT_UNITS) {
+        await client.query(
+          `INSERT INTO units (id, tenant_id, code, name, abbreviation, is_base)
+           VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+          [
+            deterministicId(`${tenantId}:units:${code}`),
+            tenantId,
+            code,
+            name,
+            abbreviation,
+            isBase,
+          ],
+        );
+      }
+    }
+    const hasWarehouse = await client.query(
+      'SELECT 1 FROM warehouses WHERE tenant_id = $1 LIMIT 1',
+      [tenantId],
+    );
+    if ((hasWarehouse.rowCount ?? 0) === 0) {
+      await client.query(
+        `INSERT INTO warehouses (id, tenant_id, code, name, is_base, is_active)
+         VALUES ($1, $2, 'MERKEZ', 'Merkez Depo', true, true) ON CONFLICT DO NOTHING`,
+        [deterministicId(`${tenantId}:warehouses:MERKEZ`), tenantId],
+      );
     }
     const hasCategories = await client.query(
       'SELECT 1 FROM expense_categories WHERE tenant_id = $1 LIMIT 1',

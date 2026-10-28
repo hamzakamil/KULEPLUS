@@ -7,6 +7,8 @@ import { authenticate } from '../../middleware/auth.js';
 import { tenantContext } from '../../middleware/tenant.js';
 import { requireEntitlement } from '../../middleware/require-entitlement.js';
 import { requirePermission } from '../../middleware/require-permission.js';
+import { validate } from '../../middleware/validate.js';
+import { categoryBodySchema, createUnitSchema, mergeCategorySchema } from './schemas.js';
 import { AppError } from '@kuleplus/shared';
 
 const router = Router();
@@ -202,14 +204,19 @@ router.post('/barcodes', canCreate, async (req: Request, res: Response, next: Ne
 });
 
 /** Birim oluştur */
-router.post('/units', canCreate, async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const result = await service.createUnit(req.body);
-    res.status(201).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+router.post(
+  '/units',
+  canCreate,
+  validate(createUnitSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await service.createUnit(req.body);
+      res.status(201).json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Birimleri listele */
 router.get('/units', async (req: Request, res: Response, next: NextFunction) => {
@@ -220,6 +227,77 @@ router.get('/units', async (req: Request, res: Response, next: NextFunction) => 
     next(error);
   }
 });
+
+/**
+ * Ürün kategorileri. Kritik: `/:id` rota kalıbını gölgelememek için `/:id`'den ÖNCE.
+ * Kategori yönetimi ürün kartını düzenlemekle aynı izne bağlıdır (create/update/delete).
+ */
+const categoryIdParams = z.object({ id: z.string().uuid() });
+
+router.get('/categories', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await service.listCategories());
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post(
+  '/categories',
+  canCreate,
+  validate(categoryBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.status(201).json(await service.createCategory(req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.patch(
+  '/categories/:id',
+  canUpdate,
+  validate(categoryIdParams, 'params'),
+  validate(categoryBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(await service.renameCategory(req.params.id, req.body));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/** Kategoriyi başka bir kategoriyle birleştir (ürünler hedefe taşınır, bu kategori silinir) */
+router.post(
+  '/categories/:id/merge',
+  canUpdate,
+  canDelete,
+  validate(categoryIdParams, 'params'),
+  validate(mergeCategorySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json(await service.mergeCategories(req.params.id, req.body.target_id));
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.delete(
+  '/categories/:id',
+  canDelete,
+  validate(categoryIdParams, 'params'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await service.deleteCategory(req.params.id);
+      res.json({ message: 'Kategori silindi' });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 /** Frontend uyumluluk: /stock endpointleri → ürün CRUD */
 /** Ürünleri listele (alias for /products) */

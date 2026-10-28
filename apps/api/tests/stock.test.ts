@@ -283,6 +283,34 @@ describe('StockService - Unit Tests', () => {
     });
   });
 
+  describe('listProducts — kategori süzgeci', () => {
+    const CAT = '0b1d4a52-6c7e-4f0a-9a3e-2f1c5d8e7a90';
+
+    it('kategori kimliğiyle süzer', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+        .mockResolvedValueOnce({ rows: [] });
+      await service.listProducts({ category_id: CAT });
+      expect(mockQuery.mock.calls[0][0]).toContain('p.category_id = $1');
+      expect(mockQuery.mock.calls[0][1]).toEqual([CAT]);
+    });
+
+    it("'none' kategorisiz ürünleri getirir", async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+        .mockResolvedValueOnce({ rows: [] });
+      await service.listProducts({ category_id: 'none' });
+      expect(mockQuery.mock.calls[0][0]).toContain('p.category_id IS NULL');
+    });
+
+    it('geçersiz kimliği SQL’e vermeden reddeder', async () => {
+      await expect(service.listProducts({ category_id: 'x; DROP' })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createProduct', () => {
     it('should create product', async () => {
       mockQuery.mockResolvedValueOnce({
@@ -309,6 +337,72 @@ describe('StockService - Unit Tests', () => {
 
       expect(result.id).toBe('new-p');
       expect(result.code).toBe('P002');
+    });
+
+    it('ürün ayrıntı alanlarını temizleyip kaydeder', async () => {
+      // 1) kategori doğrulaması, 2) satış KDV doğrulaması, 3) alış KDV doğrulaması, 4) INSERT
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 1, rows: [{ '?column?': 1 }] })
+        .mockResolvedValueOnce({ rowCount: 1, rows: [{ '?column?': 1 }] })
+        .mockResolvedValueOnce({ rowCount: 1, rows: [{ '?column?': 1 }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'new-p' }] });
+
+      await service.createProduct({
+        code: 'P003',
+        name: 'Detaylı Ürün',
+        unit_id: 'u1',
+        category_id: 'cat-hirdavat',
+        brand: '   ',
+        supplier_code: 'TED-77',
+        shelf_location: 'A-3-2',
+        min_stock: 12,
+        sale_tax_rate_id: 'tax-20',
+        purchase_tax_rate_id: 'tax-10',
+      });
+
+      const insert = mockQuery.mock.calls[3];
+      expect(insert[0]).toContain('sale_tax_rate_id');
+      expect(insert[0]).toContain('category_id');
+      const params = insert[1] as unknown[];
+      expect(params).toContain('cat-hirdavat');
+      expect(params).not.toContain('   '); // boş marka null'a döndü
+      expect(params).toContain('TED-77');
+      expect(params).toContain('A-3-2');
+      expect(params).toContain(12);
+      expect(params).toContain('tax-20');
+      expect(params).toContain('tax-10');
+    });
+
+    it('negatif kritik stok seviyesini reddeder', async () => {
+      await expect(
+        service.createProduct({ code: 'P004', name: 'Hatalı', unit_id: 'u1', min_stock: -1 }),
+      ).rejects.toThrow('Kritik stok seviyesi');
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it('başka tenant veya olmayan kategoriyi reddeder', async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      await expect(
+        service.createProduct({
+          code: 'P006',
+          name: 'Yabancı Kategori',
+          unit_id: 'u1',
+          category_id: 'baska-tenant',
+        }),
+      ).rejects.toThrow('Ürün kategorisi bulunamadı');
+      expect(mockQuery).toHaveBeenCalledTimes(1); // INSERT'e hiç gidilmedi
+    });
+
+    it('başka tenant veya olmayan KDV oranını reddeder', async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      await expect(
+        service.createProduct({
+          code: 'P005',
+          name: 'Yabancı KDV',
+          unit_id: 'u1',
+          sale_tax_rate_id: 'baska-tenant',
+        }),
+      ).rejects.toThrow('KDV oranı bulunamadı');
     });
   });
 
@@ -346,7 +440,8 @@ describe('StockService - Unit Tests', () => {
 
   describe('createUnit', () => {
     it('should create unit', async () => {
-      mockQuery.mockResolvedValueOnce({
+      // 1) aynı ad kontrolü, 2) INSERT
+      mockQuery.mockResolvedValueOnce({ rowCount: 0, rows: [] }).mockResolvedValueOnce({
         rows: [
           {
             id: 'new-u',
@@ -360,10 +455,144 @@ describe('StockService - Unit Tests', () => {
         ],
       });
 
-      const result = await service.createUnit({ code: 'PCS', name: 'Piece', abbreviation: 'pcs' });
+      const result = await service.createUnit({ code: 'pcs', name: 'Piece', abbreviation: 'pcs' });
 
       expect(result.id).toBe('new-u');
       expect(result.code).toBe('PCS');
+      expect((mockQuery.mock.calls[1][1] as unknown[])[0]).toBe('PCS'); // kod büyütüldü
+    });
+
+    it('kod verilmezse addan türetir; Türkçe harfler sadeleşir, dolu kodlara sayı eklenir', async () => {
+      // 1) aynı ad yok, 2) mevcut kodlar, 3) INSERT
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+        .mockResolvedValueOnce({ rows: [{ code: 'CUVAL' }, { code: 'ADET' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'u-cuval', code: 'CUVAL2' }] });
+
+      await service.createUnit({ name: ' Çuval ' });
+
+      const params = mockQuery.mock.calls[2][1] as unknown[];
+      expect(params[0]).toBe('CUVAL2'); // CUVAL dolu → 2 eklendi
+      expect(params[1]).toBe('Çuval'); // boşluklar kırpıldı
+    });
+
+    it('aynı adlı birimi tekrar açmaz', async () => {
+      mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [{ '?column?': 1 }] });
+      await expect(service.createUnit({ name: 'adet' })).rejects.toThrow('Bu birim zaten var');
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it('kod çakışırsa (INSERT satır döndürmezse) CONFLICT verir', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(service.createUnit({ code: 'ADET', name: 'Tane' })).rejects.toThrow(
+        'Bu birim kodu zaten kullanılıyor',
+      );
+    });
+
+    it('boş adı reddeder', async () => {
+      await expect(service.createUnit({ name: '   ' })).rejects.toThrow('Birim adı zorunludur');
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('ürün kategorileri', () => {
+    it('listeler: ürün sayısıyla, kiracıya göre', async () => {
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ id: 'c1', name: 'Hırdavat', product_count: 3 }],
+      });
+      const result = await service.listCategories();
+      expect(result.data[0].product_count).toBe(3);
+      expect(mockQuery.mock.calls[0][0]).toContain('c.tenant_id = current_tenant_id()');
+    });
+
+    it('oluşturur: adı kırpar', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'c1', name: 'Gıda', product_count: 0 }] });
+      const result = await service.createCategory({ name: '  Gıda ' });
+      expect(result.name).toBe('Gıda');
+      expect((mockQuery.mock.calls[0][1] as unknown[])[1]).toBe('Gıda');
+    });
+
+    it('aynı ad (büyük/küçük harf farkı dahil) varsa CONFLICT verir', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] }); // ON CONFLICT DO NOTHING → satır yok
+      await expect(service.createCategory({ name: 'gıda' })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+    });
+
+    it('boş adı reddeder', async () => {
+      await expect(service.createCategory({ name: ' ' })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it('yeniden adlandırır; başka kategoride aynı ad varsa reddeder', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+        .mockResolvedValueOnce({ rows: [{ id: 'c1', name: 'Yapı Malzemesi' }] });
+      const ok = await service.renameCategory('c1', { name: 'Yapı Malzemesi' });
+      expect(ok.name).toBe('Yapı Malzemesi');
+      expect(mockQuery.mock.calls[0][0]).toContain('id <> $2'); // kendi adı çakışma sayılmaz
+
+      mockQuery.mockResolvedValueOnce({ rowCount: 1, rows: [{ '?column?': 1 }] });
+      await expect(service.renameCategory('c1', { name: 'Gıda' })).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+    });
+
+    it('olmayan kategoriyi yeniden adlandırma / silme NOT_FOUND verir', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+      await expect(service.renameCategory('yok', { name: 'X' })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      await expect(service.deleteCategory('yok')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('siler (ürünler kategorisiz kalır — FK ON DELETE SET NULL)', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'c1' }] });
+      await expect(service.deleteCategory('c1')).resolves.toBeUndefined();
+      expect(mockQuery.mock.calls[0][0]).toContain('DELETE FROM product_categories');
+    });
+
+    it('birleştirir: ürünleri hedefe taşır, kaynağı siler, tek transaction', async () => {
+      mockClient.query
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 'a' }, { id: 'b' }] }) // kilit
+        .mockResolvedValueOnce({ rowCount: 4 }) // UPDATE products
+        .mockResolvedValueOnce({ rows: [] }) // DELETE
+        .mockResolvedValueOnce(undefined); // COMMIT
+
+      const result = await service.mergeCategories('a', 'b');
+
+      expect(result).toEqual({ moved: 4 });
+      const sqls = mockClient.query.mock.calls.map((c) => String(c[0]));
+      expect(sqls[0]).toBe('BEGIN');
+      expect(sqls[2]).toContain('UPDATE products SET category_id');
+      expect(sqls[3]).toContain('DELETE FROM product_categories');
+      expect(sqls[4]).toBe('COMMIT');
+    });
+
+    it('birleştirmede kendisiyle birleştirmeyi ve olmayan kategoriyi reddeder', async () => {
+      await expect(service.mergeCategories('a', 'a')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+
+      mockClient.query
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rows: [{ id: 'a' }] }) // hedef bulunamadı
+        .mockResolvedValueOnce(undefined); // ROLLBACK
+      await expect(service.mergeCategories('a', 'yok')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      const sqls = mockClient.query.mock.calls.map((c) => String(c[0]));
+      expect(sqls).toContain('ROLLBACK');
+      expect(sqls.some((s) => s.includes('UPDATE products'))).toBe(false);
     });
   });
 

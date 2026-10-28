@@ -9,6 +9,7 @@
         <button class="btn btn-ghost" :disabled="exporting" @click="downloadCsv">
           {{ exporting ? 'Hazırlanıyor…' : 'CSV indir' }}
         </button>
+        <button class="btn btn-secondary" @click="categoriesOpen = true">Kategoriler</button>
         <button class="btn btn-secondary" @click="openImport('products')">Ürün İçe Aktar</button>
         <button class="btn btn-secondary" @click="openImport('opening-stock')">
           Açılış Stoğu Aktar
@@ -47,6 +48,15 @@
         placeholder="Kod, ad veya barkod ara…"
         aria-label="Ürün ara"
         @input="onSearch"
+      />
+      <FilterableSelect
+        id="st-category-filter"
+        class="category-filter"
+        aria-label="Kategoriye göre süz"
+        :model-value="store.categoryFilter"
+        :options="categoryFilterOptions"
+        placeholder="Tüm kategoriler"
+        @update:model-value="onCategoryFilter"
       />
       <label class="check">
         <input v-model="onlyCritical" type="checkbox" @change="onSearch" />
@@ -87,13 +97,22 @@
           </tr>
         </thead>
         <tbody>
-          <tr
-            v-for="item in items"
-            :key="item.id"
-            :class="{ scarce: Number(item.quantity ?? 0) <= 0 }"
-          >
+          <tr v-for="item in items" :key="item.id" :class="{ scarce: isCritical(item) }">
             <td class="mono">{{ item.code }}</td>
-            <td class="strong">{{ item.name }}</td>
+            <td class="strong">
+              {{ item.name }}
+              <small v-if="item.category || item.brand || item.shelf_location" class="item-meta">
+                {{
+                  [
+                    item.category,
+                    item.brand,
+                    item.shelf_location ? `Raf ${item.shelf_location}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                }}
+              </small>
+            </td>
             <td class="mono muted">{{ item.barcode || '—' }}</td>
             <td>{{ item.unit_name || item.unit || '—' }}</td>
             <td class="num">
@@ -191,8 +210,29 @@
               <input id="st-name" v-model="form.name" class="input" required />
             </div>
             <div>
+              <label for="st-category">Kategori</label>
+              <FilterableSelect
+                id="st-category"
+                v-model="form.categoryId"
+                :options="categoryOptions"
+                placeholder="Seçin veya yazıp ekleyin"
+                allow-clear
+                creatable
+                create-noun="kategori"
+                @create="createCategoryInline"
+              />
+            </div>
+            <div>
+              <label for="st-brand">Marka</label>
+              <input id="st-brand" v-model="form.brand" class="input" />
+            </div>
+            <div>
               <label for="st-barcode">Barkod</label>
               <input id="st-barcode" v-model="form.barcode" class="input" inputmode="numeric" />
+            </div>
+            <div>
+              <label for="st-supplier-code">Tedarikçi / Üretici Kodu</label>
+              <input id="st-supplier-code" v-model="form.supplierCode" class="input" />
             </div>
             <div>
               <label for="st-unit">Birim</label>
@@ -200,9 +240,23 @@
                 id="st-unit"
                 v-model="form.unit"
                 :options="unitOptions"
-                placeholder="Birim seçin"
+                placeholder="Birim seçin veya yazıp ekleyin"
+                creatable
+                create-noun="birim"
+                @create="createUnitInline"
               />
             </div>
+            <div class="form-field-full">
+              <label for="st-desc">Açıklama</label>
+              <textarea
+                id="st-desc"
+                v-model="form.description"
+                class="textarea"
+                rows="2"
+              ></textarea>
+            </div>
+
+            <h3 class="form-section form-field-full">Fiyat ve KDV</h3>
             <div>
               <label for="st-cost">Alış Fiyatı (₺)</label>
               <input
@@ -222,21 +276,55 @@
                 inputmode="decimal"
                 placeholder="0,00"
               />
+              <small v-if="priceWithVat" class="muted">KDV dahil: {{ priceWithVat }}</small>
             </div>
-            <div class="form-field-full">
-              <label for="st-desc">Açıklama</label>
-              <textarea
-                id="st-desc"
-                v-model="form.description"
-                class="textarea"
-                rows="2"
-              ></textarea>
+            <div>
+              <label for="st-sale-vat">Satış KDV Oranı</label>
+              <FilterableSelect
+                id="st-sale-vat"
+                v-model="form.saleTaxRateId"
+                :options="taxRateOptions"
+                placeholder="Seçiniz…"
+              />
             </div>
+            <div>
+              <label for="st-purchase-vat">Alış KDV Oranı</label>
+              <FilterableSelect
+                id="st-purchase-vat"
+                v-model="form.purchaseTaxRateId"
+                :options="taxRateOptions"
+                placeholder="Seçiniz…"
+              />
+            </div>
+
+            <h3 class="form-section form-field-full">Stok</h3>
             <label class="check form-field-full">
               <input v-model="form.trackInventory" type="checkbox" />
               Stok takibi yap (miktar izlenir)
             </label>
-            <div v-if="!form.trackInventory" class="form-field-full">
+            <template v-if="form.trackInventory">
+              <div>
+                <label for="st-min-stock">Kritik Stok Seviyesi</label>
+                <input
+                  id="st-min-stock"
+                  v-model="form.minStock"
+                  class="input"
+                  inputmode="decimal"
+                  placeholder="0"
+                />
+                <small class="muted">Miktar bu değerin altına inince listede uyarılır.</small>
+              </div>
+              <div>
+                <label for="st-shelf">Raf / Konum</label>
+                <input
+                  id="st-shelf"
+                  v-model="form.shelfLocation"
+                  class="input"
+                  placeholder="Örn. A-3-2"
+                />
+              </div>
+            </template>
+            <div v-else class="form-field-full">
               <label for="st-default-expense">Varsayılan gider kategorisi</label>
               <FilterableSelect
                 id="st-default-expense"
@@ -258,6 +346,8 @@
       </div>
     </Teleport>
 
+    <StockCategoriesDialog :open="categoriesOpen" @close="categoriesOpen = false" />
+
     <!-- CSV içe aktarma sihirbazı — ürün listesi ve açılış stoğu (SPEC §23.1) -->
     <StockImportWizard
       :open="importOpen"
@@ -274,11 +364,14 @@ import { EmptyState, trackEvent } from '@kuleplus/ui';
 import { api } from '@/lib/api';
 import { useStockStore, type StockItem } from '@/stores/stock';
 import { useExpenseStore } from '@/stores/expense';
+import { useInvoiceStore } from '@/stores/invoices';
 import FilterableSelect from '@/components/FilterableSelect.vue';
 import StockImportWizard from '@/components/StockImportWizard.vue';
+import StockCategoriesDialog from '@/components/StockCategoriesDialog.vue';
 
 const store = useStockStore();
 const expenseStore = useExpenseStore();
+const invoiceStore = useInvoiceStore();
 
 /** CSV içe aktarma sihirbazı durumu — 'products' | 'opening-stock' akışı. */
 const importOpen = ref(false);
@@ -319,6 +412,66 @@ const expenseCategoryOptions = computed(() => [
     .map((c) => ({ value: c.id, label: c.name })),
 ]);
 
+/** KDV oranı seçenekleri; boş seçim = ürün için varsayılan oran yok. */
+const taxRateOptions = computed(() => [
+  { value: '', label: 'Seçiniz…' },
+  ...invoiceStore.taxRates.map((t) => ({
+    value: t.id,
+    // Ad zaten oranı içeriyorsa ("KDV %20") tekrar etme.
+    label: t.name.includes(`%${Number(t.rate)}`) ? t.name : `%${Number(t.rate)} — ${t.name}`,
+  })),
+]);
+
+/** Kategori yönetim penceresi (ekle / yeniden adlandır / birleştir / sil). */
+const categoriesOpen = ref(false);
+
+/** Ürün kartındaki kategori seçenekleri; boş seçim = kategorisiz. */
+const categoryOptions = computed(() =>
+  store.categories.map((c) => ({ value: c.id, label: c.name })),
+);
+
+/** Liste süzgeci: tüm kategoriler / kategorisiz / tek kategori. */
+const categoryFilterOptions = computed(() => [
+  { value: '', label: 'Tüm kategoriler' },
+  { value: 'none', label: 'Kategorisiz' },
+  ...categoryOptions.value,
+]);
+
+const onCategoryFilter = (value: string) => {
+  store.categoryFilter = value;
+  void store.fetchStock({ page: 1 });
+};
+
+/** Ürün kartında yazılan yeni kategoriyi kaydedip seçer. */
+const createCategoryInline = async (name: string) => {
+  formError.value = null;
+  try {
+    const category = await store.createCategory(name);
+    form.value.categoryId = category.id;
+  } catch (e) {
+    formError.value = e instanceof Error ? e.message : 'Kategori eklenemedi.';
+  }
+};
+
+/** Ürün kartında yazılan yeni birimi kaydedip seçer. */
+const createUnitInline = async (name: string) => {
+  formError.value = null;
+  try {
+    const unit = await store.createUnit(name);
+    form.value.unit = unit.name;
+  } catch (e) {
+    formError.value = e instanceof Error ? e.message : 'Birim eklenemedi.';
+  }
+};
+
+/** Satış fiyatının KDV dahil karşılığı (satış KDV oranı seçiliyse) — bilgi amaçlı ipucu. */
+const priceWithVat = computed(() => {
+  const price = Number(form.value.price.replace(',', '.'));
+  const rate = invoiceStore.taxRates.find((t) => t.id === form.value.saleTaxRateId)?.rate;
+  if (!Number.isFinite(price) || price <= 0 || rate === undefined) return '';
+  return formatMoney(price * (1 + Number(rate) / 100));
+});
+
 const search = ref('');
 const onlyCritical = ref(false);
 const panelOpen = ref(false);
@@ -336,12 +489,19 @@ const emptyForm = () => ({
   code: '',
   name: '',
   barcode: '',
-  unit: store.units[0]?.name ?? 'Adet',
+  unit: store.units[0]?.name ?? '',
   costPrice: '',
   price: '',
   description: '',
   trackInventory: true,
   defaultExpenseCategoryId: '',
+  categoryId: '',
+  brand: '',
+  supplierCode: '',
+  shelfLocation: '',
+  minStock: '',
+  saleTaxRateId: '',
+  purchaseTaxRateId: '',
 });
 const form = ref(emptyForm());
 
@@ -350,7 +510,7 @@ const pagination = computed(() => store.pagination);
 
 const items = computed(() => {
   let list = store.filteredStock;
-  if (onlyCritical.value) list = list.filter((i) => Number(i.quantity ?? 0) <= 0);
+  if (onlyCritical.value) list = list.filter(isCritical);
   return list;
 });
 
@@ -366,9 +526,18 @@ const pageTo = (page: number) => {
   store.fetchStock({ page });
 };
 
+/** Yeni kartta genel KDV oranı (%20) hazır gelsin; yoksa boş kalır. Kullanıcı değiştirebilir. */
+const defaultTaxRateId = () => invoiceStore.taxRates.find((t) => Number(t.rate) === 20)?.id ?? '';
+
 const startNew = (kind: 'product' | 'service') => {
   editingId.value = null;
-  form.value = { ...emptyForm(), kind, trackInventory: kind === 'product' };
+  form.value = {
+    ...emptyForm(),
+    kind,
+    trackInventory: kind === 'product',
+    saleTaxRateId: defaultTaxRateId(),
+    purchaseTaxRateId: defaultTaxRateId(),
+  };
   formError.value = null;
   dirty.value = false;
   panelOpen.value = true;
@@ -382,12 +551,20 @@ const startEdit = (item: StockItem) => {
     code: item.code,
     name: item.name,
     barcode: item.barcode ?? '',
-    unit: item.unit_name ?? item.unit ?? store.units[0]?.name ?? 'Adet',
+    unit: item.unit_name ?? item.unit ?? store.units[0]?.name ?? '',
     costPrice: item.cost_price != null ? String(Number(item.cost_price)) : '',
     price: item.sale_price != null ? String(Number(item.sale_price)) : (item.price ?? ''),
     description: item.description ?? '',
     trackInventory: item.track_inventory !== false,
     defaultExpenseCategoryId: item.default_expense_category_id ?? '',
+    categoryId: item.category_id ?? '',
+    brand: item.brand ?? '',
+    supplierCode: item.supplier_code ?? '',
+    shelfLocation: item.shelf_location ?? '',
+    minStock:
+      item.min_stock != null && Number(item.min_stock) > 0 ? String(Number(item.min_stock)) : '',
+    saleTaxRateId: item.sale_tax_rate_id ?? '',
+    purchaseTaxRateId: item.purchase_tax_rate_id ?? '',
   };
   formError.value = null;
   dirty.value = false;
@@ -406,12 +583,25 @@ const save = async () => {
     formError.value = 'Ürün kodu ve adı zorunludur.';
     return;
   }
+  if (!form.value.unit.trim()) {
+    formError.value = 'Birim seçin ya da yazıp ekleyin.';
+    return;
+  }
   const price = form.value.price.trim();
   if (price === '' || !/^-?\d+([.,]\d+)?$/.test(price)) {
     formError.value = 'Satış fiyatı geçerli bir sayı olmalıdır.';
     return;
   }
   const norm = (v: string) => (v ? Number(v.replace(',', '.')) : undefined);
+  const numberOk = (v: string) => v.trim() === '' || /^\d+([.,]\d+)?$/.test(v.trim());
+  if (!numberOk(form.value.costPrice)) {
+    formError.value = 'Alış fiyatı geçerli bir sayı olmalıdır.';
+    return;
+  }
+  if (!numberOk(form.value.minStock)) {
+    formError.value = 'Kritik stok seviyesi 0 veya daha büyük bir sayı olmalıdır.';
+    return;
+  }
   try {
     const payload: Partial<StockItem> = {
       code: form.value.code.trim(),
@@ -419,7 +609,15 @@ const save = async () => {
       barcode: form.value.barcode.trim(),
       unit: form.value.unit,
       price: String(norm(price) ?? 0),
+      cost_price: norm(form.value.costPrice.trim()) ?? 0,
       description: form.value.description,
+      category_id: form.value.categoryId || null,
+      brand: form.value.brand.trim(),
+      supplier_code: form.value.supplierCode.trim(),
+      shelf_location: form.value.trackInventory ? form.value.shelfLocation.trim() : '',
+      min_stock: form.value.trackInventory ? (norm(form.value.minStock.trim()) ?? 0) : 0,
+      sale_tax_rate_id: form.value.saleTaxRateId || null,
+      purchase_tax_rate_id: form.value.purchaseTaxRateId || null,
       track_inventory: form.value.trackInventory,
       // Stok takibi açıksa gider kategorisi anlamsız; kapalıyken seçilen değer gönderilir.
       default_expense_category_id: form.value.trackInventory
@@ -456,10 +654,15 @@ const formatMoney = (v: string | number | undefined) => {
   return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(n);
 };
 
+/** Kritik: stok takipli ürünün miktarı sıfır/negatif ya da kritik stok seviyesinin altında. */
+const isCritical = (item: StockItem) =>
+  item.track_inventory !== false && Number(item.quantity ?? 0) <= Number(item.min_stock ?? 0);
+
 const stockTone = (item: StockItem) => {
   const q = Number(item.quantity ?? 0);
+  const min = Number(item.min_stock ?? 0);
   if (q <= 0) return 'out';
-  if (q <= 5) return 'low';
+  if (min > 0 && q <= min) return 'low';
   return 'ok';
 };
 
@@ -482,9 +685,10 @@ function onDragEnd() {
 }
 
 onMounted(async () => {
-  await store.fetchUnits();
+  await Promise.all([store.fetchUnits(), store.fetchCategories()]);
   await store.fetchStock();
-  await expenseStore.fetchCategories();
+  // KDV oranları ve gider kategorileri formu doldurur; biri yüklenemese de liste çalışır.
+  await Promise.all([invoiceStore.fetchTaxRates().catch(() => {}), expenseStore.fetchCategories()]);
 });
 </script>
 
@@ -562,6 +766,9 @@ onMounted(async () => {
 }
 .toolbar .input {
   max-width: 24rem;
+}
+.toolbar .category-filter {
+  width: 14rem;
 }
 .input:focus-visible,
 .select:focus-visible,
@@ -758,6 +965,28 @@ onMounted(async () => {
 }
 .form-field-full {
   grid-column: 1 / -1;
+}
+.form-section {
+  margin: 0.5rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--c-border);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+.form-grid small.muted {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+.item-meta {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--c-muted);
 }
 .form-error {
   grid-column: 1 / -1;

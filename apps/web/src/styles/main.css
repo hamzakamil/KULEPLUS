@@ -1,4 +1,7 @@
 @import 'tailwindcss';
+/* Tailwind v4 yalnızca bu uygulamayı tarar; ortak bileşenler (Modal, Drawer…) packages/ui'da
+   olduğu için sınıfları üretilmiyor ve pencereler stilsiz görünüyordu. */
+@source '../../../../packages/ui/src';
 @import './trade-doc.css';
 @import './bank-module.css';
 

@@ -15,7 +15,78 @@ const UPDATABLE_PRODUCT_FIELDS = new Set([
   'track_inventory',
   'is_active',
   'default_expense_category_id',
+  'category_id',
+  'brand',
+  'supplier_code',
+  'shelf_location',
+  'min_stock',
+  'sale_tax_rate_id',
+  'purchase_tax_rate_id',
 ]);
+
+/** Ürün kartına eklenen ayrıntı alanları (migration 202610620000, 202610630000). */
+interface ProductDetailFields {
+  /** Ürün kategorisi (product_categories.id); null = kategorisiz. */
+  category_id?: string | null;
+  brand?: string | null;
+  supplier_code?: string | null;
+  shelf_location?: string | null;
+  /** Kritik stok seviyesi; 0 = uyarı yok. */
+  min_stock?: number;
+  /** Ürünün varsayılan satış / alış KDV oranı (tax_rates.id). */
+  sale_tax_rate_id?: string | null;
+  purchase_tax_rate_id?: string | null;
+}
+
+/** Boş/boşluk metni null'a çevirir; serbest metin alanları için. */
+function cleanText(value: string | null | undefined): string | null {
+  const trimmed = (value ?? '').trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+const PRODUCT_TEXT_FIELDS = new Set(['brand', 'supplier_code', 'shelf_location']);
+const PRODUCT_NULLABLE_ID_FIELDS = new Set([
+  'category_id',
+  'sale_tax_rate_id',
+  'purchase_tax_rate_id',
+]);
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Postgres tekillik ihlali (unique_violation). */
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === '23505';
+}
+
+/** Birim adından kod türetir: Türkçe harfler sadeleşir (Çuval → CUVAL), en çok 10 karakter. */
+function unitCodeBase(name: string): string {
+  return (
+    name
+      .toLocaleUpperCase('tr')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 10) || 'BRM'
+  );
+}
+
+/** Türetilen kod doluysa sonuna 2, 3… ekleyerek ilk boş kodu bulur. */
+function nextFreeUnitCode(name: string, taken: Set<string>): string {
+  const base = unitCodeBase(name);
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base.slice(0, 10 - String(n).length)}${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base.slice(0, 6)}${Date.now() % 10000}`;
+}
+
+/** Güncellemede serbest metni temizler, boş KDV kimliğini null yapar; diğerleri aynen geçer. */
+function normalizeProductValue(key: string, value: unknown): unknown {
+  if (PRODUCT_TEXT_FIELDS.has(key)) return cleanText(value as string | null);
+  if (PRODUCT_NULLABLE_ID_FIELDS.has(key)) return value || null;
+  return value;
+}
 
 export class StockService {
   private pool: Pool | null = null;
@@ -373,7 +444,13 @@ export class StockService {
   }
 
   /** Ürünleri listele */
-  async listProducts(options: { page?: number; limit?: number; is_active?: boolean }) {
+  async listProducts(options: {
+    page?: number;
+    limit?: number;
+    is_active?: boolean;
+    /** Kategori kimliği; 'none' = kategorisiz ürünler. */
+    category_id?: string;
+  }) {
     const pool = this.getPoolInstance();
     const page = options.page ?? 1;
     const limit = options.limit ?? 20;
@@ -385,6 +462,16 @@ export class StockService {
     if (options.is_active !== undefined) {
       whereConditions.push(`p.is_active = $${values.length + 1}`);
       values.push(options.is_active);
+    }
+    if (options.category_id) {
+      if (options.category_id === 'none') {
+        whereConditions.push('p.category_id IS NULL');
+      } else if (UUID_PATTERN.test(options.category_id)) {
+        whereConditions.push(`p.category_id = $${values.length + 1}`);
+        values.push(options.category_id);
+      } else {
+        throw new AppError('VALIDATION_ERROR', 'Geçersiz kategori');
+      }
     }
 
     const whereClause = whereConditions.join(' AND ');
@@ -399,10 +486,12 @@ export class StockService {
     // Data — stok bakiyesi toplamı (tüm depolar) ile birlikte
     const dataResult = await pool.query(
       `SELECT p.*, u.name as unit_name, u.abbreviation as unit_abbr,
+              pc.name as category,
               COALESCE(sb.qty, 0) as quantity,
               COALESCE(sb.qty, 0) * p.sale_price as stock_value
        FROM products p
        JOIN units u ON u.id = p.unit_id
+       LEFT JOIN product_categories pc ON pc.id = p.category_id
        LEFT JOIN (
          SELECT product_id, SUM(quantity) AS qty
          FROM stock_balances
@@ -480,24 +569,32 @@ export class StockService {
   }
 
   /** Ürün oluştur */
-  async createProduct(data: {
-    code: string;
-    name: string;
-    unit_id: string;
-    barcode?: string;
-    cost_price?: number;
-    sale_price?: number;
-    list_price?: number;
-    description?: string;
-    track_inventory?: boolean;
-    /** Stok takipsiz (hizmet/sarf) ürün: alışta yazılacak gider kategorisi (Faz 7-2). */
-    default_expense_category_id?: string | null;
-  }) {
+  async createProduct(
+    data: {
+      code: string;
+      name: string;
+      unit_id: string;
+      barcode?: string;
+      cost_price?: number;
+      sale_price?: number;
+      list_price?: number;
+      description?: string;
+      track_inventory?: boolean;
+      /** Stok takipsiz (hizmet/sarf) ürün: alışta yazılacak gider kategorisi (Faz 7-2). */
+      default_expense_category_id?: string | null;
+    } & ProductDetailFields,
+  ) {
     const pool = this.getPoolInstance();
     await this.assertExpenseCategory(data.default_expense_category_id);
+    await this.assertProductCategory(data.category_id);
+    this.assertMinStock(data.min_stock);
+    await this.assertTaxRate(data.sale_tax_rate_id);
+    await this.assertTaxRate(data.purchase_tax_rate_id);
     const result = await pool.query(
-      `INSERT INTO products (id, tenant_id, code, name, unit_id, barcode, cost_price, sale_price, list_price, description, track_inventory, is_active, created_at, updated_at, default_expense_category_id)
-       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now(), $11)
+      `INSERT INTO products (id, tenant_id, code, name, unit_id, barcode, cost_price, sale_price, list_price, description, track_inventory, is_active, created_at, updated_at, default_expense_category_id,
+                             category_id, brand, supplier_code, shelf_location, min_stock, sale_tax_rate_id, purchase_tax_rate_id)
+       VALUES ($1, current_tenant_id(), $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now(), $11,
+               $12, $13, $14, $15, $16, $17, $18)
        RETURNING *`,
       [
         newId(),
@@ -511,9 +608,34 @@ export class StockService {
         data.description ?? null,
         data.track_inventory ?? true,
         data.default_expense_category_id ?? null,
+        data.category_id || null,
+        cleanText(data.brand),
+        cleanText(data.supplier_code),
+        cleanText(data.shelf_location),
+        data.min_stock ?? 0,
+        data.sale_tax_rate_id || null,
+        data.purchase_tax_rate_id || null,
       ],
     );
     return result.rows[0];
+  }
+
+  /** Kritik stok seviyesi sıfır veya pozitif bir sayı olmalı. */
+  private assertMinStock(minStock: number | undefined) {
+    if (minStock === undefined) return;
+    if (!Number.isFinite(Number(minStock)) || Number(minStock) < 0) {
+      throw new AppError('VALIDATION_ERROR', 'Kritik stok seviyesi 0 veya daha büyük olmalıdır');
+    }
+  }
+
+  /** KDV oranı bu tenant'a ait mi? (FK, RLS'i baypas ettiğinden ayrıca doğrulanır) */
+  private async assertTaxRate(taxRateId: string | null | undefined) {
+    if (!taxRateId) return;
+    const r = await this.getPoolInstance().query(
+      'SELECT 1 FROM tax_rates WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [taxRateId],
+    );
+    if ((r.rowCount ?? 0) === 0) throw new AppError('NOT_FOUND', 'KDV oranı bulunamadı');
   }
 
   /** Gider kategorisi bu tenant'a ait mi? (FK, RLS'i baypas ettiğinden ayrıca doğrulanır) */
@@ -524,6 +646,16 @@ export class StockService {
       [categoryId],
     );
     if ((r.rowCount ?? 0) === 0) throw new AppError('NOT_FOUND', 'Gider kategorisi bulunamadı');
+  }
+
+  /** Ürün kategorisi bu tenant'a ait mi? (FK, RLS'i baypas ettiğinden ayrıca doğrulanır) */
+  private async assertProductCategory(categoryId: string | null | undefined) {
+    if (!categoryId) return;
+    const r = await this.getPoolInstance().query(
+      'SELECT 1 FROM product_categories WHERE id = $1 AND tenant_id = current_tenant_id()',
+      [categoryId],
+    );
+    if ((r.rowCount ?? 0) === 0) throw new AppError('NOT_FOUND', 'Ürün kategorisi bulunamadı');
   }
 
   /** Barkod ekle */
@@ -540,15 +672,45 @@ export class StockService {
     return result.rows[0];
   }
 
-  /** Birim oluştur */
-  async createUnit(data: { code: string; name: string; abbreviation?: string; is_base?: boolean }) {
+  /**
+   * Birim oluştur. Kod verilmezse addan türetilir (Türkçe harfler sadeleşir, çakışırsa
+   * sayı eklenir); aynı adlı birim ikinci kez açılmaz.
+   */
+  async createUnit(data: {
+    code?: string;
+    name: string;
+    abbreviation?: string;
+    is_base?: boolean;
+  }) {
     const pool = this.getPoolInstance();
+    const name = cleanText(data.name);
+    if (!name) throw new AppError('VALIDATION_ERROR', 'Birim adı zorunludur');
+
+    const sameName = await pool.query(
+      `SELECT 1 FROM units
+       WHERE tenant_id = current_tenant_id() AND is_active = true AND lower(name) = lower($1) LIMIT 1`,
+      [name],
+    );
+    if ((sameName.rowCount ?? 0) > 0) throw new AppError('CONFLICT', 'Bu birim zaten var');
+
+    let code = cleanText(data.code)?.toLocaleUpperCase('tr') ?? null;
+    if (!code) {
+      const taken = await pool.query<{ code: string }>(
+        'SELECT code FROM units WHERE tenant_id = current_tenant_id()',
+      );
+      code = nextFreeUnitCode(name, new Set(taken.rows.map((r) => r.code)));
+    }
+
     const result = await pool.query(
       `INSERT INTO units (id, tenant_id, code, name, abbreviation, is_base, conversion_factor, is_active, created_at, updated_at)
        VALUES ($5, current_tenant_id(), $1, $2, $3, $4, 1, true, now(), now())
+       ON CONFLICT (tenant_id, code) DO NOTHING
        RETURNING *`,
-      [data.code, data.name, data.abbreviation ?? null, data.is_base ?? false, newId()],
+      [code, name, cleanText(data.abbreviation), data.is_base ?? false, newId()],
     );
+    if (result.rows.length === 0) {
+      throw new AppError('CONFLICT', 'Bu birim kodu zaten kullanılıyor');
+    }
     return result.rows[0];
   }
 
@@ -561,13 +723,110 @@ export class StockService {
     return { data: result.rows };
   }
 
+  // ===== Ürün kategorileri =====
+
+  /** Kategorileri ürün sayılarıyla listele (ada göre). */
+  async listCategories() {
+    const result = await this.getPoolInstance().query(
+      `SELECT c.id, c.name, c.created_at, COUNT(p.id)::int AS product_count
+       FROM product_categories c
+       LEFT JOIN products p ON p.category_id = c.id AND p.tenant_id = c.tenant_id
+       WHERE c.tenant_id = current_tenant_id()
+       GROUP BY c.id
+       ORDER BY lower(c.name)`,
+    );
+    return { data: result.rows };
+  }
+
+  /** Kategori oluştur (ad, büyük/küçük harf duyarsız tekil). */
+  async createCategory(data: { name: string }) {
+    const name = cleanText(data.name);
+    if (!name) throw new AppError('VALIDATION_ERROR', 'Kategori adı zorunludur');
+    const result = await this.getPoolInstance().query(
+      `INSERT INTO product_categories (id, tenant_id, name)
+       VALUES ($1, current_tenant_id(), $2)
+       ON CONFLICT (tenant_id, lower(name)) DO NOTHING
+       RETURNING id, name, created_at, 0 AS product_count`,
+      [newId(), name],
+    );
+    if (result.rows.length === 0) {
+      throw new AppError('CONFLICT', 'Bu isimde bir kategori zaten var');
+    }
+    return result.rows[0];
+  }
+
+  /** Kategoriyi yeniden adlandır; başka bir kategoriyle aynı ada izin verilmez. */
+  async renameCategory(id: string, data: { name: string }) {
+    const name = cleanText(data.name);
+    if (!name) throw new AppError('VALIDATION_ERROR', 'Kategori adı zorunludur');
+    const pool = this.getPoolInstance();
+    const sameName = await pool.query(
+      `SELECT 1 FROM product_categories
+       WHERE tenant_id = current_tenant_id() AND lower(name) = lower($1) AND id <> $2`,
+      [name, id],
+    );
+    if ((sameName.rowCount ?? 0) > 0) {
+      throw new AppError('CONFLICT', 'Bu isimde bir kategori zaten var');
+    }
+    try {
+      const result = await pool.query(
+        `UPDATE product_categories SET name = $2, updated_at = now()
+         WHERE id = $1 AND tenant_id = current_tenant_id()
+         RETURNING id, name, created_at`,
+        [id, name],
+      );
+      if (result.rows.length === 0) throw new AppError('NOT_FOUND', 'Kategori bulunamadı');
+      return result.rows[0];
+    } catch (err) {
+      // Eşzamanlı iki istek aynı adı alırsa ikincisi burada yakalanır.
+      if (isUniqueViolation(err))
+        throw new AppError('CONFLICT', 'Bu isimde bir kategori zaten var');
+      throw err;
+    }
+  }
+
+  /** Kategoriyi sil; ürünler silinmez, "kategorisiz" kalır (FK ON DELETE SET NULL). */
+  async deleteCategory(id: string) {
+    const result = await this.getPoolInstance().query(
+      'DELETE FROM product_categories WHERE id = $1 AND tenant_id = current_tenant_id() RETURNING id',
+      [id],
+    );
+    if (result.rows.length === 0) throw new AppError('NOT_FOUND', 'Kategori bulunamadı');
+  }
+
+  /** `sourceId` kategorisindeki ürünleri `targetId`'ye taşır ve kaynağı siler. */
+  async mergeCategories(sourceId: string, targetId: string) {
+    if (sourceId === targetId) {
+      throw new AppError('VALIDATION_ERROR', 'Bir kategori kendisiyle birleştirilemez');
+    }
+    return this.withTransaction(async (client) => {
+      const found = await client.query(
+        `SELECT id FROM product_categories
+         WHERE tenant_id = current_tenant_id() AND id = ANY($1::uuid[]) FOR UPDATE`,
+        [[sourceId, targetId]],
+      );
+      if (found.rows.length !== 2) throw new AppError('NOT_FOUND', 'Kategori bulunamadı');
+      const moved = await client.query(
+        `UPDATE products SET category_id = $2, updated_at = now()
+         WHERE tenant_id = current_tenant_id() AND category_id = $1`,
+        [sourceId, targetId],
+      );
+      await client.query(
+        'DELETE FROM product_categories WHERE id = $1 AND tenant_id = current_tenant_id()',
+        [sourceId],
+      );
+      return { moved: moved.rowCount ?? 0 };
+    });
+  }
+
   /** Ürün ID'ye göre getir */
   async getProduct(id: string) {
     const pool = this.getPoolInstance();
     const result = await pool.query(
-      `SELECT p.*, u.name as unit_name, u.abbreviation as unit_abbr
+      `SELECT p.*, u.name as unit_name, u.abbreviation as unit_abbr, pc.name as category
        FROM products p
        JOIN units u ON u.id = p.unit_id
+       LEFT JOIN product_categories pc ON pc.id = p.category_id
        WHERE p.id = $1 AND p.tenant_id = current_tenant_id()`,
       [id],
     );
@@ -589,13 +848,18 @@ export class StockService {
       track_inventory: boolean;
       is_active: boolean;
       default_expense_category_id: string | null;
-    }>,
+    }> &
+      ProductDetailFields,
   ) {
     const pool = this.getPoolInstance();
     const fields: string[] = [];
     const values: unknown[] = [id];
     let paramIndex = 2;
     await this.assertExpenseCategory(data.default_expense_category_id);
+    await this.assertProductCategory(data.category_id);
+    this.assertMinStock(data.min_stock);
+    await this.assertTaxRate(data.sale_tax_rate_id);
+    await this.assertTaxRate(data.purchase_tax_rate_id);
 
     for (const [key, value] of Object.entries(data)) {
       // GÜVENLİK: kolon adı istek gövdesinden türetildiği için yalnızca izinli alanlar
@@ -604,7 +868,7 @@ export class StockService {
       if (value !== undefined) {
         const column = key.replace(/([A-Z])/g, '_$1').toLowerCase();
         fields.push(`${column} = $${paramIndex}`);
-        values.push(value);
+        values.push(normalizeProductValue(key, value));
         paramIndex++;
       }
     }
